@@ -45,29 +45,35 @@ opportunity-os/
 
 ## Quick Start
 
-1. **Install dependencies**
+1. **Install pnpm** (if not already installed)
+   ```bash
+   curl -fsSL https://get.pnpm.io/install.sh | sh -
+   source ~/.zshrc
+   ```
+
+2. **Install dependencies**
    ```bash
    pnpm install
    ```
 
-2. **Start local services**
+3. **Start local services**
    ```bash
    pnpm docker:up
    ```
 
-3. **Set up environment**
+4. **Set up environment**
    ```bash
    cp .env.example .env
    # Edit .env with your values
    ```
 
-4. **Generate database schema**
+5. **Generate database schema**
    ```bash
    pnpm db:generate
    pnpm db:migrate
    ```
 
-5. **Start development**
+6. **Start development**
    ```bash
    pnpm dev
    ```

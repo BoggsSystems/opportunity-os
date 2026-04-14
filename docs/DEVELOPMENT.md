@@ -11,10 +11,16 @@
 
 ### Setup
 
-1. Clone the repository
-2. Run `./scripts/setup.sh`
-3. Update `.env` with your configuration
-4. Start development services
+1. **Install pnpm** (if not already installed)
+   ```bash
+   curl -fsSL https://get.pnpm.io/install.sh | sh -
+   source ~/.zshrc
+   ```
+
+2. Clone the repository
+3. Run `./scripts/setup.sh`
+4. Update `.env` with your configuration
+5. Start development services
 
 ### Environment Variables
 
