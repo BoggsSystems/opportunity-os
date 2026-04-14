@@ -27,8 +27,8 @@
 Copy `.env.example` to `.env` and configure:
 
 ```bash
-# Database
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/opportunity_os
+# Database (Opportunity OS uses port 5433)
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/opportunity_os
 
 # Redis
 REDIS_URL=redis://localhost:6379

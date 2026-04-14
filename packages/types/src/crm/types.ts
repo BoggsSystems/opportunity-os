@@ -1,4 +1,5 @@
-import { BaseEntity, OpportunityStage, ActivityType, TaskStatus, Priority } from '../common';
+import { BaseEntity } from '../common/types';
+import { OpportunityStage, ActivityType, TaskStatus, Priority } from '../common/enums';
 
 export interface Company extends BaseEntity {
   name: string;

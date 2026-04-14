@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
-import { prisma } from '../../src/client';
+
+const prisma = new PrismaClient();
 
 const seedData = async () => {
   console.log('Starting database seed...');
@@ -7,6 +8,7 @@ const seedData = async () => {
   // Create plans
   const starterPlan = await prisma.plan.create({
     data: {
+      code: 'starter',
       name: 'Starter',
       description: 'Perfect for individuals and small teams',
       price: 2900, // $29/month
@@ -23,6 +25,7 @@ const seedData = async () => {
 
   const proPlan = await prisma.plan.create({
     data: {
+      code: 'pro',
       name: 'Pro',
       description: 'For growing teams and power users',
       price: 9900, // $99/month
@@ -40,6 +43,7 @@ const seedData = async () => {
 
   const enterprisePlan = await prisma.plan.create({
     data: {
+      code: 'enterprise',
       name: 'Enterprise',
       description: 'Custom solutions for large organizations',
       price: 29900, // $299/month

@@ -13,7 +13,7 @@ export interface GitHubRepo {
 }
 
 export class GitHubService {
-  constructor(private token: string) {}
+  constructor() {}
 
   async getRepo(owner: string, repo: string): Promise<GitHubRepo> {
     // Placeholder implementation
@@ -30,7 +30,7 @@ export class GitHubService {
     };
   }
 
-  async analyzeRepo(owner: string, repo: string): Promise<any> {
+  async analyzeRepo(_owner: string, _repo: string): Promise<any> {
     // Placeholder for repo analysis
     return {
       techStack: ['TypeScript', 'Node.js', 'React'],

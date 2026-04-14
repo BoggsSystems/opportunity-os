@@ -17,9 +17,9 @@ export interface Subscription {
 }
 
 export class BillingService {
-  constructor(private apiKey: string) {}
+  constructor() {}
 
-  async createCustomer(email: string): Promise<string> {
+  async createCustomer(_email: string): Promise<string> {
     // Placeholder implementation
     return 'cus_' + Math.random().toString(36).substr(2, 9);
   }

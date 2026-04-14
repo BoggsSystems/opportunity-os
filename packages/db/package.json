@@ -18,18 +18,23 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seeds/seed.ts",
+    "db:seed": "node --loader ts-node/esm prisma/seeds/seed-esm.mjs",
     "db:reset": "prisma migrate reset --force",
     "db:deploy": "prisma migrate deploy"
   },
   "dependencies": {
-    "@prisma/client": "^5.9.1",
     "@opportunity-os/config": "workspace:*",
-    "@opportunity-os/types": "workspace:*"
+    "@opportunity-os/types": "workspace:*",
+    "@prisma/client": "^5.9.1"
   },
   "devDependencies": {
+    "@types/node": "^20.11.0",
     "prisma": "^5.9.1",
+    "ts-node": "^10.9.2",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
+  },
+  "prisma": {
+    "seed": "node --loader ts-node/esm prisma/seeds/seed-esm.mjs"
   }
 }

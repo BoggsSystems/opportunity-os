@@ -66,6 +66,7 @@ opportunity-os/
    cp .env.example .env
    # Edit .env with your values
    ```
+   **Note**: Opportunity OS uses PostgreSQL on port 5433. If you have another PostgreSQL instance running, ensure no port conflicts.
 
 5. **Generate database schema**
    ```bash

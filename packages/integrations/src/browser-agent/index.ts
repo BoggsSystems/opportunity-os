@@ -26,17 +26,16 @@ export class BrowserAgentService {
     };
   }
 
-  async scrapePage(url: string, selectors?: Record<string, string>): Promise<any> {
+  async scrapePage(_url: string, _selectors?: Record<string, string>): Promise<any> {
     // Placeholder for web scraping
     return {
-      url,
       title: 'Sample Page Title',
       content: 'Sample page content',
       scrapedAt: new Date(),
     };
   }
 
-  async fillForm(url: string, formData: Record<string, any>): Promise<BrowserResult> {
+  async fillForm(_url: string, _formData: Record<string, any>): Promise<BrowserResult> {
     // Placeholder for form filling
     return {
       taskId: crypto.randomUUID(),
