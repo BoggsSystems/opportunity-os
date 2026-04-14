@@ -1,0 +1,13 @@
+{
+  "name": "@opportunity-os/extension",
+  "version": "0.1.0",
+  "description": "Opportunity OS browser extension",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

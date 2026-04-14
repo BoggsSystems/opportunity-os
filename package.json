@@ -1,0 +1,35 @@
+{
+  "name": "opportunity-os",
+  "version": "0.1.0",
+  "description": "AI-powered opportunity pipeline platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean",
+    "db:generate": "turbo run db:generate --filter=@opportunity-os/db",
+    "db:migrate": "turbo run db:migrate --filter=@opportunity-os/db",
+    "db:studio": "turbo run db:studio --filter=@opportunity-os/db",
+    "db:seed": "turbo run db:seed --filter=@opportunity-os/db",
+    "docker:up": "docker-compose -f infra/docker/docker-compose.local.yml up -d",
+    "docker:down": "docker-compose -f infra/docker/docker-compose.local.yml down",
+    "docker:logs": "docker-compose -f infra/docker/docker-compose.local.yml logs -f"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "turbo": "^1.12.4",
+    "typescript": "^5.3.3"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}

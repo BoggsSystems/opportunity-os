@@ -1,0 +1,14 @@
+{
+  "name": "@opportunity-os/web",
+  "version": "0.1.0",
+  "description": "Opportunity OS web frontend",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

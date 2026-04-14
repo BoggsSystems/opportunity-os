@@ -1,0 +1,22 @@
+{
+  "name": "@opportunity-os/browser-agent",
+  "version": "0.1.0",
+  "description": "Opportunity OS browser automation agent",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "start:dev": "ts-node src/main.ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@opportunity-os/config": "workspace:*",
+    "@opportunity-os/logger": "workspace:*",
+    "@opportunity-os/integrations": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

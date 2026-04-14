@@ -1,0 +1,34 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2021",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false,
+    "paths": {
+      "@opportunity-os/config": ["../../packages/config/src"],
+      "@opportunity-os/db": ["../../packages/db/src"],
+      "@opportunity-os/types": ["../../packages/types/src"],
+      "@opportunity-os/ui-contracts": ["../../packages/ui-contracts/src"],
+      "@opportunity-os/auth": ["../../packages/auth/src"],
+      "@opportunity-os/logger": ["../../packages/logger/src"],
+      "@opportunity-os/queue": ["../../packages/queue/src"],
+      "@opportunity-os/ai": ["../../packages/ai/src"],
+      "@opportunity-os/integrations": ["../../packages/integrations/src"],
+      "@opportunity-os/common": ["../../packages/common/src"]
+    }
+  }
+}

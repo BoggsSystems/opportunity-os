@@ -1,0 +1,1145 @@
+# Conceptual Data Model
+
+## 1. Conceptual Model Purpose
+
+The platform is an **AI-powered opportunity operating system** for:
+
+* finding opportunities
+* organizing people and companies
+* managing outreach
+* tailoring resumes and assets
+* tracking applications
+* enforcing plan/usage rules
+
+At the conceptual level, the system has 8 domain areas:
+
+1. Identity and ownership
+2. Commercial access
+3. CRM core
+4. Discovery
+5. Outreach
+6. Resume and evidence
+7. Application assistance
+8. AI and analytics
+
+---
+
+## 2. Core Conceptual Domains
+
+### A. Identity and Ownership
+
+This domain answers:
+
+* who is using the platform?
+* who owns data?
+* what workspace or account context does data belong to?
+
+#### Main Entity
+
+**User**
+
+A person using the platform and owning data in their workspace.
+
+Represents:
+
+* the account holder
+* owner of companies, contacts, opportunities, resumes, campaigns, and usage
+
+Relationships:
+
+* a User has many Companies
+* a User has many People
+* a User has many Opportunities
+* a User has one or more Subscriptions over time
+* a User has many Usage Counters
+* a User has many Search Profiles
+* a User has many Resume assets
+* a User has many Campaigns
+
+MVP: yes
+
+---
+
+### B. Commercial Access
+
+This domain answers:
+
+* what plan is the user on?
+* what features are enabled?
+* how much usage is allowed?
+* which AI capability level is available?
+
+#### Main Entities
+
+**Plan**
+
+A commercial tier such as Free, Pro, or Power.
+
+Represents:
+
+* the product package being sold
+* commercial feature bundle
+
+Relationships:
+
+* a Plan has many Plan Features
+* a Plan has many Subscriptions
+* a Plan has many Model Access Policies
+
+MVP: yes
+
+**Plan Feature**
+
+A capability or feature rule attached to a Plan.
+
+Represents:
+
+* whether a feature is enabled
+* whether it is limited
+* what quota/config applies
+
+Examples:
+
+* discovery.scan
+* resume.generate_variant
+* github.repo_analysis
+* application.start_session
+
+Relationships:
+
+* belongs to one Plan
+
+MVP: yes
+
+**Subscription**
+
+The current commercial access state for a User.
+
+Represents:
+
+* active paid plan
+* billing status
+* trialing/cancelled/past-due state
+
+Relationships:
+
+* belongs to one User
+* belongs to one Plan
+
+MVP: yes
+
+**Usage Counter**
+
+A tracked quantity of feature consumption for a User within a time period.
+
+Represents:
+
+* how much of a metered feature has been used
+
+Examples:
+
+* scans this month
+* resume variants this month
+* repo analyses this month
+
+Relationships:
+
+* belongs to one User
+* corresponds conceptually to one feature key
+
+MVP: yes
+
+**Model Access Policy**
+
+Defines what AI model tier is allowed for a plan/feature combination.
+
+Represents:
+
+* cost control
+* AI capability tiering
+* prompt/context size policies
+
+Relationships:
+
+* belongs to one Plan
+
+MVP: yes, even if simple
+
+---
+
+### C. CRM Core
+
+This is the central system of record.
+
+It answers:
+
+* which companies matter?
+* who are the people?
+* what opportunities are being pursued?
+* what has happened so far?
+* what should happen next?
+
+#### Main Entities
+
+**Company**
+
+An organization relevant to a user's opportunity pipeline.
+
+Represents:
+
+* employers
+* prospect companies
+* recruiter agencies
+* startups
+* consulting targets
+
+Relationships:
+
+* belongs to one User
+* has many People
+* has many Opportunities
+* has many Activities
+* has many Notes
+* may have a Company Watch
+
+MVP: yes
+
+**Person**
+
+An individual related to a company or opportunity.
+
+Represents:
+
+* recruiter
+* hiring manager
+* CTO
+* founder
+* engineer
+* referral source
+
+Relationships:
+
+* belongs to one User
+* may belong to one Company
+* may be linked to many Opportunities
+* has many Activities
+* has many Tasks
+* has many Notes
+* may be enrolled in Campaigns
+
+MVP: yes
+
+**Opportunity**
+
+A concrete pursuit being tracked.
+
+Represents:
+
+* a job application
+* contract lead
+* recruiter thread
+* direct company pursuit
+* consulting-style opening
+
+Relationships:
+
+* belongs to one User
+* belongs to one Company
+* may have one primary Person
+* may have many related People
+* has many Activities
+* has many Tasks
+* has many Notes
+* may originate from a Discovered Opportunity
+* may have many Resume Variants
+* may have many Campaign Enrollments
+* may have many Application Sessions
+* may have many Opportunity Matches
+
+MVP: yes
+
+**Opportunity Contact Link**
+
+A relationship between an Opportunity and a Person.
+
+Represents:
+
+* recruiter for this opportunity
+* hiring manager for this opportunity
+* champion
+* decision maker
+* referral
+
+Relationships:
+
+* links one Opportunity to one Person
+
+MVP: yes
+
+**Activity**
+
+A recorded interaction or event.
+
+Represents:
+
+* LinkedIn message
+* email sent
+* call
+* interview
+* outreach attempt
+* application submitted
+* note-worthy event
+
+Relationships:
+
+* belongs to one User
+* may belong to one Opportunity
+* may belong to one Company
+* may belong to one Person
+
+MVP: yes
+
+**Task**
+
+A next action that should be completed.
+
+Represents:
+
+* follow up Friday
+* send resume
+* message recruiter
+* prepare for interview
+
+Relationships:
+
+* belongs to one User
+* may belong to one Opportunity
+* may belong to one Company
+* may belong to one Person
+
+MVP: yes
+
+**Note**
+
+A freeform piece of user knowledge attached to something.
+
+Represents:
+
+* strategic notes
+* company observations
+* message ideas
+* interview prep notes
+
+Relationships:
+
+* belongs to one User
+* attached to one entity such as Company, Person, or Opportunity
+
+MVP: yes
+
+**Tag**
+
+A label for classification.
+
+Represents:
+
+* fintech
+* recruiter
+* warm
+* contract
+* trading
+* startup
+
+Relationships:
+
+* belongs to one User
+* may be attached to multiple entities
+
+MVP: yes
+
+---
+
+### D. Discovery
+
+This is the top-of-funnel domain.
+
+It answers:
+
+* what did we search for?
+* what did we find?
+* what is worth reviewing?
+* what should become a real opportunity?
+
+#### Main Entities
+
+**Search Profile**
+
+A saved search strategy.
+
+Represents:
+
+* one recurring search definition
+* titles, filters, industries, locations, exclusions
+
+Relationships:
+
+* belongs to one User
+* has many Search Runs
+
+MVP: yes
+
+**Search Run**
+
+A single execution of a Search Profile.
+
+Represents:
+
+* one scan event
+* one market refresh
+* one opportunity fetch cycle
+
+Relationships:
+
+* belongs to one Search Profile
+* produces many Discovered Opportunities
+
+MVP: yes
+
+**Discovered Opportunity**
+
+A potential opportunity found through scanning before promotion into CRM.
+
+Represents:
+
+* a role
+* recruiter post
+* company signal
+* contract listing
+
+Relationships:
+
+* belongs to one Search Run
+* may map to one Company
+* may be promoted to one Opportunity
+
+MVP: yes
+
+**Company Watch**
+
+A strategic watch on a company even if there is no active role.
+
+Represents:
+
+* target account monitoring
+* follow hiring changes
+* watch for future openings
+
+Relationships:
+
+* belongs to one User
+* belongs to one Company
+
+MVP: later
+
+**Contact Lead**
+
+A person discovered through search but not yet promoted to full CRM Person.
+
+Represents:
+
+* possible recruiter
+* potential hiring manager
+* lead found during discovery
+
+Relationships:
+
+* may belong to one Company
+* may later promote into one Person
+
+MVP: later
+
+---
+
+### E. Outreach
+
+This domain supports proactive contact and follow-up.
+
+It answers:
+
+* what campaign is this part of?
+* what message sequence is being used?
+* what step is next?
+* what was sent?
+* what reply came back?
+
+#### Main Entities
+
+**Campaign**
+
+A named outreach initiative.
+
+Represents:
+
+* fintech recruiter push
+* direct outreach to trading firms
+* startup contract outreach
+
+Relationships:
+
+* belongs to one User
+* has many Sequences
+* has many Campaign Enrollments
+
+MVP: later or light MVP
+
+**Sequence**
+
+A reusable outreach cadence.
+
+Represents:
+
+* intro message + follow-up + reactivation flow
+
+Relationships:
+
+* belongs to one Campaign
+* has many Sequence Steps
+* has many Campaign Enrollments
+
+MVP: later or light MVP
+
+**Sequence Step**
+
+One action within a sequence.
+
+Represents:
+
+* send first email
+* wait three days
+* draft LinkedIn follow-up
+* mark stale
+
+Relationships:
+
+* belongs to one Sequence
+
+MVP: later
+
+**Message Template**
+
+A reusable content pattern for outreach.
+
+Represents:
+
+* recruiter intro template
+* hiring manager follow-up
+* contract pitch
+
+Relationships:
+
+* used by Sequence Steps
+
+MVP: later or simple
+
+**Campaign Enrollment**
+
+A live enrollment of a target in a sequence.
+
+Represents:
+
+* this person/opportunity is currently in a campaign flow
+
+Relationships:
+
+* belongs to one Campaign
+* belongs to one Sequence
+* belongs to one Opportunity
+* may belong to one Person
+* has many Approval Items
+* has many Delivery Logs
+* has many Response Events
+
+MVP: later
+
+**Approval Item**
+
+An action awaiting user review.
+
+Represents:
+
+* draft outreach message waiting to be approved
+* sensitive send waiting for confirmation
+
+Relationships:
+
+* belongs to one Campaign Enrollment
+
+MVP: later
+
+**Delivery Log**
+
+A log of an executed outreach action.
+
+Represents:
+
+* message sent
+* send failed
+* channel used
+* timestamp
+
+Relationships:
+
+* belongs to one Campaign Enrollment
+
+MVP: later
+
+**Response Event**
+
+A tracked reaction from a target.
+
+Represents:
+
+* replied
+* bounced
+* interested
+* not interested
+* asked for resume
+
+Relationships:
+
+* belongs to one Campaign Enrollment
+* may belong to one Opportunity
+* may belong to one Person
+
+MVP: later
+
+**Suppression Rule**
+
+A rule preventing bad or excessive outreach.
+
+Represents:
+
+* do not contact after reply
+* max touches per time period
+* do not message current employer
+
+Relationships:
+
+* belongs conceptually to a User or global policy set
+
+MVP: later
+
+---
+
+### F. Resume and Evidence
+
+This domain supports tailoring assets to a specific target.
+
+It answers:
+
+* what is the master resume?
+* what fragments can be reused?
+* what positioning angle should be used?
+* what tailored variant was produced?
+* what project evidence supports it?
+
+#### Main Entities
+
+**Resume Master**
+
+The canonical structured resume data set for a user.
+
+Represents:
+
+* main resume content inventory
+* experience, skills, education, summary
+
+Relationships:
+
+* belongs to one User
+* has many Resume Fragments
+* has many Resume Variants
+
+MVP: later, phase 2
+
+**Resume Fragment**
+
+A reusable resume building block.
+
+Represents:
+
+* an achievement bullet
+* a role summary
+* a project snippet
+* a skills grouping
+
+Relationships:
+
+* belongs to one User
+* may belong conceptually to one Resume Master
+
+MVP: later, phase 2
+
+**Positioning Profile**
+
+A narrative angle used for tailoring.
+
+Represents:
+
+* Capital Markets UI Engineer
+* Solutions Engineer
+* Full-Stack Product Builder
+
+Relationships:
+
+* belongs to one User
+* may be used by many Resume Variants
+
+MVP: later, phase 2
+
+**Resume Variant**
+
+A tailored output for a specific target.
+
+Represents:
+
+* a customized resume for one opportunity/company/person
+
+Relationships:
+
+* belongs to one User
+* belongs to one Opportunity
+* belongs to one Resume Master
+* may use one Positioning Profile
+
+MVP: later, phase 2
+
+**Resume Generation Job**
+
+A tracked generation event.
+
+Represents:
+
+* one AI resume build/rebuild process
+
+Relationships:
+
+* belongs to one Resume Variant
+
+MVP: later
+
+**Repository**
+
+A GitHub repository or project source.
+
+Represents:
+
+* one codebase or project
+
+Relationships:
+
+* belongs to one User
+* has many Repository Analyses
+* has many Project Evidence items
+* may match many Opportunities
+
+MVP: later, phase 3
+
+**Repository Analysis**
+
+A structured analysis of a Repository.
+
+Represents:
+
+* inferred frameworks
+* architecture patterns
+* domain tags
+* maturity
+
+Relationships:
+
+* belongs to one Repository
+
+MVP: later
+
+**Project Evidence**
+
+A reusable proof point extracted from a Repository.
+
+Represents:
+
+* resume bullet candidate
+* project summary
+* architecture highlight
+
+Relationships:
+
+* belongs to one Repository
+
+MVP: later
+
+**Opportunity Match**
+
+A relationship between an Opportunity and a Repository or Project Evidence.
+
+Represents:
+
+* why this repo/project is relevant to this opportunity
+
+Relationships:
+
+* belongs to one Opportunity
+* belongs to one Repository
+
+MVP: later
+
+---
+
+### G. Application Assistance
+
+This domain supports live applications and company-site workflows.
+
+It answers:
+
+* what application session is in progress?
+* what fields were found?
+* what values were proposed?
+* what files or answers were used?
+* what happened during the session?
+
+#### Main Entities
+
+**Application Session**
+
+A guided application run.
+
+Represents:
+
+* one live company-site or portal application process
+
+Relationships:
+
+* belongs to one User
+* belongs to one Opportunity
+* has many Application Fields
+* has many Application Artifacts
+* has many Application Audit Events
+
+MVP: later, phase 4
+
+**Application Field**
+
+A detected or handled field in an application.
+
+Represents:
+
+* one form question or input
+* proposed value
+* confidence
+* resolution mode
+
+Relationships:
+
+* belongs to one Application Session
+
+MVP: later
+
+**Application Artifact**
+
+A file or generated answer used during application.
+
+Represents:
+
+* uploaded resume
+* generated short answer
+* cover note
+* supporting text
+
+Relationships:
+
+* belongs to one Application Session
+* may belong to one Opportunity
+
+MVP: later
+
+**Application Audit Event**
+
+A recorded event during the application process.
+
+Represents:
+
+* page advanced
+* field filled
+* file uploaded
+* answer approved
+
+Relationships:
+
+* belongs to one Application Session
+
+MVP: later
+
+---
+
+### H. AI and Analytics
+
+This domain supports intelligence, recommendations, and reporting.
+
+It answers:
+
+* what summaries exist?
+* what recommendations were generated?
+* what metrics are being tracked?
+
+#### Main Entities
+
+**AI Summary**
+
+A cached AI-produced summary attached to an entity.
+
+Represents:
+
+* company summary
+* opportunity summary
+* repo summary
+* person summary
+
+Relationships:
+
+* attached to one entity
+
+MVP: later, optional early
+
+**Opportunity Recommendation**
+
+An AI recommendation tied to an opportunity.
+
+Represents:
+
+* next best action
+* best resume strategy
+* best outreach angle
+
+Relationships:
+
+* belongs to one Opportunity
+
+MVP: later, optional early
+
+**Metric Snapshot**
+
+A stored analytics measurement.
+
+Represents:
+
+* reply rate
+* opportunity conversion
+* discovery performance
+* resume conversion
+
+Relationships:
+
+* belongs to one User conceptually
+* attached to a metric type/time period
+
+MVP: later
+
+---
+
+## 3. Core Conceptual Relationships
+
+### User-Centered Relationships
+
+* A User owns almost all core business data.
+* A User has one active Subscription at a time.
+* A User consumes feature usage through Usage Counters.
+
+### CRM Relationships
+
+* A Company has many People.
+* A Company has many Opportunities.
+* An Opportunity belongs to one Company.
+* An Opportunity may involve many People.
+* Activities, Tasks, and Notes can be attached to Opportunities, People, and Companies.
+
+### Discovery Relationships
+
+* A Search Profile has many Search Runs.
+* A Search Run produces many Discovered Opportunities.
+* A Discovered Opportunity may be promoted to an Opportunity.
+
+### Commercial Relationships
+
+* A Plan has many Plan Features.
+* A Subscription links a User to a Plan.
+* A Plan controls which features and AI model tiers are available.
+
+### Resume/Evidence Relationships
+
+* A Resume Variant belongs to one Opportunity.
+* A Resume Variant is created from a Resume Master and optional Positioning Profile.
+* A Repository can produce Project Evidence.
+* An Opportunity can be matched to relevant Repository evidence.
+
+### Outreach Relationships
+
+* A Campaign has one or more Sequences.
+* A Sequence has one or more Steps.
+* A Campaign Enrollment links a target to an active sequence flow.
+
+### Application Relationships
+
+* An Application Session belongs to one Opportunity.
+* An Application Session contains Fields, Artifacts, and Audit Events.
+
+---
+
+## 4. Conceptual Enums and Status Concepts
+
+### Opportunity Stage
+
+Examples:
+
+* New
+* Targeted
+* Outreach Sent
+* Applied
+* Conversation Started
+* Interviewing
+* Awaiting Decision
+* Closed Won
+* Closed Lost
+
+### Subscription Status
+
+Examples:
+
+* Trialing
+* Active
+* Past Due
+* Canceled
+* Expired
+
+### Feature Access Level
+
+Examples:
+
+* Disabled
+* Enabled
+* Limited
+* Premium
+
+### Activity Type
+
+Examples:
+
+* LinkedIn Message
+* Email
+* Call
+* Interview
+* Application Submitted
+* Note Added
+* Follow-up
+* Meeting
+
+### Discovery Lifecycle Status
+
+Examples:
+
+* New
+* Reviewed
+* Shortlisted
+* Promoted
+* Dismissed
+* Watchlisted
+
+### Task Status
+
+Examples:
+
+* Open
+* In Progress
+* Done
+* Canceled
+
+### Resume Variant Status
+
+Examples:
+
+* Draft
+* Reviewed
+* Finalized
+* Sent
+
+### Application Session Status
+
+Examples:
+
+* Started
+* In Progress
+* Awaiting Approval
+* Completed
+* Failed
+* Abandoned
+
+---
+
+## 5. MVP Conceptual Scope
+
+### MVP Yes
+
+* User
+* Plan
+* Plan Feature
+* Subscription
+* Usage Counter
+* Model Access Policy
+* Company
+* Person
+* Opportunity
+* Opportunity Contact Link
+* Activity
+* Task
+* Note
+* Tag
+* Search Profile
+* Search Run
+* Discovered Opportunity
+
+### MVP Maybe, if you move fast
+
+* AI Summary
+* Opportunity Recommendation
+
+### Later Phase
+
+* Campaign
+* Sequence
+* Sequence Step
+* Message Template
+* Campaign Enrollment
+* Approval Item
+* Delivery Log
+* Response Event
+* Suppression Rule
+* Resume Master
+* Resume Fragment
+* Positioning Profile
+* Resume Variant
+* Repository
+* Repository Analysis
+* Project Evidence
+* Opportunity Match
+* Application Session
+* Application Field
+* Application Artifact
+* Application Audit Event
+* Metric Snapshot
+* Company Watch
+* Contact Lead
+
+---
+
+## 6. Conceptual Model Summary
+
+The platform revolves around a **User** who owns a set of **Companies**, **People**, and **Opportunities** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities**, and can be promoted into the CRM core. Around that core, later layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, and **AI Recommendations**, all while keeping CRM as the main system of record.

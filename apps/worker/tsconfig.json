@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "paths": {
+      "@opportunity-os/config": ["../../packages/config/src"],
+      "@opportunity-os/db": ["../../packages/db/src"],
+      "@opportunity-os/types": ["../../packages/types/src"],
+      "@opportunity-os/ui-contracts": ["../../packages/ui-contracts/src"],
+      "@opportunity-os/auth": ["../../packages/auth/src"],
+      "@opportunity-os/logger": ["../../packages/logger/src"],
+      "@opportunity-os/queue": ["../../packages/queue/src"],
+      "@opportunity-os/ai": ["../../packages/ai/src"],
+      "@opportunity-os/integrations": ["../../packages/integrations/src"],
+      "@opportunity-os/common": ["../../packages/common/src"]
+    }
+  }
+}
