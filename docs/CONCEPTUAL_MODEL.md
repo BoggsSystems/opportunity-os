@@ -11,7 +11,7 @@ The platform is an **AI-powered opportunity operating system** for:
 * tracking applications
 * enforcing plan/usage rules
 
-At the conceptual level, the system has 8 domain areas:
+At the conceptual level, the system has 10 domain areas:
 
 1. Identity and ownership
 2. Commercial access
@@ -21,6 +21,8 @@ At the conceptual level, the system has 8 domain areas:
 6. Resume and evidence
 7. Application assistance
 8. AI and analytics
+9. Offerings
+10. AI Conversation / Context
 
 ---
 
@@ -946,6 +948,175 @@ MVP: later
 
 ---
 
+### I. Offerings
+
+This domain represents the deterministic value the user can take to market across products, services, consulting, jobs, contracts, and founder-style pursuits.
+
+It answers:
+
+* what value can the user offer?
+* how can the same offering be positioned differently?
+* what supporting materials exist for each offering?
+
+#### Main Entities
+
+**Offering**
+
+A structured package of value that can be matched to an opportunity.
+
+Represents:
+
+* products and services
+* consulting packages
+* job/contract/professional profiles
+* founder-style pursuits
+* any marketable value proposition
+
+Relationships:
+
+* a User has many Offerings
+* an Offering has many OfferingPositionings
+* an Offering has many OfferingAssets
+* an Offering can be matched to many Opportunities
+
+MVP: yes
+
+**OfferingPositioning**
+
+Different ways the same offering can be framed for different contexts.
+
+Represents:
+
+* alternative value propositions
+* different target audiences
+* varied messaging angles
+* context-specific positioning
+
+Relationships:
+
+* belongs to one Offering
+* can be linked to specific Opportunity types
+* may have associated OfferingAssets
+
+MVP: V1
+
+**OfferingAsset**
+
+Supporting proof and packaging materials for an offering.
+
+Represents:
+
+* portfolio pieces
+* case studies
+* testimonials
+* technical documentation
+* pricing sheets
+* demo materials
+
+Relationships:
+
+* belongs to one Offering
+* may be associated with OfferingPositionings
+* can be referenced in AI conversations
+
+MVP: V1
+
+---
+
+### J. AI Conversation / Context
+
+This domain represents the platform's persistent AI working memory rather than relying on implicit chat memory.
+
+It answers:
+
+* what AI conversations have occurred?
+* what context summaries are available?
+* what AI tasks have been performed?
+* how can AI maintain context across sessions?
+
+#### Main Entities
+
+**AIConversation**
+
+A bounded discussion thread for a specific purpose.
+
+Represents:
+
+* offering strategy discussions
+* opportunity analysis conversations
+* resume tailoring sessions
+* outreach planning dialogs
+
+Relationships:
+
+* belongs to one User
+* has many AIConversationMessages
+* may be linked to structured entities (Offerings, Opportunities)
+* may generate AIContextSummaries
+
+MVP: V1
+
+**AIConversationMessage**
+
+Individual turns in an AI conversation thread.
+
+Represents:
+
+* user messages
+* AI responses
+* system messages
+* context updates
+
+Relationships:
+
+* belongs to one AIConversation
+* may reference structured entities
+* may trigger AITasks
+
+MVP: V1
+
+**AIContextSummary**
+
+Reusable condensed summaries of conversations or entities.
+
+Represents:
+
+* offering summaries
+* opportunity insights
+* user preference patterns
+* conversation highlights
+
+Relationships:
+
+* belongs to one User
+* may be derived from AIConversation
+* can be referenced in future conversations
+* may be linked to structured entities
+
+MVP: V1
+
+**AITask**
+
+Specific AI jobs performed by the platform.
+
+Represents:
+
+* resume generation tasks
+* outreach message creation
+* opportunity analysis
+* offering positioning suggestions
+
+Relationships:
+
+* belongs to one User
+* may be triggered by AIConversation
+* may reference structured entities
+* may produce AIContextSummaries
+
+MVP: V1
+
+---
+
 ## 3. Core Conceptual Relationships
 
 ### User-Centered Relationships
@@ -991,6 +1162,25 @@ MVP: later
 
 * An Application Session belongs to one Opportunity.
 * An Application Session contains Fields, Artifacts, and Audit Events.
+
+### Offerings Relationships
+
+* A User has many Offerings.
+* An Offering has many OfferingPositionings.
+* An Offering has many OfferingAssets.
+* An Offering can be matched to many Opportunities.
+* An OfferingPositioning may be linked to specific Opportunity types.
+* OfferingAssets may be associated with OfferingPositionings.
+
+### AI Conversation / Context Relationships
+
+* A User has many AIConversations.
+* An AIConversation has many AIConversationMessages.
+* An AIConversation may be linked to structured entities (Offerings, Opportunities).
+* AIContextSummaries belong to one User and may be derived from AIConversations.
+* AITasks belong to one User and may be triggered by AIConversations.
+* AIContextSummaries can be referenced in future conversations.
+* AITasks may produce AIContextSummaries.
 
 ---
 
@@ -1105,11 +1295,21 @@ Examples:
 * Search Profile
 * Search Run
 * Discovered Opportunity
+* Offering
 
 ### MVP Maybe, if you move fast
 
 * AI Summary
 * Opportunity Recommendation
+
+### V1 Logical Modeling
+
+* OfferingPositioning
+* OfferingAsset
+* AIConversation
+* AIConversationMessage
+* AIContextSummary
+* AITask
 
 ### Later Phase
 
@@ -1142,4 +1342,4 @@ Examples:
 
 ## 6. Conceptual Model Summary
 
-The platform revolves around a **User** who owns a set of **Companies**, **People**, and **Opportunities** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities**, and can be promoted into the CRM core. Around that core, later layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, and **AI Recommendations**, all while keeping CRM as the main system of record.
+The platform revolves around a **User** who owns a set of **Companies**, **People**, **Opportunities**, and **Offerings** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities**, and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions that can be matched to opportunities. Around that core, layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, **AI Recommendations**, and persistent **AI Conversation/Context** for maintaining working memory across sessions, all while keeping CRM as the main system of record.
