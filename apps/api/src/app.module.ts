@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { TestValidationController } from './common/test-validation.controller';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -17,6 +19,7 @@ import { EvidenceModule } from './modules/evidence/evidence.module';
 import { OutreachModule } from './modules/outreach/outreach.module';
 import { AiModule } from './modules/ai/ai.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { DevContextInterceptor } from './common/dev-context.interceptor';
 
 @Module({
   imports: [
@@ -41,6 +44,13 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
     OutreachModule,
     AiModule,
     AnalyticsModule,
+  ],
+  controllers: [TestValidationController],
+  providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: DevContextInterceptor,
+    },
   ],
 })
 export class AppModule {}
