@@ -4,6 +4,7 @@ import { NextActionsService } from './next-actions.service';
 import { TaskGenerator } from './generators/task.generator';
 import { OpportunityGenerator } from './generators/opportunity.generator';
 import { DiscoveryGenerator } from './generators/discovery.generator';
+import { OfferingContextService } from './offerings/offering-context.service';
 
 @Module({
   controllers: [NextActionsController],
@@ -12,6 +13,7 @@ import { DiscoveryGenerator } from './generators/discovery.generator';
     TaskGenerator,
     OpportunityGenerator,
     DiscoveryGenerator,
+    OfferingContextService,
   ],
 })
 export class NextActionsModule {}

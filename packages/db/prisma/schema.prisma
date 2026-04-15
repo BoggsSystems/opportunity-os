@@ -93,6 +93,92 @@ enum SearchProfileType {
   mixed
 }
 
+enum OfferingType {
+  product
+  service
+  consulting
+  job_profile
+  other
+}
+
+enum OfferingStatus {
+  draft
+  active
+  inactive
+  archived
+}
+
+enum OfferingAssetType {
+  portfolio
+  case_study
+  testimonial
+  document
+  image
+  video
+  other
+}
+
+enum OfferingPositioningStatus {
+  draft
+  active
+  inactive
+  archived
+}
+
+enum AIConversationPurpose {
+  offering_strategy
+  opportunity_analysis
+  general
+  other
+}
+
+enum AIConversationStatus {
+  active
+  paused
+  completed
+  archived
+}
+
+enum AIConversationMessageType {
+  user
+  assistant
+  system
+  function_call
+  function_result
+}
+
+enum AIContextSummaryType {
+  offering_summary
+  opportunity_insight
+  user_preference
+  conversation_highlights
+  entity_overview
+  other
+}
+
+enum AIContextSummarySourceType {
+  ai_conversation
+  offering
+  opportunity
+  user
+  other
+}
+
+enum AITaskType {
+  offering_analysis
+  opportunity_analysis
+  content_generation
+  other
+}
+
+enum AITaskStatus {
+  pending
+  running
+  completed
+  failed
+  cancelled
+}
+
 model User {
   id        String   @id @default(uuid()) @db.Uuid
   email     String   @unique
@@ -113,6 +199,10 @@ model User {
   notes          Note[]
   tags           Tag[]
   searchProfiles SearchProfile[]
+  offerings      Offering[]
+  conversations  AIConversation[]
+  summaries      AIContextSummary[]
+  aiTasks        AITask[]
 
   @@map("users")
 }
@@ -306,6 +396,9 @@ model Opportunity {
   opportunityPeople OpportunityPerson[]
   activities        Activity[]
   tasks             Task[]
+  conversations     AIConversation[] @relation("AIConversationOpportunity")
+  summaries         AIContextSummary[] @relation("AIContextSummaryOpportunity")
+  aiTasks           AITask[] @relation("AITaskOpportunity")
 
   @@index([userId])
   @@index([companyId])
@@ -518,4 +611,167 @@ model DiscoveredOpportunity {
   @@index([searchRunId, lifecycleStatus])
   @@index([rawExternalId])
   @@map("discovered_opportunities")
+}
+
+model Offering {
+  id          String         @id @default(uuid()) @db.Uuid
+  userId      String         @db.Uuid
+  title       String
+  description String?
+  offeringType OfferingType
+  status      OfferingStatus @default(draft)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positionings OfferingPositioning[]
+  assets       OfferingAsset[]
+  conversations AIConversation[]
+  summaries     AIContextSummary[] @relation("AIContextSummaryOffering")
+  aiTasks       AITask[]             @relation("AITaskOffering")
+
+  @@index([userId])
+  @@index([offeringType, status])
+  @@index([createdAt])
+  @@map("offerings")
+}
+
+model OfferingPositioning {
+  id               String                   @id @default(uuid()) @db.Uuid
+  offeringId       String                   @db.Uuid
+  title            String
+  description      String?
+  status           OfferingPositioningStatus @default(draft)
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  offering Offering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  assets   OfferingAsset[]
+
+  @@index([offeringId])
+  @@index([status])
+  @@map("offering_positionings")
+}
+
+model OfferingAsset {
+  id                     String          @id @default(uuid()) @db.Uuid
+  offeringId             String          @db.Uuid
+  offeringPositioningId String?         @db.Uuid
+  title                  String
+  description            String?
+  assetType              OfferingAssetType
+  contentUrl             String?
+  contentText            String?
+  isPublic               Boolean         @default(false)
+  status                 OfferingStatus  @default(draft)
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  offering       Offering              @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  positioning    OfferingPositioning?  @relation(fields: [offeringPositioningId], references: [id], onDelete: SetNull)
+
+  @@index([offeringId])
+  @@index([offeringPositioningId])
+  @@index([assetType])
+  @@map("offering_assets")
+}
+
+model AIConversation {
+  id             String              @id @default(uuid()) @db.Uuid
+  userId         String              @db.Uuid
+  title          String
+  purpose        AIConversationPurpose
+  offeringId     String?             @db.Uuid
+  opportunityId  String?             @db.Uuid
+  status         AIConversationStatus @default(active)
+  messageCount   Int                 @default(0)
+  lastMessageAt  DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering Offering?              @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  opportunity Opportunity?          @relation("AIConversationOpportunity", fields: [opportunityId], references: [id], onDelete: SetNull)
+  messages AIConversationMessage[]
+  summaries AIContextSummary[]
+  tasks    AITask[]
+
+  @@index([userId])
+  @@index([offeringId])
+  @@index([opportunityId])
+  @@index([status, updatedAt])
+  @@index([lastMessageAt])
+  @@map("ai_conversations")
+}
+
+model AIConversationMessage {
+  id              String                    @id @default(uuid()) @db.Uuid
+  conversationId  String                    @db.Uuid
+  messageType     AIConversationMessageType
+  content         String
+  createdAt       DateTime                  @default(now())
+
+  conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("ai_conversation_messages")
+}
+
+model AIContextSummary {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  userId                String                     @db.Uuid
+  title                 String
+  summaryType           AIContextSummaryType
+  content               String
+  sourceType            AIContextSummarySourceType
+  sourceId              String?
+  aiConversationId      String?                    @db.Uuid
+  offeringId            String?                    @db.Uuid
+  opportunityId         String?                    @db.Uuid
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation AIConversation? @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
+  offering     Offering?       @relation("AIContextSummaryOffering", fields: [offeringId], references: [id], onDelete: SetNull)
+  opportunity  Opportunity?    @relation("AIContextSummaryOpportunity", fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([sourceType, sourceId])
+  @@index([aiConversationId])
+  @@index([offeringId])
+  @@index([opportunityId])
+  @@map("ai_context_summaries")
+}
+
+model AITask {
+  id                    String        @id @default(uuid()) @db.Uuid
+  userId                String        @db.Uuid
+  taskType              AITaskType
+  title                 String
+  description           String?
+  aiConversationId     String?       @db.Uuid
+  offeringId            String?       @db.Uuid
+  opportunityId         String?       @db.Uuid
+  inputDataJson         Json?
+  outputDataJson        Json?
+  status                AITaskStatus  @default(pending)
+  errorMessage          String?
+  completedAt           DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation AIConversation? @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
+  offering     Offering?       @relation("AITaskOffering", fields: [offeringId], references: [id], onDelete: SetNull)
+  opportunity  Opportunity?    @relation("AITaskOpportunity", fields: [opportunityId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([taskType, status])
+  @@index([aiConversationId])
+  @@index([offeringId])
+  @@index([opportunityId])
+  @@index([completedAt])
+  @@map("ai_tasks")
 }
