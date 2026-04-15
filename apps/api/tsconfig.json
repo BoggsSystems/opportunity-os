@@ -10,6 +10,7 @@
     "target": "ES2021",
     "sourceMap": true,
     "outDir": "./dist",
+    "rootDir": "./src",
     "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
@@ -18,17 +19,18 @@
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
+    "exactOptionalPropertyTypes": false,
     "paths": {
-      "@opportunity-os/config": ["../../packages/config/src"],
-      "@opportunity-os/db": ["../../packages/db/src"],
-      "@opportunity-os/types": ["../../packages/types/src"],
-      "@opportunity-os/ui-contracts": ["../../packages/ui-contracts/src"],
-      "@opportunity-os/auth": ["../../packages/auth/src"],
-      "@opportunity-os/logger": ["../../packages/logger/src"],
-      "@opportunity-os/queue": ["../../packages/queue/src"],
-      "@opportunity-os/ai": ["../../packages/ai/src"],
-      "@opportunity-os/integrations": ["../../packages/integrations/src"],
-      "@opportunity-os/common": ["../../packages/common/src"]
+      "@opportunity-os/config": ["../../packages/config/dist"],
+      "@opportunity-os/db": ["../../packages/db/dist"],
+      "@opportunity-os/types": ["../../packages/types/dist"],
+      "@opportunity-os/ui-contracts": ["../../packages/ui-contracts/dist"],
+      "@opportunity-os/auth": ["../../packages/auth/dist"],
+      "@opportunity-os/logger": ["../../packages/logger/dist"],
+      "@opportunity-os/queue": ["../../packages/queue/dist"],
+      "@opportunity-os/ai": ["../../packages/ai/dist"],
+      "@opportunity-os/integrations": ["../../packages/integrations/dist"],
+      "@opportunity-os/common": ["../../packages/common/dist"]
     }
   }
 }

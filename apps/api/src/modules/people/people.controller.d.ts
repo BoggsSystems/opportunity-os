@@ -1,0 +1,85 @@
+import { PeopleService } from './people.service';
+import { CreatePersonDto } from './dto/create-person.dto';
+import { UpdatePersonDto } from './dto/update-person.dto';
+export declare class PeopleController {
+    private readonly peopleService;
+    constructor(peopleService: PeopleService);
+    create(createPersonDto: CreatePersonDto, req: any): Promise<{
+        id: string;
+        userId: string;
+        companyId: string | null;
+        title: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        firstName: string | null;
+        lastName: string | null;
+        fullName: string;
+        email: string | null;
+        phone: string | null;
+        linkedinUrl: string | null;
+        githubUrl: string | null;
+        location: string | null;
+        contactSource: string | null;
+        relationshipStrength: number | null;
+        notesSummary: string | null;
+    }>;
+    findAll(req: any): Promise<{
+        id: string;
+        userId: string;
+        companyId: string | null;
+        title: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        firstName: string | null;
+        lastName: string | null;
+        fullName: string;
+        email: string | null;
+        phone: string | null;
+        linkedinUrl: string | null;
+        githubUrl: string | null;
+        location: string | null;
+        contactSource: string | null;
+        relationshipStrength: number | null;
+        notesSummary: string | null;
+    }[]>;
+    findOne(id: string, req: any): Promise<{
+        id: string;
+        userId: string;
+        companyId: string | null;
+        title: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        firstName: string | null;
+        lastName: string | null;
+        fullName: string;
+        email: string | null;
+        phone: string | null;
+        linkedinUrl: string | null;
+        githubUrl: string | null;
+        location: string | null;
+        contactSource: string | null;
+        relationshipStrength: number | null;
+        notesSummary: string | null;
+    }>;
+    update(id: string, updatePersonDto: UpdatePersonDto, req: any): Promise<{
+        id: string;
+        userId: string;
+        companyId: string | null;
+        title: string | null;
+        createdAt: Date;
+        updatedAt: Date;
+        firstName: string | null;
+        lastName: string | null;
+        fullName: string;
+        email: string | null;
+        phone: string | null;
+        linkedinUrl: string | null;
+        githubUrl: string | null;
+        location: string | null;
+        contactSource: string | null;
+        relationshipStrength: number | null;
+        notesSummary: string | null;
+    }>;
+    remove(id: string, req: any): Promise<void>;
+}
+//# sourceMappingURL=people.controller.d.ts.map

@@ -10,7 +10,7 @@ const seedData = async () => {
     const demoUser = await prisma.user.create({
       data: {
         email: 'demo@opportunity-os.com',
-        name: 'Demo User',
+        fullName: 'Demo User',
       },
     });
 

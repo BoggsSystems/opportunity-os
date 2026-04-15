@@ -21,13 +21,13 @@ declare const envSchema: z.ZodObject<{
     SENTRY_DSN: z.ZodOptional<z.ZodString>;
     DATADOG_API_KEY: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
+    NODE_ENV: "development" | "production" | "test";
     DATABASE_URL: string;
     REDIS_URL: string;
     PORT: number;
-    NODE_ENV: "development" | "production" | "test";
     JWT_SECRET: string;
     AUTH_SECRET: string;
-    LOG_LEVEL: "fatal" | "error" | "warn" | "info" | "debug" | "trace";
+    LOG_LEVEL: "info" | "warn" | "error" | "fatal" | "debug" | "trace";
     BROWSER_HEADLESS: boolean;
     BROWSER_TIMEOUT: number;
     OPENAI_API_KEY?: string | undefined;
@@ -42,10 +42,10 @@ declare const envSchema: z.ZodObject<{
     SENTRY_DSN?: string | undefined;
     DATADOG_API_KEY?: string | undefined;
 }, {
+    NODE_ENV?: "development" | "production" | "test" | undefined;
     DATABASE_URL?: string | undefined;
     REDIS_URL?: string | undefined;
     PORT?: number | undefined;
-    NODE_ENV?: "development" | "production" | "test" | undefined;
     OPENAI_API_KEY?: string | undefined;
     ANTHROPIC_API_KEY?: string | undefined;
     GITHUB_TOKEN?: string | undefined;
@@ -53,7 +53,7 @@ declare const envSchema: z.ZodObject<{
     STRIPE_WEBHOOK_SECRET?: string | undefined;
     JWT_SECRET?: string | undefined;
     AUTH_SECRET?: string | undefined;
-    LOG_LEVEL?: "fatal" | "error" | "warn" | "info" | "debug" | "trace" | undefined;
+    LOG_LEVEL?: "info" | "warn" | "error" | "fatal" | "debug" | "trace" | undefined;
     BROWSER_HEADLESS?: boolean | undefined;
     BROWSER_TIMEOUT?: number | undefined;
     SMTP_HOST?: string | undefined;
