@@ -1,11 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@opportunity-os/db';
 import { OfferingContext, OfferingInterpretation } from '../interfaces/offering-context.interface';
+import { AiService } from '../../ai/ai.service';
 
 const prisma = new PrismaClient();
 
 @Injectable()
 export class OfferingContextService {
+  constructor(private aiService: AiService) {}
+
   async getActiveOfferingContext(userId: string): Promise<OfferingContext | null> {
     // Get the most recently updated active offering
     const offering = await prisma.offering.findFirst({
@@ -69,7 +72,26 @@ export class OfferingContextService {
   }
 
   async interpretOffering(context: OfferingContext): Promise<OfferingInterpretation> {
-    // AI-assisted interpretation of offering context
+    // Use AI service to get enhanced interpretation
+    try {
+      const aiInterpretation = await this.aiService.interpretOffering(context);
+      
+      // If AI returns structured data, use it
+      if (aiInterpretation.structured) {
+        return aiInterpretation.interpretation;
+      }
+      
+      // Fallback to rule-based interpretation if AI fails
+      console.warn('AI interpretation was unstructured, falling back to rule-based interpretation');
+      return this.ruleBasedInterpretation(context);
+    } catch (error) {
+      console.error('AI interpretation failed, using rule-based fallback:', error);
+      return this.ruleBasedInterpretation(context);
+    }
+  }
+
+  private ruleBasedInterpretation(context: OfferingContext): OfferingInterpretation {
+    // Original rule-based interpretation as fallback
     const { offering, positionings, assets } = context;
 
     // Extract target audiences from positionings and offering description

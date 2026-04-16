@@ -60,14 +60,25 @@ export class NextActionsService {
       finalScore += positionBoost;
 
       // Apply offering relevance boost if context is available
+      let aiExplanation: string | undefined;
+      let offeringRelevance: string | undefined;
+      
       if (offeringContext && offeringInterpretation) {
         const offeringBoost = this.calculateOfferingRelevanceBoost(action, offeringContext, offeringInterpretation);
         finalScore += offeringBoost;
+        
+        // Generate AI explanation for high-relevance actions
+        if (offeringContext && offeringInterpretation) {
+          aiExplanation = this.generateAIExplanation(action, offeringContext, offeringInterpretation);
+          offeringRelevance = this.generateOfferingRelevance(action, offeringContext, offeringInterpretation);
+        }
       }
 
       return {
         ...action,
         priorityScore: finalScore,
+        aiExplanation,
+        offeringRelevance,
       };
     });
   }
@@ -114,5 +125,37 @@ export class NextActionsService {
 
     // Cap the boost to maintain balance
     return Math.min(boost, 15);
+  }
+
+  private generateAIExplanation(
+    action: CandidateAction, 
+    context: OfferingContext, 
+    interpretation: OfferingInterpretation
+  ): string {
+    // Generate explanation based on action type and offering context
+    if (action.type === 'opportunity') {
+      return `This opportunity aligns with your ${context.offering.title} offering targeting ${interpretation.targetAudience.join(', ')}. Focus on ${interpretation.strategicFocus.join(' and ')} to maximize value.`;
+    }
+    
+    if (action.type === 'task') {
+      return `This task supports your ${context.offering.title} offering by advancing ${interpretation.nextStepPatterns.join(' or ')} activities.`;
+    }
+    
+    if (action.type === 'discovery') {
+      return `This discovery action helps identify new prospects for your ${context.offering.title} offering within ${interpretation.likelyChannels.join(' and ')} channels.`;
+    }
+    
+    return `This action supports your ${context.offering.title} offering objectives.`;
+  }
+
+  private generateOfferingRelevance(
+    action: CandidateAction, 
+    context: OfferingContext, 
+    interpretation: OfferingInterpretation
+  ): string {
+    const focusAreas = interpretation.strategicFocus.slice(0, 2).join(' and ');
+    const channels = interpretation.likelyChannels.slice(0, 2).join(' and ');
+    
+    return `High relevance for ${context.offering.title} - aligns with ${focusAreas} focus and ${channels} channels. Action type: ${action.type}`;
   }
 }

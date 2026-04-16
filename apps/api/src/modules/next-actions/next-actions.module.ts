@@ -5,8 +5,10 @@ import { TaskGenerator } from './generators/task.generator';
 import { OpportunityGenerator } from './generators/opportunity.generator';
 import { DiscoveryGenerator } from './generators/discovery.generator';
 import { OfferingContextService } from './offerings/offering-context.service';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
+  imports: [AiModule],
   controllers: [NextActionsController],
   providers: [
     NextActionsService,

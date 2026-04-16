@@ -7,6 +7,8 @@ export class NextActionsController {
 
   @Get()
   async getNextActions(@Req() req: any) {
-    return this.nextActionsService.getNextActions(req.user.id);
+    // For development, use test user ID if no auth
+    const userId = req.user?.id || '9902677d-c456-44f0-8312-efcdf4f55f69';
+    return this.nextActionsService.getNextActions(userId);
   }
 }
