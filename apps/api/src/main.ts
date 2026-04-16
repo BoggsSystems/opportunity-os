@@ -11,6 +11,7 @@ async function bootstrap() {
   const logger = createLogger('bootstrap');
   
   const port = configService.get<number>('PORT') || 3002;
+  const host = process.env['HOSTNAME'] || '127.0.0.1';
   
   app.enableCors();
   app.useGlobalPipes(
@@ -24,9 +25,9 @@ async function bootstrap() {
     }),
   );
   
-  await app.listen(port);
+  await app.listen(port, host);
   
-  logger.info(`Application is running on: http://localhost:${port}`);
+  logger.info(`Application is running on: http://${host}:${port}`);
 }
 
 bootstrap();

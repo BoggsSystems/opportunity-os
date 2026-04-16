@@ -9,6 +9,7 @@ export interface NextActionItem {
   personId?: string;
   taskId?: string;
   discoveredOpportunityId?: string;
+  contentOpportunityId?: string;
   aiExplanation?: string;
   offeringRelevance?: string;
 }
@@ -24,6 +25,7 @@ export interface CandidateAction {
   personId?: string;
   taskId?: string;
   discoveredOpportunityId?: string;
+  contentOpportunityId?: string;
   aiExplanation?: string;
   offeringRelevance?: string;
 }
