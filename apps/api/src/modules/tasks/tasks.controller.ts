@@ -5,9 +5,10 @@ import {
   Body, 
   Patch, 
   Param, 
-  Delete,
-  Req
+  Delete
 } from '@nestjs/common';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { AuthenticatedUser } from '../auth/auth.types';
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -17,27 +18,27 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Post()
-  async create(@Body() createTaskDto: CreateTaskDto, @Req() req: any) {
-    return this.tasksService.create(createTaskDto, req.user.id);
+  async create(@Body() createTaskDto: CreateTaskDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.create(createTaskDto, user.id);
   }
 
   @Get()
-  async findAll(@Req() req: any) {
-    return this.tasksService.findAll(req.user.id);
+  async findAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.findAll(user.id);
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string, @Req() req: any) {
-    return this.tasksService.findOne(id, req.user.id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.findOne(id, user.id);
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto, @Req() req: any) {
-    return this.tasksService.update(id, updateTaskDto, req.user.id);
+  async update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.update(id, updateTaskDto, user.id);
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string, @Req() req: any) {
-    return this.tasksService.remove(id, req.user.id);
+  async remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.remove(id, user.id);
   }
 }

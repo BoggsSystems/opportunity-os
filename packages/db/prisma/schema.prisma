@@ -22,6 +22,25 @@ enum FeatureAccessLevel {
   premium
 }
 
+enum AuthenticationCredentialType {
+  password
+  google_oauth
+  apple_sign_in
+  passkey
+}
+
+enum VerificationTokenType {
+  email_verify
+  password_reset
+  magic_link
+}
+
+enum AuthenticationSessionStatus {
+  active
+  revoked
+  expired
+}
+
 enum OpportunityStage {
   new
   targeted
@@ -180,16 +199,21 @@ enum AITaskStatus {
 }
 
 model User {
-  id        String   @id @default(uuid()) @db.Uuid
-  email     String   @unique
-  fullName  String?
-  timezone  String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String    @id @default(uuid()) @db.Uuid
+  email           String    @unique
+  fullName        String?
+  timezone        String?
+  emailVerifiedAt DateTime?
+  lastLoginAt     DateTime?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  subscriptions Subscription[]
-  usageCounters UsageCounter[]
+  subscriptions      Subscription[]
+  usageCounters      UsageCounter[]
+  identities         AuthenticationIdentity[]
+  sessions           AuthenticationSession[]
+  verificationTokens VerificationToken[]
 
   companies      Company[]
   people         Person[]
@@ -205,6 +229,92 @@ model User {
   aiTasks        AITask[]
 
   @@map("users")
+}
+
+model AuthenticationIdentity {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @db.Uuid
+  identityType        String    @default("email")
+  email               String
+  emailNormalized     String    @unique
+  isPrimary           Boolean   @default(true)
+  isVerified          Boolean   @default(false)
+  verifiedAt          DateTime?
+  lastAuthenticatedAt DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user               User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentials        Credential[]
+  sessions           AuthenticationSession[]
+  verificationTokens VerificationToken[]
+
+  @@index([userId])
+  @@map("authentication_identities")
+}
+
+model Credential {
+  id                       String                       @id @default(uuid()) @db.Uuid
+  authenticationIdentityId String                       @db.Uuid
+  credentialType           AuthenticationCredentialType
+  passwordHash             String?
+  providerName             String?
+  providerAccountId        String?
+  passwordVersion          Int                          @default(1)
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+
+  authenticationIdentity AuthenticationIdentity @relation(fields: [authenticationIdentityId], references: [id], onDelete: Cascade)
+
+  @@unique([providerName, providerAccountId])
+  @@index([authenticationIdentityId])
+  @@map("credentials")
+}
+
+model AuthenticationSession {
+  id                       String                      @id @default(uuid()) @db.Uuid
+  userId                   String                      @db.Uuid
+  authenticationIdentityId String?                     @db.Uuid
+  status                   AuthenticationSessionStatus @default(active)
+  clientType               String
+  deviceName               String?
+  userAgent                String?
+  ipAddress                String?                     @db.Inet
+  refreshTokenHash         String
+  expiresAt                DateTime
+  lastUsedAt               DateTime?
+  revokedAt                DateTime?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authenticationIdentity AuthenticationIdentity? @relation(fields: [authenticationIdentityId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([authenticationIdentityId])
+  @@index([userId, status])
+  @@index([expiresAt])
+  @@map("authentication_sessions")
+}
+
+model VerificationToken {
+  id                       String                @id @default(uuid()) @db.Uuid
+  userId                   String?               @db.Uuid
+  authenticationIdentityId String?               @db.Uuid
+  tokenType                VerificationTokenType
+  tokenHash                String
+  expiresAt                DateTime
+  consumedAt               DateTime?
+  createdAt                DateTime              @default(now())
+
+  user                   User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authenticationIdentity AuthenticationIdentity? @relation(fields: [authenticationIdentityId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([authenticationIdentityId])
+  @@index([tokenType])
+  @@index([expiresAt])
+  @@map("verification_tokens")
 }
 
 model Plan {
@@ -396,9 +506,9 @@ model Opportunity {
   opportunityPeople OpportunityPerson[]
   activities        Activity[]
   tasks             Task[]
-  conversations     AIConversation[] @relation("AIConversationOpportunity")
-  summaries         AIContextSummary[] @relation("AIContextSummaryOpportunity")
-  aiTasks           AITask[] @relation("AITaskOpportunity")
+  conversations     AIConversation[]    @relation("AIConversationOpportunity")
+  summaries         AIContextSummary[]  @relation("AIContextSummaryOpportunity")
+  aiTasks           AITask[]            @relation("AITaskOpportunity")
 
   @@index([userId])
   @@index([companyId])
@@ -614,21 +724,21 @@ model DiscoveredOpportunity {
 }
 
 model Offering {
-  id          String         @id @default(uuid()) @db.Uuid
-  userId      String         @db.Uuid
-  title       String
-  description String?
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String         @db.Uuid
+  title        String
+  description  String?
   offeringType OfferingType
-  status      OfferingStatus @default(draft)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  status       OfferingStatus @default(draft)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
-  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  positionings OfferingPositioning[]
-  assets       OfferingAsset[]
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positionings  OfferingPositioning[]
+  assets        OfferingAsset[]
   conversations AIConversation[]
-  summaries     AIContextSummary[] @relation("AIContextSummaryOffering")
-  aiTasks       AITask[]             @relation("AITaskOffering")
+  summaries     AIContextSummary[]    @relation("AIContextSummaryOffering")
+  aiTasks       AITask[]              @relation("AITaskOffering")
 
   @@index([userId])
   @@index([offeringType, status])
@@ -637,15 +747,15 @@ model Offering {
 }
 
 model OfferingPositioning {
-  id               String                   @id @default(uuid()) @db.Uuid
-  offeringId       String                   @db.Uuid
-  title            String
-  description      String?
-  status           OfferingPositioningStatus @default(draft)
-  createdAt        DateTime                 @default(now())
-  updatedAt        DateTime                 @updatedAt
+  id          String                    @id @default(uuid()) @db.Uuid
+  offeringId  String                    @db.Uuid
+  title       String
+  description String?
+  status      OfferingPositioningStatus @default(draft)
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
 
-  offering Offering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  offering Offering        @relation(fields: [offeringId], references: [id], onDelete: Cascade)
   assets   OfferingAsset[]
 
   @@index([offeringId])
@@ -654,21 +764,21 @@ model OfferingPositioning {
 }
 
 model OfferingAsset {
-  id                     String          @id @default(uuid()) @db.Uuid
-  offeringId             String          @db.Uuid
-  offeringPositioningId String?         @db.Uuid
-  title                  String
-  description            String?
-  assetType              OfferingAssetType
-  contentUrl             String?
-  contentText            String?
-  isPublic               Boolean         @default(false)
-  status                 OfferingStatus  @default(draft)
-  createdAt              DateTime        @default(now())
-  updatedAt              DateTime        @updatedAt
+  id                    String            @id @default(uuid()) @db.Uuid
+  offeringId            String            @db.Uuid
+  offeringPositioningId String?           @db.Uuid
+  title                 String
+  description           String?
+  assetType             OfferingAssetType
+  contentUrl            String?
+  contentText           String?
+  isPublic              Boolean           @default(false)
+  status                OfferingStatus    @default(draft)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
-  offering       Offering              @relation(fields: [offeringId], references: [id], onDelete: Cascade)
-  positioning    OfferingPositioning?  @relation(fields: [offeringPositioningId], references: [id], onDelete: SetNull)
+  offering    Offering             @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  positioning OfferingPositioning? @relation(fields: [offeringPositioningId], references: [id], onDelete: SetNull)
 
   @@index([offeringId])
   @@index([offeringPositioningId])
@@ -677,24 +787,24 @@ model OfferingAsset {
 }
 
 model AIConversation {
-  id             String              @id @default(uuid()) @db.Uuid
-  userId         String              @db.Uuid
-  title          String
-  purpose        AIConversationPurpose
-  offeringId     String?             @db.Uuid
-  opportunityId  String?             @db.Uuid
-  status         AIConversationStatus @default(active)
-  messageCount   Int                 @default(0)
-  lastMessageAt  DateTime?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  id            String                @id @default(uuid()) @db.Uuid
+  userId        String                @db.Uuid
+  title         String
+  purpose       AIConversationPurpose
+  offeringId    String?               @db.Uuid
+  opportunityId String?               @db.Uuid
+  status        AIConversationStatus  @default(active)
+  messageCount  Int                   @default(0)
+  lastMessageAt DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
-  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offering Offering?              @relation(fields: [offeringId], references: [id], onDelete: SetNull)
-  opportunity Opportunity?          @relation("AIConversationOpportunity", fields: [opportunityId], references: [id], onDelete: SetNull)
-  messages AIConversationMessage[]
-  summaries AIContextSummary[]
-  tasks    AITask[]
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering    Offering?               @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  opportunity Opportunity?            @relation("AIConversationOpportunity", fields: [opportunityId], references: [id], onDelete: SetNull)
+  messages    AIConversationMessage[]
+  summaries   AIContextSummary[]
+  tasks       AITask[]
 
   @@index([userId])
   @@index([offeringId])
@@ -705,11 +815,11 @@ model AIConversation {
 }
 
 model AIConversationMessage {
-  id              String                    @id @default(uuid()) @db.Uuid
-  conversationId  String                    @db.Uuid
-  messageType     AIConversationMessageType
-  content         String
-  createdAt       DateTime                  @default(now())
+  id             String                    @id @default(uuid()) @db.Uuid
+  conversationId String                    @db.Uuid
+  messageType    AIConversationMessageType
+  content        String
+  createdAt      DateTime                  @default(now())
 
   conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
@@ -719,18 +829,18 @@ model AIConversationMessage {
 }
 
 model AIContextSummary {
-  id                    String                     @id @default(uuid()) @db.Uuid
-  userId                String                     @db.Uuid
-  title                 String
-  summaryType           AIContextSummaryType
-  content               String
-  sourceType            AIContextSummarySourceType
-  sourceId              String?
-  aiConversationId      String?                    @db.Uuid
-  offeringId            String?                    @db.Uuid
-  opportunityId         String?                    @db.Uuid
-  createdAt             DateTime                   @default(now())
-  updatedAt             DateTime                   @updatedAt
+  id               String                     @id @default(uuid()) @db.Uuid
+  userId           String                     @db.Uuid
+  title            String
+  summaryType      AIContextSummaryType
+  content          String
+  sourceType       AIContextSummarySourceType
+  sourceId         String?
+  aiConversationId String?                    @db.Uuid
+  offeringId       String?                    @db.Uuid
+  opportunityId    String?                    @db.Uuid
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
 
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversation AIConversation? @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
@@ -746,21 +856,21 @@ model AIContextSummary {
 }
 
 model AITask {
-  id                    String        @id @default(uuid()) @db.Uuid
-  userId                String        @db.Uuid
-  taskType              AITaskType
-  title                 String
-  description           String?
-  aiConversationId     String?       @db.Uuid
-  offeringId            String?       @db.Uuid
-  opportunityId         String?       @db.Uuid
-  inputDataJson         Json?
-  outputDataJson        Json?
-  status                AITaskStatus  @default(pending)
-  errorMessage          String?
-  completedAt           DateTime?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
+  id               String       @id @default(uuid()) @db.Uuid
+  userId           String       @db.Uuid
+  taskType         AITaskType
+  title            String
+  description      String?
+  aiConversationId String?      @db.Uuid
+  offeringId       String?      @db.Uuid
+  opportunityId    String?      @db.Uuid
+  inputDataJson    Json?
+  outputDataJson   Json?
+  status           AITaskStatus @default(pending)
+  errorMessage     String?
+  completedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversation AIConversation? @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)

@@ -12,8 +12,12 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 
   // AI Services
+  AI_PROVIDER: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_BASE_URL: z.string().url().optional(),
+  OPENROUTER_MODEL: z.string().optional(),
 
   // Integrations
   GITHUB_TOKEN: z.string().optional(),

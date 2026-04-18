@@ -49,6 +49,9 @@ Represents:
 
 Relationships:
 
+* a User has one or more Authentication Identities over time
+* a User has one or more Credentials over time
+* a User has many Authentication Sessions over time
 * a User has many Companies
 * a User has many People
 * a User has many Opportunities
@@ -57,6 +60,73 @@ Relationships:
 * a User has many Search Profiles
 * a User has many Resume assets
 * a User has many Campaigns
+
+MVP: yes
+
+**Authentication Identity**
+
+The login-facing identity used to prove who a User is.
+
+Represents:
+
+* a normalized email-first identity in MVP
+* a stable authentication handle that can later support external providers
+* the distinction between domain ownership and login mechanics
+
+Relationships:
+
+* belongs to one User
+* may have one or more Credentials over time
+* may produce many Verification Tokens
+
+MVP: yes
+
+**Credential**
+
+A secret or provider-backed credential attached to an Authentication Identity.
+
+Represents:
+
+* password credential in MVP
+* future OAuth or passkey-backed login methods
+* the mechanism used to authenticate
+
+Relationships:
+
+* belongs to one Authentication Identity
+
+MVP: yes
+
+**Authentication Session**
+
+A live authenticated interaction between a User and the platform.
+
+Represents:
+
+* a signed-in mobile, web, or internal client session
+* refreshable access over time
+* revocable authenticated presence on a device or client
+
+Relationships:
+
+* belongs to one User
+* may be created from one Authentication Identity
+
+MVP: yes
+
+**Verification Token**
+
+A one-time proof token used for auth lifecycle flows.
+
+Represents:
+
+* email verification
+* password reset
+* future magic-link or invitation flows
+
+Relationships:
+
+* belongs to one Authentication Identity or one User conceptually
 
 MVP: yes
 
@@ -1122,8 +1192,18 @@ MVP: V1
 ### User-Centered Relationships
 
 * A User owns almost all core business data.
+* A User authenticates through one or more Authentication Identities.
+* A User may have many Authentication Sessions over time.
 * A User has one active Subscription at a time.
 * A User consumes feature usage through Usage Counters.
+
+### Authentication Relationships
+
+* An Authentication Identity belongs to one User.
+* An Authentication Identity may have one or more Credentials over time.
+* An Authentication Identity may issue many Verification Tokens over time.
+* An Authentication Session represents authenticated access for one User on one client/device context.
+* Authentication establishes identity; Subscription and Plan determine entitlement.
 
 ### CRM Relationships
 
@@ -1210,6 +1290,31 @@ Examples:
 * Canceled
 * Expired
 
+### Verification Token Type
+
+Examples:
+
+* Email Verify
+* Password Reset
+* Magic Link
+
+### Authentication Session Status
+
+Examples:
+
+* Active
+* Revoked
+* Expired
+
+### Authentication Credential Type
+
+Examples:
+
+* Password
+* Google OAuth
+* Apple Sign In
+* Passkey
+
 ### Feature Access Level
 
 Examples:
@@ -1279,6 +1384,10 @@ Examples:
 ### MVP Yes
 
 * User
+* Authentication Identity
+* Credential
+* Authentication Session
+* Verification Token
 * Plan
 * Plan Feature
 * Subscription
@@ -1330,7 +1439,10 @@ Examples:
 * Repository Analysis
 * Project Evidence
 * Opportunity Match
-* Application Session
+* Authentication Identity
+* Credential
+* Verification Token
+* Authentication Session
 * Application Field
 * Application Artifact
 * Application Audit Event
@@ -1342,4 +1454,4 @@ Examples:
 
 ## 6. Conceptual Model Summary
 
-The platform revolves around a **User** who owns a set of **Companies**, **People**, **Opportunities**, and **Offerings** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities**, and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions that can be matched to opportunities. Around that core, layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, **AI Recommendations**, and persistent **AI Conversation/Context** for maintaining working memory across sessions, all while keeping CRM as the main system of record.
+The platform revolves around a **User** who owns a set of **Companies**, **People**, **Opportunities**, and **Offerings** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. That ownership is accessed through explicit authentication concepts: **Authentication Identity**, **Credential**, **Verification Token**, and **Authentication Session**. New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities**, and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions that can be matched to opportunities. Around that core, layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, **AI Recommendations**, and persistent **AI Conversation/Context** for maintaining working memory across sessions, all while keeping CRM as the main system of record and keeping authentication separate from commercial entitlement.

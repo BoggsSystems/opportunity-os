@@ -14,6 +14,9 @@ These principles guide the relational design:
 * use **enum columns** where state model is stable
 * keep the schema extensible for later:
 
+  * authentication identities
+  * authentication sessions
+  * verification tokens
   * resumes
   * campaigns
   * GitHub evidence
@@ -43,6 +46,31 @@ Values:
 * `enabled`
 * `limited`
 * `premium`
+
+### `authentication_credential_type`
+
+Values:
+
+* `password`
+* `google_oauth`
+* `apple_sign_in`
+* `passkey`
+
+### `verification_token_type`
+
+Values:
+
+* `email_verify`
+* `password_reset`
+* `magic_link`
+
+### `authentication_session_status`
+
+Values:
+
+* `active`
+* `revoked`
+* `expired`
 
 ### `opportunity_stage`
 
@@ -145,6 +173,8 @@ Purpose: account owner and root owner of data.
 * `email` VARCHAR NOT NULL UNIQUE
 * `full_name` VARCHAR NULL
 * `timezone` VARCHAR NULL
+* `email_verified_at` TIMESTAMP NULL
+* `last_login_at` TIMESTAMP NULL
 * `is_active` BOOLEAN NOT NULL DEFAULT true
 * `created_at` TIMESTAMP NOT NULL
 * `updated_at` TIMESTAMP NOT NULL
@@ -156,6 +186,128 @@ Purpose: account owner and root owner of data.
 #### Notes
 
 * All user-owned tables reference `users.id`
+
+---
+
+### `authentication_identities`
+
+Purpose: login-facing identities that resolve to one user.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `identity_type` VARCHAR NOT NULL DEFAULT `email`
+* `email` VARCHAR NOT NULL
+* `email_normalized` VARCHAR NOT NULL
+* `is_primary` BOOLEAN NOT NULL DEFAULT true
+* `is_verified` BOOLEAN NOT NULL DEFAULT false
+* `verified_at` TIMESTAMP NULL
+* `last_authenticated_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on `email_normalized`
+* index on `user_id`
+
+#### Notes
+
+* MVP uses a single primary email identity per user
+* this separates login identity from business-domain ownership
+
+---
+
+### `credentials`
+
+Purpose: concrete authentication methods attached to an identity.
+
+#### Columns
+
+* `id` UUID PK
+* `authentication_identity_id` UUID NOT NULL FK -> `authentication_identities.id`
+* `credential_type` `authentication_credential_type` NOT NULL
+* `password_hash` TEXT NULL
+* `provider_name` VARCHAR NULL
+* `provider_account_id` VARCHAR NULL
+* `password_version` INTEGER NOT NULL DEFAULT 1
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `authentication_identity_id`
+* optional unique composite index on (`provider_name`, `provider_account_id`) where both are not null
+
+#### Notes
+
+* MVP can support exactly one password credential per identity at the app layer
+* `password_hash` is only populated for password credentials
+
+---
+
+### `authentication_sessions`
+
+Purpose: authenticated client sessions used for refresh and revocation.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `authentication_identity_id` UUID NULL FK -> `authentication_identities.id`
+* `status` `authentication_session_status` NOT NULL DEFAULT `active`
+* `client_type` VARCHAR NOT NULL
+* `device_name` VARCHAR NULL
+* `user_agent` TEXT NULL
+* `ip_address` INET NULL
+* `refresh_token_hash` TEXT NOT NULL
+* `expires_at` TIMESTAMP NOT NULL
+* `last_used_at` TIMESTAMP NULL
+* `revoked_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `authentication_identity_id`
+* index on (`user_id`, `status`)
+* index on `expires_at`
+
+#### Notes
+
+* access tokens remain stateless; refresh lifecycle is backed by this table
+* supports concurrent sessions across iOS, web, and internal tools
+
+---
+
+### `verification_tokens`
+
+Purpose: one-time auth lifecycle proofs such as email verification and password reset.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NULL FK -> `users.id`
+* `authentication_identity_id` UUID NULL FK -> `authentication_identities.id`
+* `token_type` `verification_token_type` NOT NULL
+* `token_hash` TEXT NOT NULL
+* `expires_at` TIMESTAMP NOT NULL
+* `consumed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `authentication_identity_id`
+* index on `token_type`
+* index on `expires_at`
+
+#### Notes
+
+* store only hashed verification/reset tokens
+* either `user_id` or `authentication_identity_id` may be the main lookup depending on flow
 
 ---
 
@@ -737,6 +889,10 @@ Purpose: scanned opportunities before promotion into CRM.
 
 * `users` owns:
 
+  * authentication_identities
+  * credentials (through authentication identities)
+  * authentication_sessions
+  * verification_tokens
   * companies
   * people
   * opportunities
@@ -753,6 +909,14 @@ Purpose: scanned opportunities before promotion into CRM.
 * `plans` -> many `model_access_policies`
 * `users` -> many `subscriptions`
 * `users` -> many `usage_counters`
+
+### Authentication
+
+* `users` -> many `authentication_identities`
+* `authentication_identities` -> many `credentials`
+* `users` -> many `authentication_sessions`
+* `authentication_identities` -> many `authentication_sessions`
+* `authentication_identities` -> many `verification_tokens`
 
 ### CRM
 
@@ -863,6 +1027,12 @@ These are the most important ones to include early.
 * `plan_features(plan_id, feature_key)`
 * `usage_counters(user_id, feature_key, usage_period_start, usage_period_end)`
 
+### Authentication Lookups
+
+* `authentication_identities(email_normalized)`
+* `authentication_sessions(user_id, status)`
+* `verification_tokens(token_type, expires_at)`
+
 ### Discovery Lookups
 
 * `search_runs(search_profile_id, started_at)`
@@ -879,6 +1049,13 @@ These are important even if some are enforced at application level instead of DB
 
 * a user may have many subscriptions historically
 * app should determine one active subscription at a time
+
+### Authentication
+
+* a user may have many authentication sessions over time
+* refresh tokens should be stored only as hashes
+* a verification token may be consumed once
+* app should determine which authentication identity is primary for login UX
 
 ### Opportunity Relationships
 
@@ -910,6 +1087,10 @@ These are important even if some are enforced at application level instead of DB
 These are the tables I recommend for the first real schema pass:
 
 * `users`
+* `authentication_identities`
+* `credentials`
+* `authentication_sessions`
+* `verification_tokens`
 * `plans`
 * `plan_features`
 * `subscriptions`
@@ -972,6 +1153,10 @@ Using the following logical relational data model, generate a clean Prisma schem
 
 Models to include:
 - User
+- AuthenticationIdentity
+- Credential
+- AuthenticationSession
+- VerificationToken
 - Plan
 - PlanFeature
 - Subscription
@@ -999,6 +1184,7 @@ Requirements:
 - Keep field names in Prisma-friendly camelCase while preserving the logical model
 - Use PostgreSQL provider
 - Keep the schema extensible for later additions like campaigns, resumes, repositories, and application sessions
+- Keep authentication separate from commercial subscription state
 - Do not overmodel deferred features yet
 
 Important modeling notes:
@@ -1009,6 +1195,9 @@ Important modeling notes:
 - EntityTag is polymorphic via entityType + entityId
 - DiscoveredOpportunity belongs to one SearchRun and may promote to one Opportunity
 - PlanFeature and ModelAccessPolicy are scoped by Plan
+- AuthenticationIdentity belongs to one User
+- AuthenticationSession belongs to one User and may optionally reference one AuthenticationIdentity
+- VerificationToken belongs to a User and/or AuthenticationIdentity depending on flow
 - UsageCounter is scoped by User + featureKey + billing period
 
 After generating the Prisma schema, also provide:

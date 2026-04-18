@@ -17,14 +17,26 @@ export class OpportunitiesService {
   }
 
   async findAll(userId: string): Promise<Opportunity[]> {
-    return prisma.opportunity.findMany({
+    const opportunities = await prisma.opportunity.findMany({
       where: {
         userId,
+      },
+      include: {
+        company: {
+          select: {
+            name: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
+
+    return opportunities.map((opportunity) => ({
+      ...opportunity,
+      companyName: opportunity.company.name,
+    })) as Opportunity[];
   }
 
   async findOne(id: string, userId: string): Promise<Opportunity> {
@@ -33,13 +45,22 @@ export class OpportunitiesService {
         id,
         userId,
       },
+      include: {
+        company: {
+          select: {
+            name: true,
+          },
+        },
+      },
     });
 
     if (!opportunity) {
       throw new NotFoundException('Opportunity not found');
     }
-
-    return opportunity;
+    return {
+      ...opportunity,
+      companyName: opportunity.company.name,
+    } as Opportunity;
   }
 
   async update(id: string, updateOpportunityDto: UpdateOpportunityDto, userId: string): Promise<Opportunity> {

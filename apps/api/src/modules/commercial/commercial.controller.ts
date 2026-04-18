@@ -1,4 +1,6 @@
-import { Controller, Get, Req } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { AuthenticatedUser } from '../auth/auth.types';
 import { CommercialService } from './commercial.service';
 
 @Controller('me')
@@ -6,17 +8,17 @@ export class CommercialController {
   constructor(private readonly commercialService: CommercialService) {}
 
   @Get('subscription')
-  async getSubscription(@Req() req: any) {
-    return this.commercialService.getSubscription(req.user.id);
+  async getSubscription(@CurrentUser() user: AuthenticatedUser) {
+    return this.commercialService.getSubscription(user.id);
   }
 
   @Get('entitlements')
-  async getEntitlements(@Req() req: any): Promise<any> {
-    return this.commercialService.getEntitlements(req.user.id);
+  async getEntitlements(@CurrentUser() user: AuthenticatedUser): Promise<any> {
+    return this.commercialService.getEntitlements(user.id);
   }
 
   @Get('usage')
-  async getUsage(@Req() req: any) {
-    return this.commercialService.getUsage(req.user.id);
+  async getUsage(@CurrentUser() user: AuthenticatedUser) {
+    return this.commercialService.getUsage(user.id);
   }
 }

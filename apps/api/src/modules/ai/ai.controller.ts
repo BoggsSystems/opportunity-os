@@ -1,4 +1,5 @@
-import { Controller, Post, Body, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { AiService } from './ai.service';
 
 @Controller('ai')
@@ -77,6 +78,98 @@ export class AiController {
         {
           success: false,
           message: 'Offering interpretation failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('converse')
+  async converse(@Body() body: {
+    sessionId?: string;
+    message?: string;
+    history?: Array<{ role: 'system' | 'user' | 'assistant'; text: string }>;
+    context?: Record<string, unknown>;
+  }) {
+    if (!body.message?.trim()) {
+      throw new HttpException(
+        { message: 'Message is required for conversational turns' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      const reply = await this.aiService.converse({
+        sessionId: body.sessionId,
+        message: body.message,
+        history: body.history,
+        context: body.context,
+      });
+
+      return {
+        success: true,
+        sessionId: reply.sessionId,
+        reply: reply.reply,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Conversation turn failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('converse-stream')
+  async converseStream(
+    @Body() body: {
+      sessionId?: string;
+      message?: string;
+      history?: Array<{ role: 'system' | 'user' | 'assistant'; text: string }>;
+      context?: Record<string, unknown>;
+    },
+    @Res() res: Response,
+  ) {
+    if (!body.message?.trim()) {
+      throw new HttpException(
+        { message: 'Message is required for conversational turns' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      const reply = await this.aiService.converse({
+        sessionId: body.sessionId,
+        message: body.message,
+        history: body.history,
+        context: body.context,
+      });
+
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+
+      res.write(`${JSON.stringify({ type: 'session', sessionId: reply.sessionId })}\n`);
+
+      for (const chunk of this.aiService.streamReplyChunks(reply.reply)) {
+        res.write(`${JSON.stringify({ type: 'chunk', sessionId: reply.sessionId, text: chunk })}\n`);
+        await new Promise((resolve) => setTimeout(resolve, 55));
+      }
+
+      res.write(
+        `${JSON.stringify({ type: 'done', sessionId: reply.sessionId, reply: reply.reply })}\n`,
+      );
+      res.end();
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Conversation stream failed',
           error: error instanceof Error ? error.message : 'Unknown error',
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

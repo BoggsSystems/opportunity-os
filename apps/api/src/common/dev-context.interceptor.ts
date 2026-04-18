@@ -1,15 +1,21 @@
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { PrismaClient } from '@opportunity-os/db';
-
-const prisma = new PrismaClient();
+import { prisma } from '@opportunity-os/db';
+import { getConfig } from '@opportunity-os/config';
 
 @Injectable()
 export class DevContextInterceptor implements NestInterceptor {
   private devUserId: string | null = null;
+  private readonly config = getConfig();
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
     try {
+      const request = context.switchToHttp().getRequest();
+
+      if (request.user || this.config.NODE_ENV === 'production') {
+        return next.handle();
+      }
+
       // Set dev user context on first request
       if (!this.devUserId) {
         const devUser = await prisma.user.findFirst({
@@ -19,7 +25,6 @@ export class DevContextInterceptor implements NestInterceptor {
       }
 
       // Add dev user to request context
-      const request = context.switchToHttp().getRequest();
       request.user = this.devUserId ? { id: this.devUserId } : null;
 
       return next.handle();
@@ -27,7 +32,9 @@ export class DevContextInterceptor implements NestInterceptor {
       console.error('DevContextInterceptor error:', error);
       // Continue without user context if there's an error
       const request = context.switchToHttp().getRequest();
-      request.user = null;
+      if (!request.user) {
+        request.user = null;
+      }
       return next.handle();
     }
   }

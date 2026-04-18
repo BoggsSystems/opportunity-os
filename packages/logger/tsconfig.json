@@ -1,7 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "@opportunity-os/config": ["../config/dist"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

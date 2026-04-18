@@ -11,7 +11,7 @@ async function bootstrap() {
   const logger = createLogger('bootstrap');
   
   const port = configService.get<number>('PORT') || 3002;
-  const host = process.env['HOSTNAME'] || '127.0.0.1';
+  const host = process.env['HOST'] || '0.0.0.0';
   
   app.enableCors();
   app.useGlobalPipes(

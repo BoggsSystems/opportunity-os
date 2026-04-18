@@ -5,9 +5,10 @@ import {
   Body, 
   Patch, 
   Param, 
-  Delete,
-  Req
+  Delete
 } from '@nestjs/common';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { AuthenticatedUser } from '../auth/auth.types';
 import { ActivitiesService } from './activities.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
@@ -17,27 +18,27 @@ export class ActivitiesController {
   constructor(private readonly activitiesService: ActivitiesService) {}
 
   @Post()
-  async create(@Body() createActivityDto: CreateActivityDto, @Req() req: any) {
-    return this.activitiesService.create(createActivityDto, req.user.id);
+  async create(@Body() createActivityDto: CreateActivityDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.activitiesService.create(createActivityDto, user.id);
   }
 
   @Get()
-  async findAll(@Req() req: any) {
-    return this.activitiesService.findAll(req.user.id);
+  async findAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.activitiesService.findAll(user.id);
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string, @Req() req: any) {
-    return this.activitiesService.findOne(id, req.user.id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.activitiesService.findOne(id, user.id);
   }
 
   @Patch(':id')
-  async update(@Param('id') id: string, @Body() updateActivityDto: UpdateActivityDto, @Req() req: any) {
-    return this.activitiesService.update(id, updateActivityDto, req.user.id);
+  async update(@Param('id') id: string, @Body() updateActivityDto: UpdateActivityDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.activitiesService.update(id, updateActivityDto, user.id);
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string, @Req() req: any) {
-    return this.activitiesService.remove(id, req.user.id);
+  async remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.activitiesService.remove(id, user.id);
   }
 }

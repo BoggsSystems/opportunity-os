@@ -9,11 +9,12 @@ const baseLogger = pino({
   formatters: {
     level: (label) => ({ level: label }),
     log: (object) => {
-      if (object.err) {
-        object.err = {
-          ...object.err,
-          message: object.err.message,
-          stack: object.err.stack,
+      const err = object['err'] as { message?: string; stack?: string } | undefined;
+      if (err) {
+        object['err'] = {
+          ...err,
+          message: err.message,
+          stack: err.stack,
         };
       }
       return object;

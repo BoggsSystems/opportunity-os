@@ -3,18 +3,11 @@ import { createHash } from 'node:crypto';
 import {
   ActivityType,
   CompanyType,
-  ContentOpportunity,
-  ContentPurpose,
-  ContentType,
-  DiscoveredItemStatus,
-  DiscoveredItemType,
-  DiscoveryRunStatus,
-  DiscoveryRunType,
-  DiscoverySourceType,
+  DiscoveredOpportunity,
   OpportunityStage,
   OpportunityType,
-  PrismaClient,
   TaskPriority,
+  prisma,
 } from '@opportunity-os/db';
 import { AiService } from '../ai/ai.service';
 import { ExecuteContentOpportunityDto } from './dto/execute-content-opportunity.dto';
@@ -26,17 +19,43 @@ import { ContentUploadResponseDto } from './dto/content-upload-response.dto';
 import { UploadContentDto } from './dto/upload-content.dto';
 import { PDFParse } from 'pdf-parse';
 
-const prisma = new PrismaClient();
-
 @Injectable()
 export class DiscoveryService {
   private readonly logger = new Logger(DiscoveryService.name);
 
   constructor(private readonly aiService: AiService) {}
 
+  async listContent(userId: string) {
+    const contentItems = await prisma.discoveredOpportunity.findMany({
+      where: {
+        searchRun: {
+          searchProfile: {
+            userId,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 25,
+    });
+
+    return contentItems.map((item) => ({
+      id: item.id,
+      title: item.title,
+      source: item.sourceUrl || item.sourceType,
+      summary: item.aiSummary || item.descriptionRaw || '',
+      linkedOfferingName: item.suggestedPositioningProfile || null,
+      campaignPotential: item.suggestedAction || item.aiSummary || 'Review this content for outreach potential.',
+      lifecycleStatus: item.lifecycleStatus,
+      fitScore: item.fitScore,
+      priorityScore: item.priorityScore,
+    }));
+  }
+
   async uploadContent(
     userId: string,
-    file: any,
+    file: { mimetype: string; originalname: string; buffer: Buffer },
     dto: UploadContentDto,
   ): Promise<ContentUploadResponseDto> {
     if (file.mimetype !== 'application/pdf') {
@@ -49,25 +68,30 @@ export class DiscoveryService {
 
     const extractedText = await this.extractTextFromPDF(file);
     const contentHash = this.computeContentHash(file.buffer);
-    const { sourceRecord, strategyRecord } = await this.ensureIngestionContext(userId, offeringId);
-
     const normalizedTitle = title?.trim() || file.originalname.replace(/\.pdf$/i, '');
     const normalizedSource = source?.trim();
-    const keywords = this.extractKeywords(extractedText);
-    const topics = this.extractTopics(extractedText);
     const inferredContentUrl = this.normalizeUrl(normalizedSource);
-    const externalId = `upload-sha256:${contentHash}`;
 
-    const existingUpload = await prisma.contentOpportunity.findFirst({
-      where: {
-        offeringId: offeringId || null,
-        discoveredItem: {
-          userId,
-          externalId,
-        },
+    const searchProfile = await this.ensureContentSearchProfile(userId);
+    const searchRun = await prisma.searchRun.create({
+      data: {
+        searchProfileId: searchProfile.id,
+        startedAt: new Date(),
+        completedAt: new Date(),
+        status: 'completed',
+        resultCount: 1,
+        highPriorityCount: 1,
       },
-      include: {
-        discoveredItem: true,
+    });
+
+    const existingUpload = await prisma.discoveredOpportunity.findFirst({
+      where: {
+        searchRun: {
+          searchProfile: {
+            userId,
+          },
+        },
+        rawExternalId: `upload-sha256:${contentHash}`,
       },
       orderBy: {
         updatedAt: 'desc',
@@ -75,129 +99,31 @@ export class DiscoveryService {
     });
 
     if (existingUpload) {
-      return this.buildUploadResponse(
-        existingUpload.discoveredItem,
-        existingUpload,
-        normalizedSource,
-        offeringId,
-      );
+      return this.buildUploadResponse(existingUpload, normalizedSource, offeringId);
     }
-
-    const discoveryRun = await prisma.discoveryRun.create({
-      data: {
-        userId,
-        discoveryStrategyId: strategyRecord.id,
-        runType: DiscoveryRunType.targeted,
-        status: DiscoveryRunStatus.completed,
-        startedAt: new Date(),
-        completedAt: new Date(),
-        discoverySourceId: sourceRecord.id,
-        itemsDiscovered: 1,
-        itemsPromoted: 0,
-        errorsCount: 0,
-      },
-    });
-
-    const discoveredItem = await prisma.discoveredItem.create({
-      data: {
-        userId,
-        discoveryRunId: discoveryRun.id,
-        title: normalizedTitle,
-        description: notes,
-        contentText: extractedText,
-        contentUrl: inferredContentUrl,
-        externalId,
-        itemType: DiscoveredItemType.content,
-        relevanceScore: 7,
-        confidenceScore: 9,
-        discoveredAt: new Date(),
-        processingStatus: DiscoveredItemStatus.pending,
-        searchKeywords: keywords,
-      },
-    });
 
     const aiResult = await this.generateContentInterpretation(extractedText, normalizedTitle, normalizedSource, notes);
 
-    const leverageActions = this.buildLeverageActions(aiResult.leverageInterpretation);
-
-    const contentOpportunity = await prisma.contentOpportunity.create({
+    const discoveredOpportunity = await prisma.discoveredOpportunity.create({
       data: {
-        discoveredItemId: discoveredItem.id,
-        contentType: ContentType.report,
-        contentPurpose: ContentPurpose.positioning_support,
-        publicationName: normalizedSource && !inferredContentUrl ? normalizedSource : null,
-        keyTopics: topics,
-        leverageActions,
-        urgencyLevel: 4,
-        offeringId: offeringId || null,
+        searchRunId: searchRun.id,
+        sourceType: 'content_upload',
+        sourceUrl: inferredContentUrl || normalizedSource || null,
+        rawExternalId: `upload-sha256:${contentHash}`,
+        title: normalizedTitle,
+        companyNameRaw: offeringId || undefined,
+        descriptionRaw: extractedText,
+        aiSummary: this.combineInterpretation(aiResult.summary, aiResult.whyItMatters, aiResult.leverageInterpretation),
+        suggestedAction: offeringId
+          ? `Review this content for offering ${offeringId} and decide how to use it in outreach or positioning`
+          : 'Review this content and decide how to use it in outreach or positioning',
+        suggestedPositioningProfile: offeringId || null,
+        fitScore: aiResult.succeeded ? 80 : 60,
+        priorityScore: offeringId ? 85 : 70,
       },
     });
 
-    const processingStatus = aiResult.succeeded ? DiscoveredItemStatus.classified : DiscoveredItemStatus.pending;
-
-    await prisma.discoveredItem.update({
-      where: { id: discoveredItem.id },
-      data: {
-        processingStatus,
-      },
-    });
-
-    return this.buildUploadResponse(
-      {
-        ...discoveredItem,
-        processingStatus,
-      },
-      contentOpportunity,
-      normalizedSource,
-      offeringId,
-      aiResult,
-    );
-  }
-
-  private async buildUploadResponse(
-    discoveredItem: {
-      id: string;
-      title: string;
-      contentText: string | null;
-      processingStatus: DiscoveredItemStatus;
-    },
-    contentOpportunity: ContentOpportunity,
-    source?: string,
-    offeringId?: string,
-    aiResult?: {
-      summary: string;
-      whyItMatters: string;
-      leverageInterpretation: string;
-      succeeded: boolean;
-    },
-  ): Promise<ContentUploadResponseDto> {
-    const interpretation =
-      aiResult ||
-      (discoveredItem.contentText
-        ? await this.generateContentInterpretation(discoveredItem.contentText, discoveredItem.title, source)
-        : {
-            summary: undefined,
-            whyItMatters: undefined,
-            leverageInterpretation: undefined,
-            succeeded: false,
-          });
-
-    return {
-      discoveredItemId: discoveredItem.id,
-      contentOpportunityId: contentOpportunity.id,
-      title: discoveredItem.title,
-      source,
-      offeringId: offeringId || undefined,
-      summary: interpretation.summary,
-      whyItMatters: interpretation.whyItMatters,
-      leverageInterpretation: interpretation.leverageInterpretation,
-      aiInterpretationSucceeded: interpretation.succeeded,
-      processingStatus: discoveredItem.processingStatus,
-    };
-  }
-
-  private computeContentHash(buffer: Buffer): string {
-    return createHash('sha256').update(buffer).digest('hex');
+    return this.buildUploadResponse(discoveredOpportunity, normalizedSource, offeringId, aiResult);
   }
 
   async executeContentOpportunity(
@@ -205,47 +131,52 @@ export class DiscoveryService {
     contentOpportunityId: string,
     dto: ExecuteContentOpportunityDto,
   ): Promise<ExecuteContentOpportunityResponseDto> {
-    const contentOpportunity = await prisma.contentOpportunity.findFirst({
+    const discoveredOpportunity = await prisma.discoveredOpportunity.findFirst({
       where: {
         id: contentOpportunityId,
-        discoveredItem: {
-          userId,
+        searchRun: {
+          searchProfile: {
+            userId,
+          },
         },
-      },
-      include: {
-        discoveredItem: true,
-        offering: true,
-        createdTask: true,
       },
     });
 
-    if (!contentOpportunity) {
+    if (!discoveredOpportunity) {
       throw new NotFoundException('Content opportunity not found');
     }
 
-    const existingTargets = await this.findExistingExecutionTargets(userId, contentOpportunity.id);
+    const existingTargets = await this.findExistingExecutionTargets(userId, discoveredOpportunity.id);
     if (existingTargets.length > 0) {
       return {
-        contentOpportunityId: contentOpportunity.id,
-        discoveredItemId: contentOpportunity.discoveredItemId,
-        offeringId: contentOpportunity.offeringId || undefined,
+        contentOpportunityId: discoveredOpportunity.id,
+        discoveredItemId: discoveredOpportunity.id,
+        offeringId: discoveredOpportunity.suggestedPositioningProfile || undefined,
         executed: true,
         targetCount: existingTargets.length,
         targets: existingTargets,
       };
     }
 
-    if (!contentOpportunity.discoveredItem.contentText?.trim()) {
+    const contentText = discoveredOpportunity.descriptionRaw?.trim();
+    if (!contentText) {
       throw new BadRequestException('Content opportunity has no extracted text to operationalize');
     }
 
     const maxTargets = dto.maxTargets ?? 3;
     const extractedTargets = await this.extractOutreachTargets(
-      contentOpportunity.discoveredItem.title,
-      contentOpportunity.discoveredItem.contentText,
-      contentOpportunity.offering?.title,
+      discoveredOpportunity.title,
+      contentText,
+      discoveredOpportunity.suggestedPositioningProfile || undefined,
       maxTargets,
     );
+
+    if (extractedTargets.length === 0) {
+      const fallbackTarget = this.buildFallbackExecutionTarget(discoveredOpportunity);
+      if (fallbackTarget) {
+        extractedTargets.push(fallbackTarget);
+      }
+    }
 
     if (extractedTargets.length === 0) {
       throw new BadRequestException('No outreach targets could be derived from this content opportunity');
@@ -262,10 +193,10 @@ export class DiscoveryService {
           userId,
           companyId: company.id,
           primaryPersonId: person.id,
-          title: `Reach out: ${person.fullName} re ${contentOpportunity.discoveredItem.title}`,
+          title: `Reach out: ${person.fullName} re ${discoveredOpportunity.title}`,
           opportunityType: OpportunityType.networking,
           stage: OpportunityStage.targeted,
-          source: `content_opportunity:${contentOpportunity.id}`,
+          source: `content_opportunity:${discoveredOpportunity.id}`,
           priority: 'high',
           summary: target.reasonForOutreach,
           nextAction: `Draft outreach using angle: ${target.suggestedAngle}`,
@@ -281,7 +212,7 @@ export class DiscoveryService {
           personId: person.id,
           title: `Draft outreach to ${person.fullName}`,
           description: [
-            `ContentOpportunity:${contentOpportunity.id}`,
+            `ContentOpportunity:${discoveredOpportunity.id}`,
             `Angle: ${target.suggestedAngle}`,
             `Reason: ${target.reasonForOutreach}`,
           ].join('\n'),
@@ -299,10 +230,10 @@ export class DiscoveryService {
           personId: person.id,
           activityType: ActivityType.note_event,
           subject: `Content-driven outreach package created for ${person.fullName}`,
-          bodySummary: `Prepared outreach execution from content opportunity ${contentOpportunity.id}`,
+          bodySummary: `Prepared outreach execution from content opportunity ${discoveredOpportunity.id}`,
           occurredAt: new Date(),
           metadataJson: {
-            contentOpportunityId: contentOpportunity.id,
+            contentOpportunityId: discoveredOpportunity.id,
             suggestedAngle: target.suggestedAngle,
             reasonForOutreach: target.reasonForOutreach,
           },
@@ -322,28 +253,65 @@ export class DiscoveryService {
       });
     }
 
-    await prisma.contentOpportunity.update({
-      where: { id: contentOpportunity.id },
+    await prisma.discoveredOpportunity.update({
+      where: { id: discoveredOpportunity.id },
       data: {
-        createdTaskId: executedTargets[0]?.taskId || null,
+        lifecycleStatus: 'reviewed',
+        suggestedAction: 'Outreach execution package created from uploaded content',
       },
     });
 
     return {
-      contentOpportunityId: contentOpportunity.id,
-      discoveredItemId: contentOpportunity.discoveredItemId,
-      offeringId: contentOpportunity.offeringId || undefined,
+      contentOpportunityId: discoveredOpportunity.id,
+      discoveredItemId: discoveredOpportunity.id,
+      offeringId: discoveredOpportunity.suggestedPositioningProfile || undefined,
       executed: true,
       targetCount: executedTargets.length,
       targets: executedTargets,
     };
   }
 
-  private async extractTextFromPDF(file: any): Promise<string> {
+  private async buildUploadResponse(
+    discoveredOpportunity: DiscoveredOpportunity,
+    source?: string,
+    offeringId?: string,
+    aiResult?: {
+      summary: string;
+      whyItMatters: string;
+      leverageInterpretation: string;
+      succeeded: boolean;
+    },
+  ): Promise<ContentUploadResponseDto> {
+    const contentText = discoveredOpportunity.descriptionRaw || '';
+    const interpretation =
+      aiResult ||
+      (contentText
+        ? await this.generateContentInterpretation(contentText, discoveredOpportunity.title, source)
+        : {
+            summary: undefined,
+            whyItMatters: undefined,
+            leverageInterpretation: undefined,
+            succeeded: false,
+          });
+
+    return {
+      discoveredItemId: discoveredOpportunity.id,
+      contentOpportunityId: discoveredOpportunity.id,
+      title: discoveredOpportunity.title,
+      source,
+      offeringId: offeringId || discoveredOpportunity.suggestedPositioningProfile || undefined,
+      summary: interpretation.summary,
+      whyItMatters: interpretation.whyItMatters,
+      leverageInterpretation: interpretation.leverageInterpretation,
+      aiInterpretationSucceeded: interpretation.succeeded,
+      processingStatus: interpretation.succeeded ? 'classified' : 'pending',
+    };
+  }
+
+  private async extractTextFromPDF(file: { buffer: Buffer }): Promise<string> {
     let parser: PDFParse | null = null;
     try {
-      const buffer = file.buffer;
-      parser = new PDFParse({ data: buffer });
+      parser = new PDFParse({ data: file.buffer });
       const data = await parser.getText();
       if (!data.text?.trim()) {
         throw new Error('No extractable text found in PDF');
@@ -357,6 +325,10 @@ export class DiscoveryService {
         await parser.destroy();
       }
     }
+  }
+
+  private computeContentHash(buffer: Buffer): string {
+    return createHash('sha256').update(buffer).digest('hex');
   }
 
   private async ensureUserExists(userId: string): Promise<void> {
@@ -381,47 +353,27 @@ export class DiscoveryService {
     }
   }
 
-  private async ensureIngestionContext(userId: string, offeringId?: string) {
-    const sourceName = 'Manual Content Upload';
-    const strategyName = offeringId
-      ? `Manual Content Ingestion (${offeringId})`
-      : 'Manual Content Ingestion';
+  private async ensureContentSearchProfile(userId: string) {
+    const existing = await prisma.searchProfile.findFirst({
+      where: {
+        userId,
+        name: 'Manual Content Uploads',
+      },
+    });
 
-    const sourceRecord =
-      (await prisma.discoverySource.findFirst({
-        where: { userId, name: sourceName },
-      })) ||
-      (await prisma.discoverySource.create({
-        data: {
-          userId,
-          name: sourceName,
-          sourceType: DiscoverySourceType.research_source,
-          isActive: true,
-          priorityScore: 5,
-        },
-      }));
+    if (existing) {
+      return existing;
+    }
 
-    const strategyRecord =
-      (await prisma.discoveryStrategy.findFirst({
-        where: { userId, name: strategyName, offeringId: offeringId || null },
-      })) ||
-      (await prisma.discoveryStrategy.create({
-        data: {
-          userId,
-          offeringId: offeringId || null,
-          name: strategyName,
-          description: 'Default strategy for manual PDF content ingestion',
-          isActive: true,
-          targetThemes: ['content-ingestion'],
-          industryPreferences: [],
-          preferredSourceTypes: [DiscoverySourceType.research_source],
-          crawlFrequency: 'manual',
-          priorityLevel: 5,
-          relevanceThreshold: 5,
-        },
-      }));
-
-    return { sourceRecord, strategyRecord };
+    return prisma.searchProfile.create({
+      data: {
+        userId,
+        name: 'Manual Content Uploads',
+        searchProfileType: 'mixed',
+        queryText: 'manual-content',
+        isActive: true,
+      },
+    });
   }
 
   private async generateContentInterpretation(
@@ -471,7 +423,9 @@ Return strict JSON with keys:
         succeeded: !!parsed,
       };
     } catch (error) {
-      this.logger.warn(`AI interpretation failed for content upload: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.warn(
+        `AI interpretation failed for content upload: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
       return {
         summary: fallbackSummary,
         whyItMatters: fallbackWhyItMatters,
@@ -479,6 +433,10 @@ Return strict JSON with keys:
         succeeded: false,
       };
     }
+  }
+
+  private combineInterpretation(summary?: string, whyItMatters?: string, leverageInterpretation?: string): string {
+    return [summary, whyItMatters, leverageInterpretation].filter(Boolean).join('\n\n');
   }
 
   private tryParseJson(value: string): Record<string, unknown> | null {
@@ -620,10 +578,64 @@ ${contentText.slice(0, 12000)}
         return mergedTargets.slice(0, maxTargets);
       }
     } catch (error) {
-      this.logger.warn(`Target extraction failed for content execution: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      this.logger.warn(
+        `Target extraction failed for content execution: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
 
     return this.extractAcknowledgedPeopleTargets(contentText, offeringTitle, maxTargets);
+  }
+
+  private buildFallbackExecutionTarget(discoveredOpportunity: DiscoveredOpportunity): {
+    fullName: string;
+    title?: string;
+    companyName: string;
+    reasonForOutreach: string;
+    suggestedAngle: string;
+  } | null {
+    const companyName =
+      this.asNonEmptyString(discoveredOpportunity.companyNameRaw) ||
+      this.extractOrganizationFromUrl(discoveredOpportunity.sourceUrl) ||
+      'Research Team';
+
+    const reasonForOutreach =
+      this.asNonEmptyString(discoveredOpportunity.aiSummary) ||
+      this.asNonEmptyString(discoveredOpportunity.suggestedAction) ||
+      `This content item appears strategically relevant to ${companyName}.`;
+
+    const suggestedAngle =
+      this.asNonEmptyString(discoveredOpportunity.suggestedAction) ||
+      `Use ${discoveredOpportunity.title} as a relevant hook for a consultative outreach conversation.`;
+
+    return {
+      fullName: `${companyName} Strategy Lead`,
+      title: 'Strategy Lead',
+      companyName,
+      reasonForOutreach,
+      suggestedAngle,
+    };
+  }
+
+  private extractOrganizationFromUrl(url?: string | null): string | null {
+    if (!url) {
+      return null;
+    }
+
+    try {
+      const hostname = new URL(url).hostname.replace(/^www\./i, '');
+      const primary = hostname.split('.').filter(Boolean)[0];
+      if (!primary) {
+        return null;
+      }
+
+      return primary
+        .split(/[-_]/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+    } catch {
+      return null;
+    }
   }
 
   private tryParseCodeFenceJson(value: string): Record<string, unknown> | null {
@@ -784,10 +796,6 @@ ${contentText.slice(0, 12000)}
     const activities = await prisma.activity.findMany({
       where: {
         userId,
-        metadataJson: {
-          path: ['contentOpportunityId'],
-          equals: contentOpportunityId,
-        },
       },
       orderBy: {
         createdAt: 'asc',
@@ -797,7 +805,14 @@ ${contentText.slice(0, 12000)}
     return tasks
       .filter((task) => task.person && task.company && task.opportunity)
       .map((task) => {
-        const activity = activities.find((item) => item.personId === task.personId && item.opportunityId === task.opportunityId);
+        const activity = activities.find(
+          (item) =>
+            item.personId === task.personId &&
+            item.opportunityId === task.opportunityId &&
+            typeof item.metadataJson === 'object' &&
+            item.metadataJson !== null &&
+            (item.metadataJson as Record<string, unknown>)['contentOpportunityId'] === contentOpportunityId,
+        );
         const reasonMatch = task.description?.match(/Reason:\s*([\s\S]*)$/);
         const angleMatch = task.description?.match(/Angle:\s*(.*)\nReason:/);
 
@@ -861,7 +876,7 @@ ${contentText.slice(0, 12000)}
         title,
         companyName,
         reasonForOutreach: `${fullName} is directly associated with the report and can provide a credible perspective related to ${offeringTitle || 'the active offering'}.`,
-        suggestedAngle: `Reference the report and open a conversation about how ${offeringTitle || 'your offering'} connects to the software engineering changes discussed there.`,
+        suggestedAngle: `Reference the report and open a conversation about how ${offeringTitle || 'your offering'} connects to the changes discussed there.`,
       };
     });
   }
@@ -894,63 +909,16 @@ ${contentText.slice(0, 12000)}
     return normalized.slice(0, 280) + (normalized.length > 280 ? '...' : '');
   }
 
-  private buildLeverageActions(leverageInterpretation: string): string[] {
-    const actions = new Set<string>(['reference_in_positioning']);
-    const normalized = leverageInterpretation.toLowerCase();
-
-    if (normalized.includes('outreach') || normalized.includes('prospect')) {
-      actions.add('share_with_prospect');
-    }
-    if (normalized.includes('derivative') || normalized.includes('commentary') || normalized.includes('content')) {
-      actions.add('create_derivative_content');
-    }
-    if (normalized.includes('meeting') || normalized.includes('conversation')) {
-      actions.add('use_in_sales_conversation');
-    }
-
-    return Array.from(actions);
-  }
-
-  private normalizeUrl(value?: string): string | null {
+  private normalizeUrl(value?: string): string | undefined {
     if (!value) {
-      return null;
+      return undefined;
     }
 
     try {
-      const parsed = new URL(value);
-      return parsed.toString();
+      const normalized = value.match(/^https?:\/\//i) ? value : `https://${value}`;
+      return new URL(normalized).toString();
     } catch {
-      return null;
+      return undefined;
     }
-  }
-
-  private extractKeywords(text: string): string[] {
-    const words = text.toLowerCase().split(/\s+/);
-    const commonWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']);
-    return words
-      .map((word) => word.replace(/[^a-z0-9-]/g, ''))
-      .filter(word => word.length > 3 && !commonWords.has(word))
-      .slice(0, 20);
-  }
-
-  private extractTopics(text: string): string[] {
-    const topics: string[] = [];
-    const techKeywords = ['api', 'microservice', 'backend', 'frontend', 'database', 'cloud', 'devops', 'security', 'performance'];
-    const businessKeywords = ['revenue', 'growth', 'strategy', 'market', 'customer', 'product', 'service', 'ai', 'agentic', 'software'];
-    const normalized = text.toLowerCase();
-
-    techKeywords.forEach(keyword => {
-      if (normalized.includes(keyword)) {
-        topics.push(keyword);
-      }
-    });
-
-    businessKeywords.forEach(keyword => {
-      if (normalized.includes(keyword)) {
-        topics.push(keyword);
-      }
-    });
-
-    return [...new Set(topics)].slice(0, 10);
   }
 }
