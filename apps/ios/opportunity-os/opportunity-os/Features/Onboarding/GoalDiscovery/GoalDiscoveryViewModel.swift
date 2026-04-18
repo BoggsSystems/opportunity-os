@@ -59,9 +59,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
     }
 
     func toggleListening() {
-        #if DEBUG
-        print("[GoalDiscoveryViewModel] toggleListening in state: \(voiceState)")
-        #endif
+        debugTrace("GoalDiscovery", "toggleListening state=\(voiceState)")
         switch voiceState {
         case .ready:
             beginVoiceConversationTurn()
@@ -89,15 +87,11 @@ final class GoalDiscoveryViewModel: ObservableObject {
         hasPlayedIntroduction = true
 
         Task {
-            #if DEBUG
-            print("[GoalDiscoveryViewModel] playing spoken introduction")
-            #endif
+            debugTrace("GoalDiscovery", "playing spoken introduction")
             voiceState = .speaking
             await speechSynthesisService.speak(spokenIntroduction, preference: introductionVoice)
             voiceState = .ready
-            #if DEBUG
-            print("[GoalDiscoveryViewModel] introduction finished; starting voice turn")
-            #endif
+            debugTrace("GoalDiscovery", "introduction finished; starting voice turn")
             beginVoiceConversationTurn()
         }
     }
@@ -109,36 +103,23 @@ final class GoalDiscoveryViewModel: ObservableObject {
                 errorMessage = nil
                 transcript = ""
                 voiceState = .listening
-                #if DEBUG
-                print("[GoalDiscoveryViewModel] listening for onboarding utterance")
-                #endif
+                debugTrace("GoalDiscovery", "listening for onboarding utterance")
                 let utterance = try await speechRecognitionService.listenForUtterance()
                 let normalized = utterance.trimmingCharacters(in: .whitespacesAndNewlines)
                 transcript = normalized
-                #if DEBUG
-                print("[GoalDiscoveryViewModel] captured utterance: \(normalized)")
-                #endif
+                debugTrace("GoalDiscovery", "captured utterance=\(normalized)")
                 guard !normalized.isEmpty else {
-                    #if DEBUG
-                    print("[GoalDiscoveryViewModel] utterance was empty; returning to ready")
-                    #endif
+                    debugTrace("GoalDiscovery", "utterance empty; returning to ready")
                     voiceState = .ready
                     return
                 }
                 voiceState = .thinking
-                #if DEBUG
-                print("[GoalDiscoveryViewModel] sending onboarding message to assistant")
-                #endif
+                debugTrace("GoalDiscovery", "sending onboarding message to assistant")
                 await processUserMessage(normalized)
             } catch {
                 transcript = await speechRecognitionService.latestTranscript()
                 errorMessage = error.localizedDescription
-                #if DEBUG
-                print("[GoalDiscoveryViewModel] listening failed: \(error.localizedDescription)")
-                if !transcript.isEmpty {
-                    print("[GoalDiscoveryViewModel] partial transcript on failure: \(transcript)")
-                }
-                #endif
+                debugTrace("GoalDiscovery", "listening failed error=\(error.localizedDescription), partialTranscript=\(transcript)")
                 voiceState = .ready
             }
         }
@@ -154,8 +135,14 @@ final class GoalDiscoveryViewModel: ObservableObject {
     }
 
     private func processUserMessage(_ text: String) async {
+        debugTrace("GoalDiscovery", "processing user message=\(text)")
         messages.append(AssistantConversationMessage(role: .user, text: text))
         inferredPlan = buildPlan(from: userMessages)
+        if let inferredPlan {
+            debugTrace("GoalDiscovery", "local plan inferred title=\(inferredPlan.firstCycleTitle), audience=\(inferredPlan.targetAudience)")
+        } else {
+            debugTrace("GoalDiscovery", "local plan inference still incomplete")
+        }
         errorMessage = nil
         let messageId = UUID()
         messages.append(AssistantConversationMessage(role: .assistant, text: ""))
@@ -164,9 +151,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
         assistantResponseTask = Task {
             voiceState = .speaking
             do {
-                #if DEBUG
-                print("[GoalDiscoveryViewModel] awaiting assistant response for: \(text)")
-                #endif
+                debugTrace("GoalDiscovery", "awaiting assistant response for message=\(text)")
                 let reply = try await assistantConversationService.respond(
                     to: text,
                     sessionId: assistantSessionId,
@@ -178,28 +163,22 @@ final class GoalDiscoveryViewModel: ObservableObject {
 
                 assistantSessionId = reply.sessionId
                 updateAssistantMessage(id: messageId, text: reply.text)
-                #if DEBUG
-                print("[GoalDiscoveryViewModel] assistant reply received: \(reply.text.prefix(160))")
-                print("[GoalDiscoveryViewModel] speaking assistant reply")
-                #endif
+                debugTrace("GoalDiscovery", "assistant reply received sessionId=\(reply.sessionId ?? "nil"), text=\(reply.text.prefix(160))")
+                debugTrace("GoalDiscovery", "speaking assistant reply")
                 await speechSynthesisService.speak(reply.text, preference: sessionManager.voicePreference)
-                #if DEBUG
-                print("[GoalDiscoveryViewModel] finished speaking assistant reply")
-                #endif
+                debugTrace("GoalDiscovery", "finished speaking assistant reply")
             } catch {
                 errorMessage = error.localizedDescription
                 let fallbackReply = localFallbackReply()
                 updateAssistantMessage(id: messageId, text: fallbackReply)
-                #if DEBUG
-                print("[GoalDiscoveryViewModel] assistant request failed: \(error.localizedDescription)")
-                print("[GoalDiscoveryViewModel] using fallback reply")
-                #endif
+                debugTrace("GoalDiscovery", "assistant request failed error=\(error.localizedDescription); using fallback reply")
                 await speechSynthesisService.speak(fallbackReply, preference: sessionManager.voicePreference)
             }
 
             guard !Task.isCancelled else { return }
 
             inferredPlan = buildPlan(from: userMessages)
+            debugTrace("GoalDiscovery", "post-response canContinue=\(canContinue), userMessageCount=\(userMessages.count)")
             if canContinue {
                 voiceState = .ready
             } else {

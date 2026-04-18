@@ -98,6 +98,10 @@ final class HomeViewModel: ObservableObject {
         nextAction = await nextActionService.fetchTopNextAction()
         contentItems = await contentDiscoveryService.fetchDiscoveredContent()
         followUps = await followUpService.fetchFollowUps()
+        debugTrace(
+            "HomeConversation",
+            "load completed opportunities=\(opportunities.count), contentItems=\(contentItems.count), followUps=\(followUps.count), hasNextAction=\(nextAction != nil)"
+        )
 
         if let action = nextAction {
             if let opportunityId = action.opportunityId {
@@ -122,6 +126,10 @@ final class HomeViewModel: ObservableObject {
         }
 
         hasLoaded = true
+        debugTrace(
+            "HomeConversation",
+            "home ready workspaceState=\(workspaceState), messageCount=\(messages.count), assistantSessionId=\(assistantSessionId ?? "nil")"
+        )
     }
 
     func submitTextMessage() {
@@ -138,11 +146,13 @@ final class HomeViewModel: ObservableObject {
         guard let latestAssistantMessage = messages.last(where: { $0.role == .assistant }) else { return }
 
         Task {
+            debugTrace("HomeConversation", "speaking latest assistant message text=\(latestAssistantMessage.text.prefix(160))")
             voiceState = .speaking
             isSpeaking = true
             await speechSynthesisService.speak(latestAssistantMessage.text, preference: sessionManager.voicePreference)
             isSpeaking = false
             voiceState = .ready
+            debugTrace("HomeConversation", "finished speaking latest assistant message")
         }
     }
 
@@ -159,9 +169,11 @@ final class HomeViewModel: ObservableObject {
         messages = [
             SessionMessage(role: .assistant, text: currentAssistantAnchorMessage)
         ]
+        debugTrace("HomeConversation", "conversation session reset workspaceState=\(workspaceState), anchor=\(currentAssistantAnchorMessage.prefix(160))")
     }
 
     func toggleListening() {
+        debugTrace("HomeConversation", "toggleListening state=\(voiceState)")
         switch voiceState {
         case .ready:
             beginVoiceConversationTurn()
@@ -180,6 +192,7 @@ final class HomeViewModel: ObservableObject {
 
     func setContinuousVoiceModeEnabled(_ isEnabled: Bool) {
         isContinuousVoiceModeEnabled = isEnabled
+        debugTrace("HomeConversation", "continuousVoiceMode set enabled=\(isEnabled)")
 
         guard !isEnabled else { return }
 
@@ -340,35 +353,45 @@ final class HomeViewModel: ObservableObject {
         nextAction = await nextActionService.fetchTopNextAction()
         contentItems = await contentDiscoveryService.fetchDiscoveredContent()
         followUps = await followUpService.fetchFollowUps()
+        debugTrace(
+            "HomeConversation",
+            "refreshData completed opportunities=\(opportunities.count), contentItems=\(contentItems.count), followUps=\(followUps.count), hasNextAction=\(nextAction != nil)"
+        )
     }
 
     private func beginVoiceConversationTurn() {
         voiceTurnTask?.cancel()
+        debugTrace("HomeConversation", "beginVoiceConversationTurn requested")
         voiceTurnTask = Task {
             errorMessage = nil
             transcript = ""
             voiceState = .listening
             isListening = true
             isSpeaking = false
+            debugTrace("HomeConversation", "voice turn entered listening state")
 
             do {
                 let utterance = try await speechRecognitionService.listenForUtterance()
                 let normalizedUtterance = utterance.trimmingCharacters(in: .whitespacesAndNewlines)
                 transcript = normalizedUtterance
                 isListening = false
+                debugTrace("HomeConversation", "captured utterance=\(normalizedUtterance)")
 
                 guard !normalizedUtterance.isEmpty else {
+                    debugTrace("HomeConversation", "captured utterance was empty; returning to ready")
                     voiceState = .ready
                     return
                 }
 
                 voiceState = .thinking
+                debugTrace("HomeConversation", "transitioning to thinking for message=\(normalizedUtterance)")
                 await processUserMessage(normalizedUtterance, shouldSpeakResponse: true)
             } catch {
                 transcript = await speechRecognitionService.latestTranscript()
                 errorMessage = error.localizedDescription
                 isListening = false
                 voiceState = .ready
+                debugTrace("HomeConversation", "voice turn failed error=\(error.localizedDescription), partialTranscript=\(transcript)")
             }
         }
     }
@@ -377,6 +400,7 @@ final class HomeViewModel: ObservableObject {
         voiceTurnTask?.cancel()
         assistantResponseTask?.cancel()
         errorMessage = nil
+        debugTrace("HomeConversation", "interrupting current conversation to resume listening")
         await speechSynthesisService.stopSpeaking()
         isSpeaking = false
         isListening = false
@@ -412,12 +436,14 @@ final class HomeViewModel: ObservableObject {
     }
 
     private func processUserMessage(_ message: String, shouldSpeakResponse: Bool) async {
+        debugTrace("HomeConversation", "processing user message shouldSpeak=\(shouldSpeakResponse) message=\(message)")
         messages.append(SessionMessage(role: .user, text: message))
 
         guard shouldSpeakResponse else {
             let response = await responseForUserMessage(message)
             messages.append(SessionMessage(role: .assistant, text: response))
             voiceState = .ready
+            debugTrace("HomeConversation", "non-voice response completed text=\(response.prefix(160))")
             return
         }
 
@@ -428,6 +454,7 @@ final class HomeViewModel: ObservableObject {
         assistantResponseTask = Task {
             voiceState = .speaking
             isSpeaking = true
+            debugTrace("HomeConversation", "assistant response task started for messageId=\(messageId)")
             do {
                 let response = try await streamAssistantResponse(
                     for: message,
@@ -438,13 +465,16 @@ final class HomeViewModel: ObservableObject {
 
                 isSpeaking = false
                 voiceState = .ready
+                debugTrace("HomeConversation", "streamed response completed text=\(response.prefix(160))")
 
                 if isContinuousVoiceModeEnabled {
+                    debugTrace("HomeConversation", "continuous mode active; restarting listening after streamed response")
                     beginVoiceConversationTurn()
                 }
             } catch {
                 let response = await responseForUserMessage(message)
                 updateAssistantMessage(id: messageId, text: response)
+                debugTrace("HomeConversation", "streaming failed; fallback response text=\(response.prefix(160))")
 
                 guard !Task.isCancelled else { return }
 
@@ -456,6 +486,7 @@ final class HomeViewModel: ObservableObject {
                 voiceState = .ready
 
                 if isContinuousVoiceModeEnabled {
+                    debugTrace("HomeConversation", "continuous mode active; restarting listening after fallback response")
                     beginVoiceConversationTurn()
                 }
             }
@@ -465,10 +496,12 @@ final class HomeViewModel: ObservableObject {
     private func updateAssistantMessage(id: UUID, text: String) {
         guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[index].text = text
+        debugTrace("HomeConversation", "assistant message updated messageId=\(id), text=\(text.prefix(160))")
     }
 
     private func responseForUserMessage(_ message: String) async -> String {
         do {
+            debugTrace("HomeConversation", "requesting non-streaming response sessionId=\(assistantSessionId ?? "nil"), historyCount=\(conversationHistory.count)")
             let reply = try await assistantConversationService.respond(
                 to: message,
                 sessionId: assistantSessionId,
@@ -476,9 +509,11 @@ final class HomeViewModel: ObservableObject {
                 context: assistantContext
             )
             assistantSessionId = reply.sessionId
+            debugTrace("HomeConversation", "non-streaming response received sessionId=\(reply.sessionId ?? "nil"), text=\(reply.text.prefix(160))")
             return reply.text
         } catch {
             errorMessage = error.localizedDescription
+            debugTrace("HomeConversation", "non-streaming response failed error=\(error.localizedDescription)")
             return localFallbackResponse(for: message)
         }
     }
@@ -493,12 +528,14 @@ final class HomeViewModel: ObservableObject {
             history: conversationHistory,
             context: assistantContext
         )
+        debugTrace("HomeConversation", "streamAssistantResponse opened sessionId=\(assistantSessionId ?? "nil"), historyCount=\(conversationHistory.count)")
 
         var accumulated = ""
         var pendingSpeechBuffer = ""
 
         for try await chunk in stream {
             if Task.isCancelled {
+                debugTrace("HomeConversation", "streamAssistantResponse cancelled after accumulated=\(accumulated.prefix(160))")
                 return accumulated
             }
 
@@ -506,16 +543,19 @@ final class HomeViewModel: ObservableObject {
             case .session:
                 if let sessionId = chunk.sessionId {
                     assistantSessionId = sessionId
+                    debugTrace("HomeConversation", "stream session established sessionId=\(sessionId)")
                 }
             case .textDelta:
                 if let text = chunk.text {
                     accumulated += text
                     let trimmedAccumulated = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
                     updateAssistantMessage(id: messageId, text: trimmedAccumulated)
+                    debugTrace("HomeConversation", "stream text delta=\(text.prefix(160))")
 
                     pendingSpeechBuffer += text
                     let speakableSegments = drainSpeakableSegments(from: &pendingSpeechBuffer)
                     for segment in speakableSegments {
+                        debugTrace("HomeConversation", "enqueueing streamed speech segment=\(segment.prefix(160))")
                         await speechSynthesisService.enqueueSpeech(
                             segment,
                             preference: sessionManager.voicePreference
@@ -525,10 +565,12 @@ final class HomeViewModel: ObservableObject {
             case .done:
                 if let sessionId = chunk.sessionId {
                     assistantSessionId = sessionId
+                    debugTrace("HomeConversation", "stream done sessionId=\(sessionId)")
                 }
                 if let fullReply = chunk.fullReply, !fullReply.isEmpty {
                     accumulated = fullReply
                     updateAssistantMessage(id: messageId, text: fullReply)
+                    debugTrace("HomeConversation", "stream done fullReply=\(fullReply.prefix(160))")
                     if pendingSpeechBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         pendingSpeechBuffer = ""
                     }
@@ -538,14 +580,17 @@ final class HomeViewModel: ObservableObject {
 
         let trailingSegment = pendingSpeechBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trailingSegment.isEmpty {
+            debugTrace("HomeConversation", "enqueueing trailing speech segment=\(trailingSegment.prefix(160))")
             await speechSynthesisService.enqueueSpeech(
                 trailingSegment,
                 preference: sessionManager.voicePreference
             )
         }
 
+        debugTrace("HomeConversation", "waiting for speech queue after streamed response")
         await speechSynthesisService.waitForSpeechQueue()
 
+        debugTrace("HomeConversation", "streamAssistantResponse finished accumulated=\(accumulated.prefix(160))")
         return accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

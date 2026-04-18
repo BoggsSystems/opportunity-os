@@ -14,18 +14,18 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
     override init() {
         self.recognizer = SFSpeechRecognizer(locale: Locale(identifier: Locale.current.identifier))
         super.init()
+        debugTrace("SpeechRecognition", "initialized with locale=\(Locale.current.identifier), recognizerAvailable=\(recognizer?.isAvailable == true)")
     }
 
     func startListening() async throws {
         try await requestAuthorizationIfNeeded()
+        debugTrace("SpeechRecognition", "startListening invoked")
         try configureAndStartRecognition()
     }
 
     func listenForUtterance() async throws -> String {
         try await requestAuthorizationIfNeeded()
-        #if DEBUG
-        print("[NativeSpeechRecognitionService] starting utterance capture")
-        #endif
+        debugTrace("SpeechRecognition", "listenForUtterance invoked")
         try configureAndStartRecognition()
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -44,6 +44,7 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
 
     private func requestAuthorizationIfNeeded() async throws {
         let status = SFSpeechRecognizer.authorizationStatus()
+        debugTrace("SpeechRecognition", "authorization status=\(String(describing: status.rawValue))")
         switch status {
         case .authorized:
             return
@@ -54,19 +55,25 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
                 }
             }
             if !granted {
+                debugTrace("SpeechRecognition", "authorization denied after prompt")
                 throw APIClientError.server(message: "Speech recognition permission was not granted.")
             }
+            debugTrace("SpeechRecognition", "authorization granted after prompt")
         case .denied:
+            debugTrace("SpeechRecognition", "authorization denied by system settings")
             throw APIClientError.server(message: "Speech recognition access is denied for this app.")
         case .restricted:
+            debugTrace("SpeechRecognition", "authorization restricted on this device")
             throw APIClientError.server(message: "Speech recognition is restricted on this device.")
         @unknown default:
+            debugTrace("SpeechRecognition", "authorization returned unknown status")
             throw APIClientError.server(message: "Speech recognition is unavailable.")
         }
     }
 
     private func configureAndStartRecognition() throws {
         guard let recognizer, recognizer.isAvailable else {
+            debugTrace("SpeechRecognition", "recognizer unavailable at configure/start")
             throw APIClientError.server(message: "Speech recognition is currently unavailable.")
         }
 
@@ -78,6 +85,7 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        debugTrace("SpeechRecognition", "audio session activated for recording")
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -89,11 +97,9 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             request.append(buffer)
             if let self {
-                #if DEBUG
                 if self.transcript.isEmpty {
-                    print("[NativeSpeechRecognitionService] receiving audio buffers")
+                    debugTrace("SpeechRecognition", "receiving audio buffers")
                 }
-                #endif
             }
         }
 
@@ -105,6 +111,10 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
 
             if let result {
                 self.transcript = result.bestTranscription.formattedString
+                debugTrace(
+                    "SpeechRecognition",
+                    "transcription update final=\(result.isFinal) text=\(result.bestTranscription.formattedString)"
+                )
             }
 
             if let error {
@@ -123,14 +133,12 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
     }
 
     private func finishListeningSession(returning value: String, error: Error? = nil) {
-        #if DEBUG
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if let error {
-            print("[NativeSpeechRecognitionService] finishing with error: \(error.localizedDescription); transcript: \(trimmed)")
+            debugTrace("SpeechRecognition", "finishing with error=\(error.localizedDescription), transcript=\(trimmed)")
         } else {
-            print("[NativeSpeechRecognitionService] finishing with transcript: \(trimmed)")
+            debugTrace("SpeechRecognition", "finishing successfully with transcript=\(trimmed)")
         }
-        #endif
         recognitionTask?.cancel()
         recognitionTask = nil
 

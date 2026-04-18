@@ -54,9 +54,6 @@ struct EmailEntryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle("Email")
         .accessibilityIdentifier("screen.emailEntry")
-        .task {
-            viewModel.playPromptIfNeeded()
-        }
     }
 
     private var voiceHeroRegion: some View {

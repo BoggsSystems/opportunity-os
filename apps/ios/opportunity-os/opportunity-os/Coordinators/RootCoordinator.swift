@@ -12,18 +12,15 @@ final class RootCoordinator: ObservableObject {
         self.routeState = container.sessionManager.isAuthenticated ? .main : .onboarding
         self.onboardingCoordinator = OnboardingCoordinator(container: container)
         self.mainCoordinator = MainCoordinator(container: container)
+        debugTrace("RootCoordinator", "initialized with routeState=\(routeState)")
 
         onboardingCoordinator.onFinish = { [weak self] in
-            #if DEBUG
-            print("[RootCoordinator] onboarding finished; switching to main")
-            #endif
+            debugTrace("RootCoordinator", "onboarding finished; switching to main")
             self?.routeState = .main
         }
 
         mainCoordinator.onSignOut = { [weak self] in
-            #if DEBUG
-            print("[RootCoordinator] sign out; switching to onboarding")
-            #endif
+            debugTrace("RootCoordinator", "sign out requested; switching to onboarding")
             self?.container.sessionManager.clear()
             self?.routeState = .onboarding
         }

@@ -13,15 +13,11 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
     }
 
     func speak(_ text: String, preference: VoicePreference) async {
-        #if DEBUG
-        print("[NativeSpeechSynthesisService] speak requested: \(text.prefix(160))")
-        #endif
+        debugTrace("SpeechSynthesis", "speak requested text=\(text.prefix(160))")
         await stopSpeaking()
         await enqueueSpeech(text, preference: preference)
         await waitForSpeechQueue()
-        #if DEBUG
-        print("[NativeSpeechSynthesisService] speak completed")
-        #endif
+        debugTrace("SpeechSynthesis", "speak completed")
     }
 
     func enqueueSpeech(_ text: String, preference: VoicePreference) async {
@@ -29,9 +25,10 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
         guard !trimmed.isEmpty else { return }
 
         configurePlaybackAudioSession()
-        #if DEBUG
-        print("[NativeSpeechSynthesisService] enqueueSpeech with locale \(preference.localeIdentifier), rate \(preference.speakingRate)")
-        #endif
+        debugTrace(
+            "SpeechSynthesis",
+            "enqueueSpeech locale=\(preference.localeIdentifier), voice=\(preference.displayName), rate=\(preference.speakingRate), text=\(trimmed.prefix(160))"
+        )
 
         let utterance = AVSpeechUtterance(string: trimmed)
         utterance.voice = AVSpeechSynthesisVoice(language: preference.localeIdentifier)
@@ -44,6 +41,7 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
 
     func waitForSpeechQueue() async {
         guard queuedUtteranceCount > 0 || synthesizer.isSpeaking else { return }
+        debugTrace("SpeechSynthesis", "waiting for speech queue to drain; queuedCount=\(queuedUtteranceCount)")
 
         await withCheckedContinuation { continuation in
             self.queueDrainedContinuation = continuation
@@ -52,6 +50,7 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
 
     func stopSpeaking() async {
         if synthesizer.isSpeaking {
+            debugTrace("SpeechSynthesis", "stopSpeaking invoked while synthesizer active")
             synthesizer.stopSpeaking(at: .immediate)
         }
 
@@ -63,6 +62,7 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
             self.queuedUtteranceCount = max(0, self.queuedUtteranceCount - 1)
+            debugTrace("SpeechSynthesis", "utterance finished; remainingQueue=\(self.queuedUtteranceCount)")
             if self.queuedUtteranceCount == 0 {
                 self.queueDrainedContinuation?.resume()
                 self.queueDrainedContinuation = nil
@@ -73,6 +73,7 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor in
             self.queuedUtteranceCount = max(0, self.queuedUtteranceCount - 1)
+            debugTrace("SpeechSynthesis", "utterance cancelled; remainingQueue=\(self.queuedUtteranceCount)")
             if self.queuedUtteranceCount == 0 {
                 self.queueDrainedContinuation?.resume()
                 self.queueDrainedContinuation = nil
@@ -91,9 +92,7 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
             )
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
-            #if DEBUG
-            print("[NativeSpeechSynthesisService] failed to configure audio session: \(error.localizedDescription)")
-            #endif
+            debugTrace("SpeechSynthesis", "failed to configure playback audio session: \(error.localizedDescription)")
         }
     }
 }

@@ -88,24 +88,37 @@ extension AppContainer {
         let environment = ProcessInfo.processInfo.environment
         let suiteName = environment[UITestEnvironment.suite]
         let defaults = suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        let isUITestMode = environment[UITestEnvironment.mode] == "1"
 
-        if environment[UITestEnvironment.mode] == "1", let suiteName {
+        if isUITestMode, let suiteName {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
         let sessionManager = SessionManager(defaults: defaults)
 
-        guard environment[UITestEnvironment.mode] == "1" else {
+        #if targetEnvironment(simulator)
+        if !isUITestMode {
+            debugTrace("AppContainer", "Simulator launch detected outside UI tests; resetting session state for fresh onboarding")
+            sessionManager.resetForFreshStart()
+            return sessionManager
+        }
+        #endif
+
+        guard isUITestMode else {
+            debugTrace("AppContainer", "Using persisted session state for normal app launch")
             return sessionManager
         }
 
         switch environment[UITestEnvironment.authState] {
         case "signed_in":
             sessionManager.start(session: makePreviewSession())
+            debugTrace("AppContainer", "UI test session initialized as signed in")
         case "signed_out":
             sessionManager.start(session: makePreviewSession())
             sessionManager.clear()
+            debugTrace("AppContainer", "UI test session initialized then cleared to signed out")
         default:
+            debugTrace("AppContainer", "UI test session using fresh default state")
             break
         }
 
@@ -117,6 +130,10 @@ extension AppContainer {
         let environment = ProcessInfo.processInfo.environment
         let isUITestMode = environment[UITestEnvironment.mode] == "1"
         let shouldUseRealAIInUITests = environment[UITestEnvironment.useRealAI] == "1"
+        debugTrace(
+            "AppContainer",
+            "preview container created; uiTestMode=\(isUITestMode), useRealAIInUITests=\(shouldUseRealAIInUITests), baseURL=\(APIConfiguration.debugBaseURLString)"
+        )
         let voicePreferenceService: VoicePreferenceServiceProtocol = isUITestMode
             ? StubVoicePreferenceService()
             : LocalVoicePreferenceService()

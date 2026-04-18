@@ -62,8 +62,12 @@ struct OpportunityOSAPIClient {
 
     func post<Response: Decodable>(_ path: String, body: some Encodable, accessToken: String? = nil) async throws -> Response {
         let request = try makeJSONRequest(path: path, method: "POST", body: body, accessToken: accessToken)
+        debugTrace("APIClient", "POST \(path) starting url=\(request.url?.absoluteString ?? "nil"), hasAuth=\(accessToken != nil)")
 
         let (data, response) = try await executeDataRequest(request)
+        if let httpResponse = response as? HTTPURLResponse {
+            debugTrace("APIClient", "POST \(path) completed status=\(httpResponse.statusCode), bytes=\(data.count)")
+        }
         return try decodeResponse(data: data, response: response)
     }
 
@@ -73,8 +77,12 @@ struct OpportunityOSAPIClient {
         if let accessToken {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
+        debugTrace("APIClient", "GET \(path) starting url=\(request.url?.absoluteString ?? "nil"), hasAuth=\(accessToken != nil)")
 
         let (data, response) = try await executeDataRequest(request)
+        if let httpResponse = response as? HTTPURLResponse {
+            debugTrace("APIClient", "GET \(path) completed status=\(httpResponse.statusCode), bytes=\(data.count)")
+        }
         return try decodeResponse(data: data, response: response)
     }
 
@@ -109,8 +117,15 @@ struct OpportunityOSAPIClient {
         body.appendString("\r\n")
         body.appendString("--\(boundary)--\r\n")
         request.httpBody = body
+        debugTrace(
+            "APIClient",
+            "POST multipart \(path) starting url=\(request.url?.absoluteString ?? "nil"), fieldCount=\(fields.count), fileName=\(fileName), bytes=\(fileData.count), hasAuth=\(accessToken != nil)"
+        )
 
         let (data, response) = try await executeDataRequest(request)
+        if let httpResponse = response as? HTTPURLResponse {
+            debugTrace("APIClient", "POST multipart \(path) completed status=\(httpResponse.statusCode), bytes=\(data.count)")
+        }
         return try decodeResponse(data: data, response: response)
     }
 
@@ -120,21 +135,35 @@ struct OpportunityOSAPIClient {
         accessToken: String? = nil
     ) throws -> AsyncThrowingStream<Response, Error> {
         let request = try makeJSONRequest(path: path, method: "POST", body: body, accessToken: accessToken)
+        debugTrace("APIClient", "POST stream \(path) starting url=\(request.url?.absoluteString ?? "nil"), hasAuth=\(accessToken != nil)")
 
         return AsyncThrowingStream { continuation in
             Task {
                 do {
                     let (bytes, response) = try await executeByteRequest(request)
                     try validateResponse(response)
+                    if let httpResponse = response as? HTTPURLResponse {
+                        debugTrace("APIClient", "POST stream \(path) connected status=\(httpResponse.statusCode)")
+                    }
 
                     for try await line in bytes.lines {
                         guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-                        let item = try decoder.decode(Response.self, from: Data(line.utf8))
+                        debugTrace("APIClient", "POST stream \(path) line=\(line.prefix(200))")
+                        let lineData = Data(line.utf8)
+                        let item: Response
+                        do {
+                            item = try decoder.decode(Response.self, from: lineData)
+                        } catch {
+                            debugTrace("APIClient", "POST stream \(path) decode failed error=\(error.localizedDescription)")
+                            throw error
+                        }
                         continuation.yield(item)
                     }
 
+                    debugTrace("APIClient", "POST stream \(path) finished")
                     continuation.finish()
                 } catch {
+                    debugTrace("APIClient", "POST stream \(path) failed error=\(error.localizedDescription)")
                     continuation.finish(throwing: error)
                 }
             }
@@ -161,6 +190,7 @@ struct OpportunityOSAPIClient {
         do {
             return try await session.data(for: request)
         } catch {
+            debugTrace("APIClient", "data request failed url=\(request.url?.absoluteString ?? "nil"), error=\(error.localizedDescription)")
             throw mapTransportError(error, url: request.url)
         }
     }
@@ -169,6 +199,7 @@ struct OpportunityOSAPIClient {
         do {
             return try await session.bytes(for: request)
         } catch {
+            debugTrace("APIClient", "byte request failed url=\(request.url?.absoluteString ?? "nil"), error=\(error.localizedDescription)")
             throw mapTransportError(error, url: request.url)
         }
     }
@@ -180,12 +211,15 @@ struct OpportunityOSAPIClient {
 
     private func validateResponse(_ response: URLResponse, data: Data? = nil) throws {
         guard let httpResponse = response as? HTTPURLResponse else {
+            debugTrace("APIClient", "received non-HTTP response")
             throw APIClientError.invalidResponse
         }
 
         if (200 ... 299).contains(httpResponse.statusCode) {
             return
         }
+
+        debugTrace("APIClient", "response validation failed status=\(httpResponse.statusCode), bodyBytes=\(data?.count ?? 0)")
 
         if let data, let errorResponse = try? decoder.decode(APIErrorResponse.self, from: data) {
             throw APIClientError.server(message: errorResponse.message)
@@ -230,6 +264,7 @@ struct RemoteAuthService: AuthServiceProtocol {
     }
 
     func signUp(email: String, password: String) async throws -> AuthSession {
+        debugTrace("RemoteAuth", "sign up requested email=\(email)")
         let response: AuthResponse = try await client.post(
             "auth/signup",
             body: SignUpRequest(email: email, password: password, fullName: nil, timezone: TimeZone.current.identifier)
@@ -238,9 +273,7 @@ struct RemoteAuthService: AuthServiceProtocol {
     }
 
     func signIn(email: String, password: String) async throws -> AuthSession {
-        #if DEBUG
-        print("[RemoteAuthService] sign in requested for \(email) via \(APIConfiguration.debugEnvironmentLabel) -> \(APIConfiguration.debugBaseURLString)")
-        #endif
+        debugTrace("RemoteAuth", "sign in requested email=\(email) via \(APIConfiguration.debugEnvironmentLabel) -> \(APIConfiguration.debugBaseURLString)")
         let response: AuthResponse = try await client.post(
             "auth/login",
             body: LoginRequest(email: email, password: password)
@@ -256,9 +289,7 @@ struct RemoteAuthService: AuthServiceProtocol {
         do {
             let _: LogoutResponse = try await client.post("auth/logout", body: EmptyRequest(), accessToken: accessToken)
         } catch {
-            #if DEBUG
-            print("[RemoteAuthService] sign out failed: \(error.localizedDescription)")
-            #endif
+            debugTrace("RemoteAuth", "sign out failed error=\(error.localizedDescription)")
         }
     }
 }

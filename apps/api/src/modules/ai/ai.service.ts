@@ -98,7 +98,9 @@ export class AiService {
     history?: ConversationTurn[];
     context?: ConversationContext;
   }): Promise<{ sessionId: string; reply: string }> {
-    this.logger.log('Generating conversational assistant response');
+    this.logger.log(
+      `Generating conversational assistant response sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
+    );
 
     const sessionId = input.sessionId ?? crypto.randomUUID();
     const session = this.conversationSessions.get(sessionId);
@@ -106,10 +108,14 @@ export class AiService {
       session?.history ?? [],
       input.history ?? [],
     );
+    this.logger.log(
+      `Conversation state prepared sessionId=${sessionId} mergedHistoryCount=${history.length} hadStoredSession=${session != null}`,
+    );
     const prompt = this.buildConversationPrompt({
       ...input,
       history,
     });
+    this.logger.log(`Conversation prompt preview sessionId=${sessionId} prompt=${prompt.slice(0, 400)}`);
     const request: AiRequest = {
       prompt,
       temperature: 0.6,
@@ -118,6 +124,7 @@ export class AiService {
 
     const response = await this.aiProviderFactory.getProvider().generateText(request);
     const reply = response.content.trim();
+    this.logger.log(`Provider reply sessionId=${sessionId} reply=${reply.slice(0, 300)}`);
     this.storeConversationSession(sessionId, history, input.message, reply);
     return { sessionId, reply };
   }
@@ -129,13 +136,16 @@ export class AiService {
       .filter(Boolean);
 
     if (sentences.length > 1) {
-      return sentences.map((sentence, index) =>
+      const chunks = sentences.map((sentence, index) =>
         index < sentences.length - 1 ? `${sentence} ` : sentence,
       );
+      this.logger.log(`Chunked reply into ${chunks.length} sentence chunk(s)`);
+      return chunks;
     }
 
     const words = reply.trim().split(/\s+/).filter(Boolean);
     if (words.length <= 1) {
+      this.logger.log('Chunked reply into 1 short chunk');
       return [reply];
     }
 
@@ -156,6 +166,7 @@ export class AiService {
       chunks.push(currentChunk);
     }
 
+    this.logger.log(`Chunked reply into ${chunks.length} word chunk(s)`);
     return chunks;
   }
 
@@ -277,16 +288,24 @@ ASSISTANT:
       history: updatedHistory,
       updatedAt: Date.now(),
     });
+    this.logger.log(
+      `Stored conversation session sessionId=${sessionId} historyCount=${updatedHistory.length}`,
+    );
 
     this.pruneConversationSessions();
   }
 
   private pruneConversationSessions() {
     const cutoff = Date.now() - 1000 * 60 * 60;
+    let removedCount = 0;
     for (const [sessionId, session] of this.conversationSessions.entries()) {
       if (session.updatedAt < cutoff) {
         this.conversationSessions.delete(sessionId);
+        removedCount += 1;
       }
+    }
+    if (removedCount > 0) {
+      this.logger.log(`Pruned ${removedCount} expired conversation session(s)`);
     }
   }
 }

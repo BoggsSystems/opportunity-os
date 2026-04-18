@@ -1,9 +1,11 @@
-import { Controller, Post, Body, HttpException, HttpStatus, Res } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus, Res, Logger } from '@nestjs/common';
 import { Response } from 'express';
 import { AiService } from './ai.service';
 
 @Controller('ai')
 export class AiController {
+  private readonly logger = new Logger(AiController.name);
+
   constructor(private readonly aiService: AiService) {}
 
   @Post('test')
@@ -100,12 +102,18 @@ export class AiController {
     }
 
     try {
+      this.logger.log(
+        `converse request sessionId=${body.sessionId ?? 'new'} historyCount=${body.history?.length ?? 0} workspaceState=${String(body.context?.['workspaceState'] ?? 'unknown')} message=${body.message}`,
+      );
       const reply = await this.aiService.converse({
         sessionId: body.sessionId,
         message: body.message,
         history: body.history,
         context: body.context,
       });
+      this.logger.log(
+        `converse response sessionId=${reply.sessionId} reply=${reply.reply.slice(0, 200)}`,
+      );
 
       return {
         success: true,
@@ -143,6 +151,9 @@ export class AiController {
     }
 
     try {
+      this.logger.log(
+        `converse-stream request sessionId=${body.sessionId ?? 'new'} historyCount=${body.history?.length ?? 0} workspaceState=${String(body.context?.['workspaceState'] ?? 'unknown')} message=${body.message}`,
+      );
       const reply = await this.aiService.converse({
         sessionId: body.sessionId,
         message: body.message,
@@ -155,12 +166,17 @@ export class AiController {
       res.setHeader('Connection', 'keep-alive');
 
       res.write(`${JSON.stringify({ type: 'session', sessionId: reply.sessionId })}\n`);
+      this.logger.log(`converse-stream session established sessionId=${reply.sessionId}`);
 
       for (const chunk of this.aiService.streamReplyChunks(reply.reply)) {
+        this.logger.log(`converse-stream chunk sessionId=${reply.sessionId} text=${chunk.slice(0, 200)}`);
         res.write(`${JSON.stringify({ type: 'chunk', sessionId: reply.sessionId, text: chunk })}\n`);
         await new Promise((resolve) => setTimeout(resolve, 55));
       }
 
+      this.logger.log(
+        `converse-stream done sessionId=${reply.sessionId} reply=${reply.reply.slice(0, 200)}`,
+      );
       res.write(
         `${JSON.stringify({ type: 'done', sessionId: reply.sessionId, reply: reply.reply })}\n`,
       );

@@ -60,6 +60,13 @@ final class SessionManager: ObservableObject {
         session = nil
         defaults.removeObject(forKey: StorageKeys.persistedSession)
     }
+
+    func resetForFreshStart() {
+        session = nil
+        defaults.removeObject(forKey: StorageKeys.persistedSession)
+        defaults.removeObject(forKey: StorageKeys.hasSeenWelcome)
+        defaults.removeObject(forKey: StorageKeys.lastSignedInEmail)
+    }
 }
 
 protocol SpeechRecognitionServiceProtocol {

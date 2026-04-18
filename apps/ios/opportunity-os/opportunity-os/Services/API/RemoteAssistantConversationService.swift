@@ -16,11 +16,10 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
         history: [AssistantConversationMessage],
         context: AssistantConversationContext
     ) async throws -> AssistantConversationReply {
-        #if DEBUG
-        print("[RemoteAssistantConversationService] POST ai/converse -> \(APIConfiguration.debugBaseURLString)")
-        print("[RemoteAssistantConversationService] sessionId: \(sessionId ?? "nil"), historyCount: \(history.count), workspaceState: \(context.workspaceState)")
-        print("[RemoteAssistantConversationService] message: \(message)")
-        #endif
+        debugTrace(
+            "AssistantAPI",
+            "respond starting sessionId=\(sessionId ?? "nil"), historyCount=\(history.count), workspaceState=\(context.workspaceState), message=\(message)"
+        )
         let response: ConversationResponse = try await client.post(
             "ai/converse",
             body: ConversationRequest(
@@ -32,10 +31,7 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
             accessToken: sessionManager.session?.accessToken
         )
 
-        #if DEBUG
-        print("[RemoteAssistantConversationService] response received with sessionId: \(response.sessionId)")
-        print("[RemoteAssistantConversationService] reply preview: \(response.reply.prefix(160))")
-        #endif
+        debugTrace("AssistantAPI", "respond completed sessionId=\(response.sessionId), reply=\(response.reply.prefix(160))")
         return AssistantConversationReply(sessionId: response.sessionId, text: response.reply)
     }
 
@@ -45,6 +41,10 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
         history: [AssistantConversationMessage],
         context: AssistantConversationContext
     ) throws -> AsyncThrowingStream<AssistantConversationStreamChunk, Error> {
+        debugTrace(
+            "AssistantAPI",
+            "stream starting sessionId=\(sessionId ?? "nil"), historyCount=\(history.count), workspaceState=\(context.workspaceState), message=\(message)"
+        )
         let stream = try client.postNDJSONStream(
             "ai/converse-stream",
             body: ConversationRequest(
@@ -60,10 +60,16 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
             Task {
                 do {
                     for try await event in stream {
+                        debugTrace(
+                            "AssistantAPI",
+                            "stream event type=\(event.type), sessionId=\(event.sessionId ?? "nil"), text=\((event.text ?? event.reply ?? "").prefix(160))"
+                        )
                         continuation.yield(event.domainChunk)
                     }
+                    debugTrace("AssistantAPI", "stream finished normally")
                     continuation.finish()
                 } catch {
+                    debugTrace("AssistantAPI", "stream failed error=\(error.localizedDescription)")
                     continuation.finish(throwing: error)
                 }
             }
