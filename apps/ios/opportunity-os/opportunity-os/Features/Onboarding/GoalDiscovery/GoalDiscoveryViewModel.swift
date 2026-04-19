@@ -7,9 +7,10 @@ final class GoalDiscoveryViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var inferredPlan: OnboardingPlan?
     @Published var voiceState: VoiceConversationState = .ready
+    @Published var pendingEmailDraft: OutreachMessage?
 
     private let assistantConversationService: AssistantConversationServiceProtocol
-    private let speechRecognitionService: SpeechRecognitionServiceProtocol
+    private var speechRecognitionService: SpeechRecognitionServiceProtocol
     private let speechSynthesisService: SpeechSynthesisServiceProtocol
     private let sessionManager: SessionManager
 
@@ -26,7 +27,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
         prefersVoiceInput: true
     )
 
-    let spokenIntroduction = "Hi, I’m your Opportunity OS assistant. I’m here to help you create momentum, whether you are pursuing a job, a contract, a client, or an important new conversation. Let’s start with what you want to make happen."
+    let spokenIntroduction = "Hi, I'm your Opportunity OS assistant. What do you want to make happen?"
 
     init(
         assistantConversationService: AssistantConversationServiceProtocol,
@@ -41,9 +42,31 @@ final class GoalDiscoveryViewModel: ObservableObject {
         self.messages = [
             AssistantConversationMessage(
                 role: .assistant,
-                text: "Hi, I’m your Opportunity OS assistant. I’ll help you create momentum and shape the first real cycle with you. Start by telling me what you want to make happen."
+                text: "Hi, I'm your Opportunity OS assistant. I'll help you create momentum and shape your first cycle. What do you want to make happen?"
             )
         ]
+
+        // Log which services are being used
+        let isStubAI = type(of: assistantConversationService) == StubAssistantConversationService.self
+        debugTrace("GoalDiscovery", "🚨 INIT: assistantConversationService type=\(type(of: assistantConversationService)), isStub=\(isStubAI)")
+        debugTrace("GoalDiscovery", "🚨 INIT: speechRecognitionService type=\(type(of: speechRecognitionService))")
+        debugTrace("GoalDiscovery", "🚨 INIT: speechSynthesisService type=\(type(of: speechSynthesisService))")
+        if isStubAI {
+            debugTrace("GoalDiscovery", "⚠️ WARNING: Using STUB AI service - responses will be canned, not from backend!")
+        } else {
+            debugTrace("GoalDiscovery", "✅ Using REAL AI service - responses will come from backend API")
+        }
+        
+        self.speechRecognitionService.onSpeechDetected = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                debugTrace("GoalDiscovery", "barge-in detected: stopping speech synthesis")
+                await self.speechSynthesisService.stopSpeaking()
+                if self.voiceState == .speaking {
+                    self.voiceState = .listening
+                }
+            }
+        }
     }
 
     var canContinue: Bool {
@@ -77,8 +100,21 @@ final class GoalDiscoveryViewModel: ObservableObject {
 
         Task {
             voiceState = .speaking
+            #if targetEnvironment(simulator)
             await speechSynthesisService.speak(latestAssistantText, preference: sessionManager.voicePreference)
-            voiceState = .ready
+            if !Task.isCancelled && voiceState == .speaking {
+                voiceState = .listening
+            }
+            beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+            #else
+            beginVoiceConversationTurn(isConcurrentWithSpeech: true)
+            speechRecognitionService.activeSynthesizedText = latestAssistantText
+            await speechSynthesisService.speak(latestAssistantText, preference: sessionManager.voicePreference)
+            speechRecognitionService.activeSynthesizedText = nil
+            if !Task.isCancelled && voiceState == .speaking {
+                voiceState = .listening
+            }
+            #endif
         }
     }
 
@@ -89,39 +125,95 @@ final class GoalDiscoveryViewModel: ObservableObject {
         Task {
             debugTrace("GoalDiscovery", "playing spoken introduction")
             voiceState = .speaking
+            #if targetEnvironment(simulator)
             await speechSynthesisService.speak(spokenIntroduction, preference: introductionVoice)
-            voiceState = .ready
-            debugTrace("GoalDiscovery", "introduction finished; starting voice turn")
-            beginVoiceConversationTurn()
+            debugTrace("GoalDiscovery", "introduction finished")
+            if !Task.isCancelled && voiceState == .speaking {
+                voiceState = .listening
+            }
+            beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+            #else
+            beginVoiceConversationTurn(isConcurrentWithSpeech: true)
+            speechRecognitionService.activeSynthesizedText = spokenIntroduction
+            await speechSynthesisService.speak(spokenIntroduction, preference: introductionVoice)
+            speechRecognitionService.activeSynthesizedText = nil
+            debugTrace("GoalDiscovery", "introduction finished")
+            if !Task.isCancelled && voiceState == .speaking {
+                voiceState = .listening
+            }
+            #endif
         }
     }
 
-    private func beginVoiceConversationTurn() {
+    private func beginVoiceConversationTurn(isConcurrentWithSpeech: Bool = false) {
         voiceTurnTask?.cancel()
+        debugTrace("GoalDiscovery", "🔍 DEBUG: beginVoiceConversationTurn START")
         voiceTurnTask = Task {
             do {
                 errorMessage = nil
                 transcript = ""
-                voiceState = .listening
+                if !isConcurrentWithSpeech {
+                    voiceState = .listening
+                    debugTrace("GoalDiscovery", "🔍 DEBUG: voiceState set to listening")
+                } else {
+                    debugTrace("GoalDiscovery", "🔍 DEBUG: listening concurrently with speech")
+                }
                 debugTrace("GoalDiscovery", "listening for onboarding utterance")
                 let utterance = try await speechRecognitionService.listenForUtterance()
                 let normalized = utterance.trimmingCharacters(in: .whitespacesAndNewlines)
                 transcript = normalized
-                debugTrace("GoalDiscovery", "captured utterance=\(normalized)")
+                debugTrace("GoalDiscovery", "🔍 DEBUG: captured utterance=\"\(normalized)\"")
                 guard !normalized.isEmpty else {
                     debugTrace("GoalDiscovery", "utterance empty; returning to ready")
-                    voiceState = .ready
+                    if voiceState == .listening {
+                        voiceState = .ready
+                    }
+                    debugTrace("GoalDiscovery", "🔍 DEBUG: RESTARTING after empty utterance")
+                    beginVoiceConversationTurn(isConcurrentWithSpeech: false) // Keep listening
                     return
                 }
+                
+                if self.isPauseCommand(normalized) {
+                    debugTrace("GoalDiscovery", "⏸️ PAUSE COMMAND DETECTED ('\(normalized)'). Continuing to listen without responding.")
+                    if voiceState != .listening {
+                        voiceState = .listening
+                    }
+                    beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+                    return
+                }
+
+                if self.isSendEmailCommand(normalized) {
+                    debugTrace("GoalDiscovery", "📧 SEND EMAIL COMMAND DETECTED ('\(normalized)')")
+                    if let draft = self.buildDraftFromConversation() {
+                        self.pendingEmailDraft = draft
+                        await speechSynthesisService.speak("Opening that up in your email now.", preference: sessionManager.voicePreference)
+                    } else {
+                        await speechSynthesisService.speak("I don't have a draft ready yet. Let's talk through what you want to send first.", preference: sessionManager.voicePreference)
+                    }
+                    if voiceState != .listening {
+                        voiceState = .listening
+                    }
+                    beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+                    return
+                }
+                
                 voiceState = .thinking
+                debugTrace("GoalDiscovery", "🔍 DEBUG: voiceState set to thinking")
                 debugTrace("GoalDiscovery", "sending onboarding message to assistant")
                 await processUserMessage(normalized)
+                debugTrace("GoalDiscovery", "🔍 DEBUG: processUserMessage completed, voiceState=\(voiceState)")
             } catch {
                 transcript = await speechRecognitionService.latestTranscript()
                 errorMessage = error.localizedDescription
+                debugTrace("GoalDiscovery", "🔍 DEBUG: listening FAILED error=\(error.localizedDescription)")
                 debugTrace("GoalDiscovery", "listening failed error=\(error.localizedDescription), partialTranscript=\(transcript)")
-                voiceState = .ready
+                if voiceState == .listening {
+                    voiceState = .ready
+                }
+                debugTrace("GoalDiscovery", "🔍 DEBUG: RESTARTING after error")
+                beginVoiceConversationTurn(isConcurrentWithSpeech: false) // Keep listening even after errors
             }
+            debugTrace("GoalDiscovery", "🔍 DEBUG: beginVoiceConversationTurn END")
         }
     }
 
@@ -135,7 +227,8 @@ final class GoalDiscoveryViewModel: ObservableObject {
     }
 
     private func processUserMessage(_ text: String) async {
-        debugTrace("GoalDiscovery", "processing user message=\(text)")
+        debugTrace("GoalDiscovery", "🔍 DEBUG: processUserMessage START text=\"\(text)\"")
+        debugTrace("GoalDiscovery", "🔍 DEBUG: serviceType=\(type(of: assistantConversationService))")
         messages.append(AssistantConversationMessage(role: .user, text: text))
         inferredPlan = buildPlan(from: userMessages)
         if let inferredPlan {
@@ -150,6 +243,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
         assistantResponseTask?.cancel()
         assistantResponseTask = Task {
             voiceState = .speaking
+            debugTrace("GoalDiscovery", "🔍 DEBUG: assistantResponseTask START messageId=\(messageId)")
             do {
                 debugTrace("GoalDiscovery", "awaiting assistant response for message=\(text)")
                 let reply = try await assistantConversationService.respond(
@@ -159,33 +253,73 @@ final class GoalDiscoveryViewModel: ObservableObject {
                     context: assistantContext
                 )
 
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    debugTrace("GoalDiscovery", "🔍 DEBUG: assistantResponseTask CANCELLED after response")
+                    return
+                }
 
                 assistantSessionId = reply.sessionId
                 updateAssistantMessage(id: messageId, text: reply.text)
                 debugTrace("GoalDiscovery", "assistant reply received sessionId=\(reply.sessionId ?? "nil"), text=\(reply.text.prefix(160))")
                 debugTrace("GoalDiscovery", "speaking assistant reply")
+                
+                voiceState = .speaking
+                #if targetEnvironment(simulator)
                 await speechSynthesisService.speak(reply.text, preference: sessionManager.voicePreference)
                 debugTrace("GoalDiscovery", "finished speaking assistant reply")
+                if voiceState == .speaking {
+                    voiceState = .listening
+                }
+                beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+                #else
+                beginVoiceConversationTurn(isConcurrentWithSpeech: true)
+                speechRecognitionService.activeSynthesizedText = reply.text
+                await speechSynthesisService.speak(reply.text, preference: sessionManager.voicePreference)
+                speechRecognitionService.activeSynthesizedText = nil
+                debugTrace("GoalDiscovery", "finished speaking assistant reply")
+                #endif
             } catch {
                 errorMessage = error.localizedDescription
                 let fallbackReply = localFallbackReply()
                 updateAssistantMessage(id: messageId, text: fallbackReply)
+                debugTrace("GoalDiscovery", "🔍 DEBUG: assistant request FAILED error=\(error.localizedDescription)")
                 debugTrace("GoalDiscovery", "assistant request failed error=\(error.localizedDescription); using fallback reply")
+                
+                voiceState = .speaking
+                #if targetEnvironment(simulator)
                 await speechSynthesisService.speak(fallbackReply, preference: sessionManager.voicePreference)
+                if voiceState == .speaking {
+                    voiceState = .listening
+                }
+                beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+                #else
+                beginVoiceConversationTurn(isConcurrentWithSpeech: true)
+                speechRecognitionService.activeSynthesizedText = fallbackReply
+                await speechSynthesisService.speak(fallbackReply, preference: sessionManager.voicePreference)
+                speechRecognitionService.activeSynthesizedText = nil
+                #endif
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                debugTrace("GoalDiscovery", "🔍 DEBUG: assistantResponseTask CANCELLED before restart check")
+                return
+            }
 
             inferredPlan = buildPlan(from: userMessages)
             debugTrace("GoalDiscovery", "post-response canContinue=\(canContinue), userMessageCount=\(userMessages.count)")
-            if canContinue {
-                voiceState = .ready
-            } else {
-                voiceState = .ready
-                beginVoiceConversationTurn()
+            
+            #if !targetEnvironment(simulator)
+            if voiceState == .speaking {
+                voiceState = .listening
             }
+            #endif
+            debugTrace("GoalDiscovery", "🔍 DEBUG: assistantResponseTask END")
         }
+
+        // CRITICAL: Wait for the assistant response to complete before returning
+        debugTrace("GoalDiscovery", "🔍 DEBUG: awaiting assistantResponseTask.value...")
+        await assistantResponseTask?.value
+        debugTrace("GoalDiscovery", "🔍 DEBUG: processUserMessage END (assistantResponseTask completed)")
     }
 
     private var userMessages: [String] {
@@ -305,5 +439,82 @@ final class GoalDiscoveryViewModel: ObservableObject {
         }
 
         return "\(plan.confirmationMessage) We can use that to shape your account lightly and move straight into the first real cycle."
+    }
+
+    private func isPauseCommand(_ text: String) -> Bool {
+        let cleaned = text.lowercased().components(separatedBy: .punctuationCharacters).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+        let pausePhrases: Set<String> = [
+            "wait", "stop", "listen", "pause", "shh", "shhh",
+            "hold on", "hang on", "hold up", "hold it",
+            "wait a minute", "wait a second", "wait a sec",
+            "hold on a minute", "hold on a second", "hold on a sec",
+            "hang on a minute", "hang on a second", "hang on a sec",
+            "one second", "one sec", "one minute",
+            "give me a second", "give me a sec", "give me a minute",
+            "give me a moment", "one moment", "just a moment", "just a second", "just a sec", "just a minute"
+        ]
+        return pausePhrases.contains(cleaned)
+    }
+
+    private func isSendEmailCommand(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let sendPhrases = [
+            "send that email", "send the email", "send it", "send that",
+            "go ahead and send", "send the draft", "send that draft",
+            "send this email", "send this", "email that", "email it",
+            "open in mail", "open it in mail", "open email",
+            "fire it off", "shoot it over", "send it over", "send it off"
+        ]
+        return sendPhrases.contains(where: { lower.contains($0) })
+    }
+
+    /// Extracts a sendable draft from the conversation history.
+    /// Looks for the last assistant message that appears to contain email content
+    /// (has a greeting like "Hi" or "Dear" and substantive body text).
+    private func buildDraftFromConversation() -> OutreachMessage? {
+        // Find the last assistant message that looks like an email draft
+        let assistantMessages = messages.filter { $0.role == .assistant }
+        guard let draftMessage = assistantMessages.last(where: { msg in
+            let lower = msg.text.lowercased()
+            return lower.contains("hi ") || lower.contains("dear ") || lower.contains("hello ") ||
+                   lower.contains("subject:") || lower.contains("hey ")
+        }) else {
+            return nil
+        }
+
+        // Try to extract subject from the text
+        let lines = draftMessage.text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }
+        var subject = "Outreach from Opportunity OS"
+        var bodyLines: [String] = []
+        var foundSubject = false
+
+        for line in lines {
+            if !foundSubject && line.lowercased().hasPrefix("subject:") {
+                subject = String(line.dropFirst(8)).trimmingCharacters(in: .whitespaces)
+                foundSubject = true
+            } else {
+                bodyLines.append(line)
+            }
+        }
+
+        let body = bodyLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return nil }
+
+        // Use recipients from the inferred plan context if available
+        let recipient = Recipient(
+            id: UUID(),
+            name: inferredPlan?.targetAudience ?? "Recipient",
+            organization: inferredPlan?.focusArea ?? "",
+            email: nil, // User fills this in the mail composer
+            role: "Contact"
+        )
+
+        return OutreachMessage(
+            id: UUID(),
+            subject: subject,
+            body: body,
+            recipients: [recipient],
+            approvalRequired: false
+        )
     }
 }

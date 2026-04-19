@@ -2,7 +2,7 @@ import { createLogger } from '@opportunity-os/logger';
 import { getConfig } from '@opportunity-os/config';
 
 const logger = createLogger('worker');
-const config = getConfig();
+getConfig(); // Initialize config
 
 async function bootstrap() {
   logger.info('Starting Opportunity OS Worker...');

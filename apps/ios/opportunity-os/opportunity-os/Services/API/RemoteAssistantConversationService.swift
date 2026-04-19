@@ -18,7 +18,7 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
     ) async throws -> AssistantConversationReply {
         debugTrace(
             "AssistantAPI",
-            "respond starting sessionId=\(sessionId ?? "nil"), historyCount=\(history.count), workspaceState=\(context.workspaceState), message=\(message)"
+            "🎤 VOICE PIPELINE: respond starting sessionId=\(sessionId ?? "nil"), historyCount=\(history.count), workspaceState=\(context.workspaceState), message=\"\(message)\""
         )
         let response: ConversationResponse = try await client.post(
             "ai/converse",
@@ -31,7 +31,7 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
             accessToken: sessionManager.session?.accessToken
         )
 
-        debugTrace("AssistantAPI", "respond completed sessionId=\(response.sessionId), reply=\(response.reply.prefix(160))")
+        debugTrace("AssistantAPI", "🎤 VOICE PIPELINE: respond completed sessionId=\(response.sessionId), reply=\"\(response.reply.prefix(160))\"")
         return AssistantConversationReply(sessionId: response.sessionId, text: response.reply)
     }
 
@@ -43,7 +43,11 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
     ) throws -> AsyncThrowingStream<AssistantConversationStreamChunk, Error> {
         debugTrace(
             "AssistantAPI",
-            "stream starting sessionId=\(sessionId ?? "nil"), historyCount=\(history.count), workspaceState=\(context.workspaceState), message=\(message)"
+            "🎤 VOICE PIPELINE: stream starting sessionId=\(sessionId ?? "nil"), historyCount=\(history.count), workspaceState=\(context.workspaceState), message=\"\(message)\""
+        )
+        debugTrace(
+            "AssistantAPI",
+            "🎤 VOICE PIPELINE: stream starting history=\(history.map { $0.text }.joined(separator: ", ")), context=\(context)"
         )
         let stream = try client.postNDJSONStream(
             "ai/converse-stream",

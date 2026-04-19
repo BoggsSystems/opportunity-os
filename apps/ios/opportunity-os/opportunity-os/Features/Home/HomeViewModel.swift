@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 struct SessionMessage: Identifiable, Hashable {
@@ -365,6 +366,11 @@ final class HomeViewModel: ObservableObject {
         voiceTurnTask = Task {
             errorMessage = nil
             transcript = ""
+
+            // Ensure audio session is properly reset before starting recording
+            // This prevents conflicts when transitioning from speech synthesis (playback) to recognition (recording)
+            await deactivateAudioSessionForRecording()
+
             voiceState = .listening
             isListening = true
             isSpeaking = false
@@ -375,23 +381,41 @@ final class HomeViewModel: ObservableObject {
                 let normalizedUtterance = utterance.trimmingCharacters(in: .whitespacesAndNewlines)
                 transcript = normalizedUtterance
                 isListening = false
-                debugTrace("HomeConversation", "captured utterance=\(normalizedUtterance)")
+                debugTrace("HomeConversation", "🎤 VOICE PIPELINE: captured utterance=\"\(normalizedUtterance)\"")
 
                 guard !normalizedUtterance.isEmpty else {
                     debugTrace("HomeConversation", "captured utterance was empty; returning to ready")
                     voiceState = .ready
+                    // In continuous mode, restart listening even for empty utterances
+                    if isContinuousVoiceModeEnabled {
+                        debugTrace("HomeConversation", "continuous mode: restarting after empty utterance")
+                        beginVoiceConversationTurn()
+                    }
                     return
                 }
 
                 voiceState = .thinking
                 debugTrace("HomeConversation", "transitioning to thinking for message=\(normalizedUtterance)")
+
+                // Process the transcribed message and wait for completion
+                // This will await the full assistant response including speech
                 await processUserMessage(normalizedUtterance, shouldSpeakResponse: true)
+
+                // Note: When continuous mode is enabled, the assistant response task
+                // will have already restarted listening via beginVoiceConversationTurn()
+                // before processUserMessage returns. If disabled, we simply stay in ready state.
+
             } catch {
                 transcript = await speechRecognitionService.latestTranscript()
                 errorMessage = error.localizedDescription
                 isListening = false
                 voiceState = .ready
                 debugTrace("HomeConversation", "voice turn failed error=\(error.localizedDescription), partialTranscript=\(transcript)")
+                // In continuous mode, restart listening even after errors
+                if isContinuousVoiceModeEnabled {
+                    debugTrace("HomeConversation", "continuous mode: restarting after error")
+                    beginVoiceConversationTurn()
+                }
             }
         }
     }
@@ -406,6 +430,19 @@ final class HomeViewModel: ObservableObject {
         isListening = false
         voiceState = .ready
         beginVoiceConversationTurn()
+    }
+
+    private func deactivateAudioSessionForRecording() async {
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            // Deactivate the current audio session (likely in playback mode from speech synthesis)
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            debugTrace("HomeConversation", "audio session deactivated for transition to recording")
+            // Small delay to ensure clean handoff
+            try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        } catch {
+            debugTrace("HomeConversation", "audio session deactivation warning (non-critical): \(error.localizedDescription)")
+        }
     }
 
     private func assistantOpening(for action: NextAction) -> String {
@@ -436,14 +473,18 @@ final class HomeViewModel: ObservableObject {
     }
 
     private func processUserMessage(_ message: String, shouldSpeakResponse: Bool) async {
-        debugTrace("HomeConversation", "processing user message shouldSpeak=\(shouldSpeakResponse) message=\(message)")
+        debugTrace("HomeConversation", "🎯 FUNCTION ENTRY: processUserMessage called with message=\"\(message)\" shouldSpeak=\(shouldSpeakResponse)")
+        debugTrace(
+            "HomeConversation",
+            "🎤 VOICE PIPELINE: processing user message shouldSpeak=\(shouldSpeakResponse) message=\"\(message)\""
+        )
         messages.append(SessionMessage(role: .user, text: message))
 
         guard shouldSpeakResponse else {
             let response = await responseForUserMessage(message)
             messages.append(SessionMessage(role: .assistant, text: response))
             voiceState = .ready
-            debugTrace("HomeConversation", "non-voice response completed text=\(response.prefix(160))")
+            debugTrace("HomeConversation", "🎤 VOICE PIPELINE: non-voice response completed text=\"\(response.prefix(160))\"")
             return
         }
 
@@ -454,22 +495,35 @@ final class HomeViewModel: ObservableObject {
         assistantResponseTask = Task {
             voiceState = .speaking
             isSpeaking = true
-            debugTrace("HomeConversation", "assistant response task started for messageId=\(messageId)")
+            debugTrace("HomeConversation", "assistant response task started for messageId=\(messageId), continuousMode=\(isContinuousVoiceModeEnabled)")
             do {
                 let response = try await streamAssistantResponse(
                     for: message,
                     messageId: messageId
                 )
 
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    debugTrace("HomeConversation", "assistant response cancelled after stream")
+                    return
+                }
+
+                // Wait for any remaining speech to complete before transitioning state
+                await speechSynthesisService.waitForSpeechQueue()
+
+                guard !Task.isCancelled else {
+                    debugTrace("HomeConversation", "assistant response cancelled after speech")
+                    return
+                }
 
                 isSpeaking = false
                 voiceState = .ready
-                debugTrace("HomeConversation", "streamed response completed text=\(response.prefix(160))")
+                debugTrace("HomeConversation", "streamed response completed text=\(response.prefix(160)), continuousMode=\(isContinuousVoiceModeEnabled)")
 
                 if isContinuousVoiceModeEnabled {
-                    debugTrace("HomeConversation", "continuous mode active; restarting listening after streamed response")
+                    debugTrace("HomeConversation", "🔄 CONTINUOUS MODE: restarting listening after streamed response")
                     beginVoiceConversationTurn()
+                } else {
+                    debugTrace("HomeConversation", "continuous mode disabled; staying in ready state")
                 }
             } catch {
                 let response = await responseForUserMessage(message)
@@ -482,15 +536,23 @@ final class HomeViewModel: ObservableObject {
                     response,
                     preference: sessionManager.voicePreference
                 )
+
+                guard !Task.isCancelled else { return }
+
                 isSpeaking = false
                 voiceState = .ready
 
                 if isContinuousVoiceModeEnabled {
-                    debugTrace("HomeConversation", "continuous mode active; restarting listening after fallback response")
+                    debugTrace("HomeConversation", "🔄 CONTINUOUS MODE: restarting listening after fallback response")
                     beginVoiceConversationTurn()
                 }
             }
         }
+
+        // CRITICAL: Wait for the assistant response to complete before returning
+        // This ensures continuous mode properly chains the conversation
+        await assistantResponseTask?.value
+        debugTrace("HomeConversation", "processUserMessage completed after awaiting assistant response")
     }
 
     private func updateAssistantMessage(id: UUID, text: String) {
@@ -500,6 +562,7 @@ final class HomeViewModel: ObservableObject {
     }
 
     private func responseForUserMessage(_ message: String) async -> String {
+        debugTrace("HomeConversation", "🎯 FUNCTION ENTRY: responseForUserMessage called with message=\"\(message)\"")
         do {
             debugTrace("HomeConversation", "requesting non-streaming response sessionId=\(assistantSessionId ?? "nil"), historyCount=\(conversationHistory.count)")
             let reply = try await assistantConversationService.respond(

@@ -69,6 +69,8 @@ actor StubSpeechRecognitionTurnStore {
 }
 
 final class StubSpeechRecognitionService: SpeechRecognitionServiceProtocol {
+    var onSpeechDetected: (() -> Void)? = nil
+    var activeSynthesizedText: String? = nil
     private let turnStore: StubSpeechRecognitionTurnStore
     private var transcript = ""
 

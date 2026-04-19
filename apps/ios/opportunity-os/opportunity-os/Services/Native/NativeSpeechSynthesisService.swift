@@ -86,9 +86,9 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
 
         do {
             try audioSession.setCategory(
-                .playback,
-                mode: .spokenAudio,
-                options: [.duckOthers]
+                .playAndRecord,
+                mode: .voiceChat,
+                options: [.duckOthers, .defaultToSpeaker, .allowBluetooth]
             )
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {

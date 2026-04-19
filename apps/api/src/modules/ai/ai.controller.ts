@@ -1,6 +1,7 @@
-import { Controller, Post, Body, HttpException, HttpStatus, Res, Logger } from '@nestjs/common';
+import { Controller, Post, Body, HttpException, HttpStatus, Res, Logger, Req } from '@nestjs/common';
 import { Response } from 'express';
 import { AiService } from './ai.service';
+import { prisma } from '@opportunity-os/db';
 
 @Controller('ai')
 export class AiController {
@@ -8,6 +9,7 @@ export class AiController {
 
   constructor(private readonly aiService: AiService) {}
 
+  
   @Post('test')
   async testConnection() {
     try {
@@ -93,7 +95,17 @@ export class AiController {
     message?: string;
     history?: Array<{ role: 'system' | 'user' | 'assistant'; text: string }>;
     context?: Record<string, unknown>;
-  }) {
+  }, @Req() req: any) {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new HttpException({ message: 'Unauthorized' }, HttpStatus.UNAUTHORIZED);
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true }
+    });
+    
     if (!body.message?.trim()) {
       throw new HttpException(
         { message: 'Message is required for conversational turns' },
@@ -103,16 +115,18 @@ export class AiController {
 
     try {
       this.logger.log(
-        `converse request sessionId=${body.sessionId ?? 'new'} historyCount=${body.history?.length ?? 0} workspaceState=${String(body.context?.['workspaceState'] ?? 'unknown')} message=${body.message}`,
+        `🎤 VOICE PIPELINE: converse request userId=${userId} userName=${user?.fullName ?? 'unknown'} sessionId=${body.sessionId ?? 'new'} message="${body.message}"`,
       );
       const reply = await this.aiService.converse({
+        userId,
+        userName: user?.fullName || undefined,
         sessionId: body.sessionId,
         message: body.message,
         history: body.history,
         context: body.context,
       });
       this.logger.log(
-        `converse response sessionId=${reply.sessionId} reply=${reply.reply.slice(0, 200)}`,
+        `🎤 VOICE PIPELINE: converse response sessionId=${reply.sessionId} reply="${reply.reply.slice(0, 200)}..."`,
       );
 
       return {
@@ -122,6 +136,7 @@ export class AiController {
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
+      this.logger.error(`Conversation turn failed: ${error.message}`, error.stack);
       throw new HttpException(
         {
           success: false,
@@ -141,8 +156,19 @@ export class AiController {
       history?: Array<{ role: 'system' | 'user' | 'assistant'; text: string }>;
       context?: Record<string, unknown>;
     },
+    @Req() req: any,
     @Res() res: Response,
   ) {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new HttpException({ message: 'Unauthorized' }, HttpStatus.UNAUTHORIZED);
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true }
+    });
+
     if (!body.message?.trim()) {
       throw new HttpException(
         { message: 'Message is required for conversational turns' },
@@ -152,9 +178,11 @@ export class AiController {
 
     try {
       this.logger.log(
-        `converse-stream request sessionId=${body.sessionId ?? 'new'} historyCount=${body.history?.length ?? 0} workspaceState=${String(body.context?.['workspaceState'] ?? 'unknown')} message=${body.message}`,
+        `🎤 VOICE PIPELINE: converse-stream request userId=${userId} userName=${user?.fullName ?? 'unknown'} sessionId=${body.sessionId ?? 'new'} message="${body.message}"`,
       );
       const reply = await this.aiService.converse({
+        userId,
+        userName: user?.fullName || undefined,
         sessionId: body.sessionId,
         message: body.message,
         history: body.history,
@@ -166,22 +194,23 @@ export class AiController {
       res.setHeader('Connection', 'keep-alive');
 
       res.write(`${JSON.stringify({ type: 'session', sessionId: reply.sessionId })}\n`);
-      this.logger.log(`converse-stream session established sessionId=${reply.sessionId}`);
+      this.logger.log(`🎤 VOICE PIPELINE: converse-stream session established sessionId=${reply.sessionId}`);
 
       for (const chunk of this.aiService.streamReplyChunks(reply.reply)) {
-        this.logger.log(`converse-stream chunk sessionId=${reply.sessionId} text=${chunk.slice(0, 200)}`);
+        this.logger.log(`🎤 VOICE PIPELINE: converse-stream chunk sessionId=${reply.sessionId} text="${chunk.slice(0, 200)}..."`);
         res.write(`${JSON.stringify({ type: 'chunk', sessionId: reply.sessionId, text: chunk })}\n`);
         await new Promise((resolve) => setTimeout(resolve, 55));
       }
 
       this.logger.log(
-        `converse-stream done sessionId=${reply.sessionId} reply=${reply.reply.slice(0, 200)}`,
+        `🎤 VOICE PIPELINE: converse-stream done sessionId=${reply.sessionId} reply="${reply.reply.slice(0, 200)}..."`,
       );
       res.write(
         `${JSON.stringify({ type: 'done', sessionId: reply.sessionId, reply: reply.reply })}\n`,
       );
       res.end();
     } catch (error) {
+      this.logger.error(`Conversation stream failed: ${error.message}`, error.stack);
       throw new HttpException(
         {
           success: false,

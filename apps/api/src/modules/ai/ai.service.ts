@@ -93,27 +93,49 @@ export class AiService {
   }
 
   async converse(input: {
+    userId: string;
+    userName?: string;
     sessionId?: string;
     message: string;
     history?: ConversationTurn[];
     context?: ConversationContext;
   }): Promise<{ sessionId: string; reply: string }> {
     this.logger.log(
-      `Generating conversational assistant response sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
+      `Generating conversational assistant response userId=${input.userId} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
     );
 
-    const sessionId = input.sessionId ?? crypto.randomUUID();
-    const session = this.conversationSessions.get(sessionId);
+    const sessionId = input.sessionId;
+    
+    // If no sessionId is provided, try to resume the most recent active conversation
+    if (!sessionId) {
+      const lastConversation = await prisma.aIConversation.findFirst({
+        where: { userId: input.userId, status: 'active' },
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true }
+      });
+      sessionId = lastConversation?.id || crypto.randomUUID();
+      this.logger.log(`No sessionId provided, resolved to=${sessionId === lastConversation?.id ? 'existing' : 'new'} sessionId=${sessionId}`);
+    }
+    
+    // Memory Retrieval: Load long-term summaries for this user
+    const summaries = await this.getLongTermSummaries(input.userId);
+    
+    // Load persistent history from DB
+    const dbHistory = await this.getPersistentHistory(input.userId, sessionId);
+    
+    // Merge provided history with DB history
     const history = this.mergeConversationHistory(
-      session?.history ?? [],
+      dbHistory,
       input.history ?? [],
     );
+
     this.logger.log(
-      `Conversation state prepared sessionId=${sessionId} mergedHistoryCount=${history.length} hadStoredSession=${session != null}`,
+      `Conversation state prepared sessionId=${sessionId} mergedHistoryCount=${history.length} dbHistoryCount=${dbHistory.length} summaryCount=${summaries.length}`,
     );
     const prompt = this.buildConversationPrompt({
       ...input,
       history,
+      summaries,
     });
     this.logger.log(`Conversation prompt preview sessionId=${sessionId} prompt=${prompt.slice(0, 400)}`);
     const request: AiRequest = {
@@ -125,8 +147,168 @@ export class AiService {
     const response = await this.aiProviderFactory.getProvider().generateText(request);
     const reply = response.content.trim();
     this.logger.log(`Provider reply sessionId=${sessionId} reply=${reply.slice(0, 300)}`);
-    this.storeConversationSession(sessionId, history, input.message, reply);
+    
+    // Persist to DB asynchronously
+    this.persistConversation(input.userId, sessionId, history, input.message, reply).then(() => {
+      // Trigger background auto-summarization if the history is getting long
+      if (history.length >= 10 && history.length % 5 === 0) {
+        this.summarizeConversation(input.userId, sessionId).catch(err => {
+          this.logger.error(`Auto-summarization failed for sessionId=${sessionId}`, err);
+        });
+      }
+    }).catch(err => {
+      this.logger.error(`Failed to persist conversation sessionId=${sessionId}`, err);
+    });
+    
     return { sessionId, reply };
+  }
+
+  private async getLongTermSummaries(userId: string): Promise<string[]> {
+    try {
+      const summaries = await prisma.aIContextSummary.findMany({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+        take: 10,
+      });
+
+      return summaries.map(s => `[${s.summaryType.toUpperCase()}]: ${s.content}`);
+    } catch (error) {
+      this.logger.warn(`Failed to fetch long-term summaries for userId=${userId}`, error);
+      return [];
+    }
+  }
+
+  private async summarizeConversation(userId: string, sessionId: string) {
+    this.logger.log(`Starting auto-summarization for sessionId=${sessionId}`);
+    
+    const messages = await prisma.aIConversationMessage.findMany({
+      where: { conversationId: sessionId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (messages.length < 4) return;
+
+    const transcript = messages.map(m => `${m.messageType.toUpperCase()}: ${m.content}`).join('\n');
+    
+    const summaryPrompt = `
+Analyze the following conversation transcript and extract high-density "Memory Flashcards" for long-term storage.
+Focus on:
+1. User Preferences (style, tone, specific requirements)
+2. Opportunity Insights (key details about companies or prospects discussed)
+3. Strategic Decisions (what was agreed upon or drafted)
+
+Transcript:
+${transcript}
+
+Rules:
+- be extremely concise
+- separate key points with bullet points
+- only include information that will be useful for future sessions
+- respond with the summary only, no preamble
+    `.trim();
+
+    const result = await this.aiProviderFactory.getProvider().generateText({
+      prompt: summaryPrompt,
+      temperature: 0.3,
+    });
+
+    const content = result.content.trim();
+    if (!content) return;
+
+    // Upsert a "Conversation Highlights" summary for this specific session
+    await prisma.aIContextSummary.upsert({
+      where: { 
+        id: sessionId // Using sessionId as a stable ID for this session's highlight
+      },
+      create: {
+        id: sessionId,
+        userId,
+        aiConversationId: sessionId,
+        title: `Summary of session ${sessionId.slice(0, 8)}`,
+        summaryType: 'conversation_highlights',
+        content,
+        sourceType: 'ai_conversation',
+        sourceId: sessionId,
+      },
+      update: {
+        content,
+        updatedAt: new Date(),
+      },
+    });
+
+    this.logger.log(`Persistent summary updated for sessionId=${sessionId}`);
+  }
+
+  private async getPersistentHistory(userId: string, sessionId: string): Promise<ConversationTurn[]> {
+    try {
+      const conversation = await prisma.aIConversation.findFirst({
+        where: { id: sessionId, userId },
+        include: {
+          messages: {
+            orderBy: { createdAt: 'asc' },
+            take: -20, // Last 20 messages
+          },
+        },
+      });
+
+      if (!conversation) return [];
+
+      return conversation.messages.map(m => ({
+        role: this.mapDbRoleToConversationRole(m.messageType),
+        text: m.content,
+      }));
+    } catch (error) {
+      this.logger.warn(`Failed to fetch persistent history for sessionId=${sessionId}`, error);
+      return [];
+    }
+  }
+
+  private async persistConversation(
+    userId: string,
+    sessionId: string,
+    history: ConversationTurn[],
+    userMessage: string,
+    assistantReply: string,
+  ) {
+    // Ensure conversation exists
+    await prisma.aIConversation.upsert({
+      where: { id: sessionId },
+      create: {
+        id: sessionId,
+        userId,
+        title: userMessage.slice(0, 50),
+        purpose: 'general',
+      },
+      update: {
+        lastMessageAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    // Save the new exchange
+    await prisma.aIConversationMessage.createMany({
+      data: [
+        {
+          conversationId: sessionId,
+          messageType: 'user',
+          content: userMessage,
+        },
+        {
+          conversationId: sessionId,
+          messageType: 'assistant',
+          content: assistantReply,
+        },
+      ],
+    });
+  }
+
+  private mapDbRoleToConversationRole(dbRole: string): ConversationRole {
+    switch (dbRole) {
+      case 'user': return 'user';
+      case 'assistant': return 'assistant';
+      case 'system': return 'system';
+      default: return 'user';
+    }
   }
 
   streamReplyChunks(reply: string): string[] {
@@ -201,9 +383,11 @@ Please provide a JSON response with this structure:
   }
 
   private buildConversationPrompt(input: {
+    userName?: string;
     message: string;
     history?: ConversationTurn[];
     context?: ConversationContext;
+    summaries?: string[];
   }): string {
     const history = (input.history ?? [])
       .slice(-8)
@@ -226,26 +410,30 @@ Please provide a JSON response with this structure:
       .join('\n');
 
     return `
-You are Opportunity OS, a calm, voice-first assistant guiding a user through business outreach cycles on iPhone.
+You are Opportunity OS, a voice-first assistant guiding business outreach on iPhone.
+You are talking to ${input.userName ?? 'the user'}.
 
 Your job:
 - respond conversationally, as if speaking aloud
-- keep replies concise and natural for voice playback
-- stay grounded in the current action/workspace context
-- help the user advance the next operational step without sounding robotic
-- when asked about calls, pre-call prep, or post-call debrief, respond as a helpful assistant preparing that workflow
+- keep replies concise and natural for voice
+- stay grounded in current context
+- help user advance next steps without sounding robotic
 
 Rules:
-- keep most responses to 2-5 spoken sentences
-- avoid markdown, bullets, or labels unless the user explicitly asks for them
-- if the user asks "what next", recommend the most relevant current step from context
-- do not invent business facts that are not present in the context
+- keep responses extremely crisp and short, usually under 5 seconds of speaking time (1-2 short sentences max)
+- ONLY provide longer explanations if the user explicitly requests one
+- avoid markdown, bullets, or labels
+- if asked "what next", recommend current step from context
+- don't invent facts not present in context
 
-Current workspace context:
-${contextLines || '- No special workspace context is active.'}
+Long-term memory (key highlights from past interactions):
+${input.summaries?.length ? input.summaries.join('\n') : '- No long-term highlights yet.'}
+
+Current context:
+${contextLines || '- No special context is active.'}
 
 Recent conversation:
-${history || 'ASSISTANT: We are starting a fresh voice session.'}
+${history || 'ASSISTANT: Starting fresh voice session.'}
 
 USER: ${input.message}
 ASSISTANT:
@@ -261,8 +449,7 @@ ASSISTANT:
     for (const turn of requestHistory) {
       const isDuplicate =
         combined.length > 0 &&
-        combined[combined.length - 1]?.role === turn.role &&
-        combined[combined.length - 1]?.text === turn.text;
+        combined.some(c => c.role === turn.role && c.text === turn.text);
 
       if (!isDuplicate) {
         combined.push(turn);
@@ -270,42 +457,5 @@ ASSISTANT:
     }
 
     return combined.slice(-12);
-  }
-
-  private storeConversationSession(
-    sessionId: string,
-    history: ConversationTurn[],
-    userMessage: string,
-    assistantReply: string,
-  ) {
-    const updatedHistory = [
-      ...history,
-      { role: 'user' as const, text: userMessage },
-      { role: 'assistant' as const, text: assistantReply },
-    ].slice(-14);
-
-    this.conversationSessions.set(sessionId, {
-      history: updatedHistory,
-      updatedAt: Date.now(),
-    });
-    this.logger.log(
-      `Stored conversation session sessionId=${sessionId} historyCount=${updatedHistory.length}`,
-    );
-
-    this.pruneConversationSessions();
-  }
-
-  private pruneConversationSessions() {
-    const cutoff = Date.now() - 1000 * 60 * 60;
-    let removedCount = 0;
-    for (const [sessionId, session] of this.conversationSessions.entries()) {
-      if (session.updatedAt < cutoff) {
-        this.conversationSessions.delete(sessionId);
-        removedCount += 1;
-      }
-    }
-    if (removedCount > 0) {
-      this.logger.log(`Pruned ${removedCount} expired conversation session(s)`);
-    }
   }
 }

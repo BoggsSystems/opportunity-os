@@ -4,6 +4,7 @@
   "description": "Opportunity OS background job processor",
   "private": true,
   "scripts": {
+    "dev": "npm run start:dev",
     "build": "tsc",
     "start": "node dist/main.js",
     "start:dev": "ts-node src/main.ts",

@@ -1,4 +1,5 @@
 import SwiftUI
+import MessageUI
 
 struct GoalDiscoveryView: View {
     @StateObject var viewModel: GoalDiscoveryViewModel
@@ -27,6 +28,53 @@ struct GoalDiscoveryView: View {
         .accessibilityIdentifier("screen.goalDiscovery")
         .task {
             viewModel.playIntroductionIfNeeded()
+        }
+        .sheet(item: $viewModel.pendingEmailDraft) { draft in
+            if MFMailComposeViewController.canSendMail() {
+                MailComposeView(
+                    subject: draft.subject,
+                    body: draft.body,
+                    recipients: draft.recipients.compactMap(\.email),
+                    onDismiss: { result in
+                        viewModel.pendingEmailDraft = nil
+                    }
+                )
+                .ignoresSafeArea()
+            } else {
+                // Fallback for Simulator / devices without Mail configured
+                VStack(spacing: 20) {
+                    Image(systemName: "envelope.badge.shield.half.filled")
+                        .font(.system(size: 48))
+                        .foregroundStyle(AppTheme.accent)
+                    Text("Mail Not Available")
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(AppTheme.primaryText)
+                    Text("Mail is not configured on this device. On a real iPhone the email draft would open directly in your Mail app.")
+                        .font(.body)
+                        .foregroundStyle(AppTheme.mutedText)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Subject: \(draft.subject)")
+                            .font(.headline)
+                        Text(draft.body)
+                            .font(.body)
+                            .foregroundStyle(AppTheme.mutedText)
+                    }
+                    .padding()
+                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 24)
+
+                    Button("Dismiss") {
+                        viewModel.pendingEmailDraft = nil
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppTheme.accent)
+                }
+                .padding()
+                .background(AppTheme.pageBackground.ignoresSafeArea())
+            }
         }
     }
 
