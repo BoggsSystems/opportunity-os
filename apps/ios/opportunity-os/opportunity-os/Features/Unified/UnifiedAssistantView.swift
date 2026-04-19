@@ -74,7 +74,8 @@ final class UnifiedAssistantViewModel: ObservableObject {
     private let messageDraftService: MessageDraftServiceProtocol
     private let emailService: EmailServiceProtocol
     private let authService: AuthServiceProtocol
-    private let sessionManager: SessionManager
+    let sessionManager: SessionManager
+    let apiClient: OpportunityOSAPIClient
     
     private var voiceTurnTask: Task<Void, Never>?
     private var assistantResponseTask: Task<Void, Never>?
@@ -90,7 +91,8 @@ final class UnifiedAssistantViewModel: ObservableObject {
         messageDraftService: MessageDraftServiceProtocol,
         emailService: EmailServiceProtocol,
         authService: AuthServiceProtocol,
-        sessionManager: SessionManager
+        sessionManager: SessionManager,
+        apiClient: OpportunityOSAPIClient
     ) {
         self.opportunityService = opportunityService
         self.nextActionService = nextActionService
@@ -103,6 +105,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
         self.emailService = emailService
         self.authService = authService
         self.sessionManager = sessionManager
+        self.apiClient = apiClient
         
         setupInitialState()
     }
@@ -342,13 +345,8 @@ struct UnifiedAssistantView: View {
             AppTheme.pageBackground.ignoresSafeArea()
             
             VStack(spacing: 0) {
-                // Persistent Assistant Hero Section
                 assistantHeroRegion
-                    .zIndex(1)
-                
-                // Dynamic Workspace Region
-                workspaceRegion
-                    .zIndex(0)
+                    .frame(maxHeight: .infinity)
             }
         }
         .sheet(item: $viewModel.pendingEmailDraft) { draft in
@@ -369,14 +367,14 @@ struct UnifiedAssistantView: View {
                 .padding(.bottom, 8)
             
             VStack(spacing: 0) {
-                // Top Half: Voice Interaction
+                // Top: Voice Interaction
                 VStack(spacing: 24) {
                     Button(action: viewModel.toggleListening) {
                         VoiceOrbView(isListening: viewModel.voiceState != .ready, pulse: true)
-                            .frame(width: 160, height: 160)
+                            .frame(width: 180, height: 180)
                     }
                     .buttonStyle(.plain)
-                    .padding(.top, 20)
+                    .padding(.top, 40)
                     
                     Text(orbCaption)
                         .font(.caption.weight(.bold))
@@ -384,15 +382,15 @@ struct UnifiedAssistantView: View {
                         .foregroundStyle(AppTheme.accent)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.bottom, 24)
+                .padding(.bottom, 40)
                 
-                // Bottom Half: Chat History
+                // Bottom: Chat History (Flexible)
                 VStack(spacing: 0) {
                     Divider()
-                        .background(AppTheme.border.opacity(0.5))
+                        .background(AppTheme.border.opacity(0.3))
                     
                     AssistantChatHistoryView(messages: viewModel.messages)
-                        .frame(height: 240) // Fixed height for the chat portion of the pillar
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .background(AppTheme.surface)
@@ -401,13 +399,6 @@ struct UnifiedAssistantView: View {
             .padding(.horizontal)
             .padding(.bottom, 20)
         }
-        .background(
-            LinearGradient(
-                colors: [AppTheme.surface, AppTheme.surface.opacity(0.95)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
     }
     
     private var header: some View {
@@ -420,34 +411,12 @@ struct UnifiedAssistantView: View {
                     .foregroundStyle(AppTheme.mutedText)
             }
             Spacer()
-            if case .pro = viewModel.sessionMode {
-                Button(action: { withAnimation { viewModel.workspaceState = .settings } }) {
-                    Image(systemName: "person.crop.circle")
-                        .font(.title3)
-                }
-                .foregroundStyle(AppTheme.primaryText)
-            }
         }
         .padding(.horizontal)
         .padding(.top)
     }
     
-    // MARK: - Workspace
-    
-    private var workspaceRegion: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 24) {
-                Text(workspaceTitle)
-                    .font(.title3.weight(.bold))
-                    .padding(.horizontal)
-                
-                workspaceContent
-                    .padding(.horizontal)
-            }
-            .padding(.vertical, 20)
-        }
-        .background(AppTheme.pageBackground)
-    }
+    // MARK: - Legacy Workspace Components (kept for reuse in other views)
     
     @ViewBuilder
     private var workspaceContent: some View {

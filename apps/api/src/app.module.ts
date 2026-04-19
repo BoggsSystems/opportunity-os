@@ -20,6 +20,7 @@ import { ResumesModule } from './modules/resumes/resumes.module';
 import { EvidenceModule } from './modules/evidence/evidence.module';
 import { OutreachModule } from './modules/outreach/outreach.module';
 import { AiModule } from './modules/ai/ai.module';
+import { AssetModule } from './modules/asset/asset.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { DevContextInterceptor } from './common/dev-context.interceptor';
 
@@ -44,6 +45,7 @@ import { DevContextInterceptor } from './common/dev-context.interceptor';
     DiscoveryModule,
     NextActionsModule,
     ResumesModule,
+    AssetModule,
     EvidenceModule,
     OutreachModule,
     AiModule,

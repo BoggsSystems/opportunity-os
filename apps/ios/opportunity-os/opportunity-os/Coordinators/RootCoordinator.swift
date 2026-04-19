@@ -18,13 +18,14 @@ final class RootCoordinator: ObservableObject {
             messageDraftService: container.messageDraftService,
             emailService: container.emailService,
             authService: container.authService,
-            sessionManager: container.sessionManager
+            sessionManager: container.sessionManager,
+            apiClient: container.apiClient
         )
         debugTrace("RootCoordinator", "initialized with Unified Assistant architecture")
     }
 
     @ViewBuilder
     func view() -> some View {
-        UnifiedAssistantView(viewModel: self.unifiedViewModel)
+        MainTabView(viewModel: self.unifiedViewModel)
     }
 }

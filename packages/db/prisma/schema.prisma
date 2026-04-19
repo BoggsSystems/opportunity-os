@@ -151,6 +151,23 @@ enum AIConversationPurpose {
   other
 }
 
+enum AssetCategory {
+  resume
+  executive_brief
+  portfolio
+  book
+  presentation
+  other
+}
+
+enum AssetInteractionType {
+  uploaded
+  analyzed
+  suggested
+  attached
+  sent
+}
+
 enum AIConversationStatus {
   active
   paused
@@ -227,6 +244,7 @@ model User {
   conversations  AIConversation[]
   summaries      AIContextSummary[]
   aiTasks        AITask[]
+  assets         UserAsset[]
 
   @@map("users")
 }
@@ -469,6 +487,7 @@ model Person {
   opportunityLinks     OpportunityPerson[]
   activities           Activity[]
   tasks                Task[]
+  assetInteractions    AssetInteraction[]
 
   @@index([userId])
   @@index([companyId])
@@ -509,6 +528,7 @@ model Opportunity {
   conversations     AIConversation[]    @relation("AIConversationOpportunity")
   summaries         AIContextSummary[]  @relation("AIContextSummaryOpportunity")
   aiTasks           AITask[]            @relation("AITaskOpportunity")
+  assetInteractions AssetInteraction[]
 
   @@index([userId])
   @@index([companyId])
@@ -884,4 +904,74 @@ model AITask {
   @@index([opportunityId])
   @@index([completedAt])
   @@map("ai_tasks")
+}
+
+model UserAsset {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @db.Uuid
+  displayName     String
+  fileName        String
+  fileUrl         String
+  mimeType        String?
+  category        AssetCategory @default(other)
+  isDefault       Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  narrative    AssetNarrative?
+  rules        AssetDeploymentRule[]
+  interactions AssetInteraction[]
+
+  @@index([userId])
+  @@index([category])
+  @@map("user_assets")
+}
+
+model AssetNarrative {
+  id               String   @id @default(uuid()) @db.Uuid
+  assetId          String   @unique @db.Uuid
+  valueProposition String?
+  targetPersona    String?
+  keyProofPoints   Json?
+  aiToneDNA        Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  asset UserAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@map("asset_narratives")
+}
+
+model AssetDeploymentRule {
+  id                     String   @id @default(uuid()) @db.Uuid
+  assetId                String   @db.Uuid
+  conditionsJson         Json?
+  recommendationStrength Int      @default(50)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  asset UserAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@map("asset_deployment_rules")
+}
+
+model AssetInteraction {
+  id              String               @id @default(uuid()) @db.Uuid
+  assetId         String               @db.Uuid
+  opportunityId   String?              @db.Uuid
+  personId        String?              @db.Uuid
+  interactionType AssetInteractionType
+  context         String?
+  occurredAt      DateTime             @default(now())
+
+  asset       UserAsset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  person      Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([assetId])
+  @@index([opportunityId])
+  @@index([personId])
+  @@map("asset_interactions")
 }

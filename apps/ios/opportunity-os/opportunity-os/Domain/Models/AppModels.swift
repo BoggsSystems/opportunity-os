@@ -282,6 +282,43 @@ struct SessionMessage: Identifiable, Hashable {
     }
 }
 
+struct UserAsset: Identifiable, Hashable, Codable {
+    let id: UUID
+    var displayName: String
+    var fileName: String
+    var fileUrl: String
+    var category: AssetCategory
+    var isDefault: Bool
+    var narrative: AssetNarrative?
+}
+
+enum AssetCategory: String, CaseIterable, Codable, Hashable {
+    case resume
+    case executiveBrief = "executive_brief"
+    case portfolio
+    case book
+    case presentation
+    case other
+    
+    var displayName: String {
+        switch self {
+        case .resume: "Resume"
+        case .executiveBrief: "Executive Brief"
+        case .portfolio: "Portfolio"
+        case .book: "Book"
+        case .presentation: "Presentation"
+        case .other: "Other"
+        }
+    }
+}
+
+struct AssetNarrative: Hashable, Codable {
+    var valueProposition: String?
+    var targetPersona: String?
+    var keyProofPoints: [String]?
+    var aiToneDNA: [String]?
+}
+
 enum VoiceConversationState: Hashable {
     case ready
     case listening

@@ -15,10 +15,12 @@ final class AppContainer {
     let emailService: EmailServiceProtocol
     let campaignService: CampaignServiceProtocol
     let contentDiscoveryService: ContentDiscoveryServiceProtocol
+    let apiClient: OpportunityOSAPIClient
 
     init(
         authService: AuthServiceProtocol,
         sessionManager: SessionManager,
+        apiClient: OpportunityOSAPIClient,
         speechRecognitionService: SpeechRecognitionServiceProtocol,
         speechSynthesisService: SpeechSynthesisServiceProtocol,
         voicePreferenceService: VoicePreferenceServiceProtocol,
@@ -46,6 +48,7 @@ final class AppContainer {
         self.emailService = emailService
         self.campaignService = campaignService
         self.contentDiscoveryService = contentDiscoveryService
+        self.apiClient = apiClient
     }
 }
 
@@ -76,12 +79,12 @@ extension AppContainer {
         )
     }
 
-    private static func makeAuthService() -> AuthServiceProtocol {
+    private static func makeAuthService(client: OpportunityOSAPIClient) -> AuthServiceProtocol {
         if ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1" {
             return StubAuthService()
         }
 
-        return RemoteAuthService(client: OpportunityOSAPIClient())
+        return RemoteAuthService(client: client)
     }
 
     private static func makeSessionManager() -> SessionManager {
@@ -134,13 +137,16 @@ extension AppContainer {
             "AppContainer",
             "preview container created; uiTestMode=\(isUITestMode), useRealAIInUITests=\(shouldUseRealAIInUITests), baseURL=\(APIConfiguration.debugBaseURLString)"
         )
+        let apiClient = OpportunityOSAPIClient()
+        let authService = makeAuthService(client: apiClient)
         let voicePreferenceService: VoicePreferenceServiceProtocol = isUITestMode
             ? StubVoicePreferenceService()
             : LocalVoicePreferenceService()
-        let apiClient = OpportunityOSAPIClient()
+
         return AppContainer(
-            authService: makeAuthService(),
+            authService: authService,
             sessionManager: sessionManager,
+            apiClient: apiClient,
             speechRecognitionService: isUITestMode
                 ? StubSpeechRecognitionService(seedInput: environment[UITestEnvironment.spokenTurns])
                 : NativeSpeechRecognitionService(),
