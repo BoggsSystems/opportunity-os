@@ -558,9 +558,12 @@ struct UnifiedAssistantView: View {
                     }
                     .padding()
                 }
-                .onChange(of: messages.count) { _ in
-                    withAnimation {
-                        proxy.scrollTo(messages.last?.id, anchor: .bottom)
+                .onChange(of: messages) { _ in
+                    Task {
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay for layout pass
+                        withAnimation(.spring()) {
+                            proxy.scrollTo(messages.last?.id, anchor: .bottom)
+                        }
                     }
                 }
                 .onAppear {

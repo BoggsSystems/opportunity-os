@@ -1,13 +1,17 @@
 import { Controller, Post, Body, HttpException, HttpStatus, Res, Logger, Req } from '@nestjs/common';
 import { Response } from 'express';
 import { AiService } from './ai.service';
+import { TtsService } from './tts.service';
 import { prisma } from '@opportunity-os/db';
 
 @Controller('ai')
 export class AiController {
   private readonly logger = new Logger(AiController.name);
 
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly ttsService: TtsService
+  ) {}
 
   
   @Post('test')
@@ -217,6 +221,41 @@ export class AiController {
         {
           success: false,
           message: 'Conversation stream failed',
+          error: err instanceof Error ? err.message : 'Unknown error',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Post('tts')
+  async generateSpeech(
+    @Body() body: { text: string; voice?: string },
+    @Res() res: Response
+  ) {
+    if (!body.text?.trim()) {
+      throw new HttpException(
+        { message: 'Text is required for TTS' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      this.logger.log(`🎤 VOICE PIPELINE: TTS request text="${body.text.slice(0, 100)}..." voice=${body.voice ?? 'alloy'}`);
+      const audioBuffer = await this.ttsService.generateSpeech(body.text, body.voice);
+      
+      res.set({
+        'Content-Type': 'audio/mpeg',
+        'Content-Length': audioBuffer.length,
+      });
+
+      res.send(audioBuffer);
+    } catch (err: any) {
+      this.logger.error(`TTS generation failed: ${err.message}`, err.stack);
+      throw new HttpException(
+        {
+          success: false,
+          message: 'TTS generation failed',
           error: err instanceof Error ? err.message : 'Unknown error',
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

@@ -73,6 +73,13 @@ struct OpportunityOSAPIClient {
         }
         return try decodeResponse(data: data, response: response)
     }
+    
+    func postBinary(_ path: String, body: some Encodable, accessToken: String? = nil) async throws -> Data {
+        let request = try makeJSONRequest(path: path, method: "POST", body: body, accessToken: accessToken)
+        let (data, response) = try await executeDataRequest(request)
+        try validateResponse(response, data: data)
+        return data
+    }
 
     func get<Response: Decodable>(_ path: String, accessToken: String? = nil) async throws -> Response {
         var request = URLRequest(url: APIConfiguration.baseURL.appendingPathComponent(path))

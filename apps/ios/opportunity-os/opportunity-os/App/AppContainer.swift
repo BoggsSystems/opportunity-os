@@ -146,7 +146,7 @@ extension AppContainer {
                 : NativeSpeechRecognitionService(),
             speechSynthesisService: isUITestMode
                 ? StubSpeechSynthesisService()
-                : NativeSpeechSynthesisService(),
+                : HybridSpeechSynthesisService(apiClient: apiClient, sessionManager: sessionManager),
             voicePreferenceService: voicePreferenceService,
             assistantConversationService: isUITestMode && !shouldUseRealAIInUITests
                 ? StubAssistantConversationService()
