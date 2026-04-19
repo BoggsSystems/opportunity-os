@@ -232,6 +232,7 @@ struct AssistantConversationContext: Hashable {
 struct AssistantConversationReply: Hashable {
     var sessionId: String?
     var text: String
+    var shouldBeSilent: Bool = false
 }
 
 struct AssistantConversationStreamChunk: Hashable {
@@ -245,6 +246,7 @@ struct AssistantConversationStreamChunk: Hashable {
     var sessionId: String?
     var text: String?
     var fullReply: String?
+    var shouldBeSilent: Bool = false
 }
 
 enum AppRouteState: Hashable {
@@ -261,4 +263,37 @@ struct OnboardingPlan: Hashable {
     var confirmationMessage: String
     var firstCycleSteps: [String]
     var firstDraftPrompt: String
+}
+
+struct SessionMessage: Identifiable, Hashable {
+    enum Role: Hashable {
+        case assistant
+        case user
+    }
+
+    let id: UUID
+    let role: Role
+    var text: String
+
+    init(id: UUID = UUID(), role: Role, text: String) {
+        self.id = id
+        self.role = role
+        self.text = text
+    }
+}
+
+enum VoiceConversationState: Hashable {
+    case ready
+    case listening
+    case thinking
+    case speaking
+}
+
+enum SessionWorkspaceState: Hashable {
+    case nextAction
+    case discovery(ContentItem)
+    case drafting(Opportunity)
+    case draftReady(OutreachMessage)
+    case completion(title: String, detail: String)
+    case empty
 }

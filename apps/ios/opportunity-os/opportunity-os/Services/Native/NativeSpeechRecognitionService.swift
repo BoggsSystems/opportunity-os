@@ -109,13 +109,33 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
+        
+        // Solution #1: Enable Native Voice Processing (Hardware AEC)
+        do {
+            try inputNode.setVoiceProcessingEnabled(true)
+            debugTrace("SpeechRecognition", "Native voice processing (AEC) enabled")
+        } catch {
+            debugTrace("SpeechRecognition", "Failed to enable native voice processing: \(error.localizedDescription)")
+        }
+
         let format = inputNode.outputFormat(forBus: 0)
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        
+        // Solution #2: High-Pass Filter (Spectral Subtraction of rumble)
+        let eqNode = AVAudioUnitEQ(numberOfBands: 1)
+        let filterBand = eqNode.bands[0]
+        filterBand.filterType = .highPass
+        filterBand.frequency = 300.0 // Cut off low-frequency speaker rumble
+        filterBand.bypass = false
+        
+        audioEngine.attach(eqNode)
+        audioEngine.connect(inputNode, to: eqNode, format: format)
+        
+        eqNode.removeTap(onBus: 0)
+        eqNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             request.append(buffer)
             if let self {
                 if self.transcript.isEmpty {
-                    debugTrace("SpeechRecognition", "receiving audio buffers")
+                    debugTrace("SpeechRecognition", "receiving audio buffers (filtered)")
                 }
             }
         }
@@ -250,6 +270,13 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
 
         if audioEngine.isRunning {
             audioEngine.stop()
+            // Cleanup EQ node and taps
+            for node in audioEngine.attachedNodes {
+                if node is AVAudioUnitEQ {
+                    node.removeTap(onBus: 0)
+                    audioEngine.detach(node)
+                }
+            }
             audioEngine.inputNode.removeTap(onBus: 0)
         }
 

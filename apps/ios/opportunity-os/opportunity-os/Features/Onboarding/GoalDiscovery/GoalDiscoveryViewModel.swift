@@ -1,4 +1,5 @@
 import Foundation
+import MessageUI
 
 @MainActor
 final class GoalDiscoveryViewModel: ObservableObject {
@@ -8,10 +9,13 @@ final class GoalDiscoveryViewModel: ObservableObject {
     @Published var inferredPlan: OnboardingPlan?
     @Published var voiceState: VoiceConversationState = .ready
     @Published var pendingEmailDraft: OutreachMessage?
+    
+    var onFinishRequest: ((OnboardingPlan) -> Void)?
 
     private let assistantConversationService: AssistantConversationServiceProtocol
     private var speechRecognitionService: SpeechRecognitionServiceProtocol
     private let speechSynthesisService: SpeechSynthesisServiceProtocol
+    private let emailService: EmailServiceProtocol
     private let sessionManager: SessionManager
 
     private var assistantSessionId: String?
@@ -33,11 +37,13 @@ final class GoalDiscoveryViewModel: ObservableObject {
         assistantConversationService: AssistantConversationServiceProtocol,
         speechRecognitionService: SpeechRecognitionServiceProtocol,
         speechSynthesisService: SpeechSynthesisServiceProtocol,
+        emailService: EmailServiceProtocol,
         sessionManager: SessionManager
     ) {
         self.assistantConversationService = assistantConversationService
         self.speechRecognitionService = speechRecognitionService
         self.speechSynthesisService = speechSynthesisService
+        self.emailService = emailService
         self.sessionManager = sessionManager
         self.messages = [
             AssistantConversationMessage(
@@ -182,6 +188,16 @@ final class GoalDiscoveryViewModel: ObservableObject {
                     return
                 }
 
+                if self.isFinishOnboardingCommand(normalized) {
+                    debugTrace("GoalDiscovery", "🏁 FINISH ONBOARDING intent detected ('\(normalized)')")
+                    if let plan = inferredPlan {
+                        onFinishRequest?(plan)
+                        return
+                    } else {
+                        await speechSynthesisService.speak("I'm almost ready. Let's finish identifying your first target first.", preference: sessionManager.voicePreference)
+                    }
+                }
+
                 if self.isSendEmailCommand(normalized) {
                     debugTrace("GoalDiscovery", "📧 SEND EMAIL COMMAND DETECTED ('\(normalized)')")
                     if let draft = self.buildDraftFromConversation() {
@@ -226,6 +242,36 @@ final class GoalDiscoveryViewModel: ObservableObject {
         beginVoiceConversationTurn()
     }
 
+    func handleMailResult(_ result: MFMailComposeResult, for draft: OutreachMessage) {
+        pendingEmailDraft = nil
+        debugTrace("GoalDiscovery", "📧 MAIL RESULT: \(result)")
+        
+        switch result {
+        case .sent:
+            // 1. Log visually in the chat
+            let recipientName = draft.recipients.first?.name ?? "the contact"
+            let confirmationText = "Email sent to \(recipientName)."
+            messages.append(AssistantConversationMessage(role: .assistant, text: confirmationText))
+            
+            // 2. Persist to backend activity log
+            Task {
+                try? await emailService.send(draft)
+                debugTrace("GoalDiscovery", "📧 Activity logged to backend for sent email")
+            }
+            
+            // 3. Inform the AI to trigger the next conversational move
+            Task {
+                await processUserMessage("[SYSTEM]: User successfully sent the email draft to \(recipientName).")
+            }
+            
+        case .cancelled, .saved, .failed:
+            // Just resume listening if they cancelled or it failed
+            beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+        @unknown default:
+            beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+        }
+    }
+
     private func processUserMessage(_ text: String) async {
         debugTrace("GoalDiscovery", "🔍 DEBUG: processUserMessage START text=\"\(text)\"")
         debugTrace("GoalDiscovery", "🔍 DEBUG: serviceType=\(type(of: assistantConversationService))")
@@ -260,7 +306,15 @@ final class GoalDiscoveryViewModel: ObservableObject {
 
                 assistantSessionId = reply.sessionId
                 updateAssistantMessage(id: messageId, text: reply.text)
-                debugTrace("GoalDiscovery", "assistant reply received sessionId=\(reply.sessionId ?? "nil"), text=\(reply.text.prefix(160))")
+                debugTrace("GoalDiscovery", "assistant reply received sessionId=\(reply.sessionId ?? "nil"), text=\(reply.text.prefix(160)), silent=\(reply.shouldBeSilent)")
+
+                if reply.shouldBeSilent {
+                    debugTrace("GoalDiscovery", "🤫 SILENT RESPONSE: skipping speech synthesis")
+                    voiceState = .listening
+                    beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+                    return
+                }
+
                 debugTrace("GoalDiscovery", "speaking assistant reply")
                 
                 voiceState = .speaking
@@ -444,16 +498,31 @@ final class GoalDiscoveryViewModel: ObservableObject {
     private func isPauseCommand(_ text: String) -> Bool {
         let cleaned = text.lowercased().components(separatedBy: .punctuationCharacters).joined().trimmingCharacters(in: .whitespacesAndNewlines)
         let pausePhrases: Set<String> = [
-            "wait", "stop", "listen", "pause", "shh", "shhh",
+            "wait", "stop", "listen", "pause", "shh", "shhh", "listen to me",
             "hold on", "hang on", "hold up", "hold it",
             "wait a minute", "wait a second", "wait a sec",
             "hold on a minute", "hold on a second", "hold on a sec",
             "hang on a minute", "hang on a second", "hang on a sec",
             "one second", "one sec", "one minute",
             "give me a second", "give me a sec", "give me a minute",
-            "give me a moment", "one moment", "just a moment", "just a second", "just a sec", "just a minute"
+            "give me a moment", "one moment", "just a moment", "just a second", "just a sec", "just a minute",
+            "be quiet", "quiet"
         ]
         return pausePhrases.contains(cleaned)
+    }
+
+    private func isFinishOnboardingCommand(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.contains("create account") || 
+               lower.contains("create my account") || 
+               lower.contains("finish setup") || 
+               lower.contains("finish the setup") || 
+               lower.contains("go to dashboard") ||
+               lower.contains("ready to start") ||
+               lower.contains("move on") ||
+               lower.contains("let's start") ||
+               lower.contains("let's go") ||
+               lower.contains("sign up")
     }
 
     private func isSendEmailCommand(_ text: String) -> Bool {

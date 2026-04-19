@@ -133,6 +133,7 @@ export class AiController {
         success: true,
         sessionId: reply.sessionId,
         reply: reply.reply,
+        shouldBeSilent: reply.shouldBeSilent,
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
@@ -203,10 +204,10 @@ export class AiController {
       }
 
       this.logger.log(
-        `🎤 VOICE PIPELINE: converse-stream done sessionId=${reply.sessionId} reply="${reply.reply.slice(0, 200)}..."`,
+        `🎤 VOICE PIPELINE: converse-stream done sessionId=${reply.sessionId} reply="${reply.reply.slice(0, 200)}..." shouldBeSilent=${reply.shouldBeSilent}`
       );
       res.write(
-        `${JSON.stringify({ type: 'done', sessionId: reply.sessionId, reply: reply.reply })}\n`,
+        `${JSON.stringify({ type: 'done', sessionId: reply.sessionId, reply: reply.reply, shouldBeSilent: reply.shouldBeSilent })}\n`,
       );
       res.end();
     } catch (error) {

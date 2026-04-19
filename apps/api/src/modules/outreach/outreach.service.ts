@@ -24,6 +24,12 @@ export class OutreachService {
     const opportunitySummary = opportunity.summary?.trim() || 'a relevant opportunity to connect';
     const suggestedAction = opportunity.nextAction?.trim();
     const subject = `Idea for ${companyName}: ${opportunity.title}`;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true }
+    });
+    const userName = user?.firstName || 'Jeff';
+
     const body = [
       `Hi ${contactName},`,
       '',
@@ -34,7 +40,7 @@ export class OutreachService {
       'If helpful, I can send over a concise point of view and a few concrete ideas to start from.',
       '',
       'Best,',
-      'Jeff',
+      userName,
     ].join('\n');
 
     const recipients = [

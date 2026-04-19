@@ -31,8 +31,12 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
             accessToken: sessionManager.session?.accessToken
         )
 
-        debugTrace("AssistantAPI", "🎤 VOICE PIPELINE: respond completed sessionId=\(response.sessionId), reply=\"\(response.reply.prefix(160))\"")
-        return AssistantConversationReply(sessionId: response.sessionId, text: response.reply)
+        debugTrace("AssistantAPI", "🎤 VOICE PIPELINE: respond completed sessionId=\(response.sessionId), reply=\"\(response.reply.prefix(160))\", silent=\(response.shouldBeSilent ?? false)")
+        return AssistantConversationReply(
+            sessionId: response.sessionId,
+            text: response.reply,
+            shouldBeSilent: response.shouldBeSilent ?? false
+        )
     }
 
     func streamResponse(
@@ -152,6 +156,7 @@ private struct ConversationResponse: Decodable {
     let success: Bool
     let sessionId: String
     let reply: String
+    let shouldBeSilent: Bool?
 }
 
 private struct ConversationStreamEvent: Decodable {
@@ -159,6 +164,7 @@ private struct ConversationStreamEvent: Decodable {
     let sessionId: String?
     let text: String?
     let reply: String?
+    let shouldBeSilent: Bool?
 
     var domainChunk: AssistantConversationStreamChunk {
         let kind: AssistantConversationStreamChunk.Kind
@@ -175,7 +181,8 @@ private struct ConversationStreamEvent: Decodable {
             kind: kind,
             sessionId: sessionId,
             text: text,
-            fullReply: reply
+            fullReply: reply,
+            shouldBeSilent: shouldBeSilent ?? false
         )
     }
 }

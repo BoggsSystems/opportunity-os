@@ -1,5 +1,11 @@
+export interface AiMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
 export interface AiRequest {
-  prompt: string;
+  prompt?: string;
+  messages?: AiMessage[];
   context?: Record<string, any>;
   temperature?: number;
   maxTokens?: number;

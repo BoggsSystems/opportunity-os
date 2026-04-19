@@ -157,29 +157,39 @@ struct StubAssistantConversationService: AssistantConversationServiceProtocol {
         if lowered.contains("why") {
             return AssistantConversationReply(
                 sessionId: sessionId ?? UUID().uuidString,
-                text: context.nextAction?.reason ?? "This is the best available move based on the current outreach and discovery context."
+                text: context.nextAction?.reason ?? "This is the best available move based on the current outreach and discovery context.",
+                shouldBeSilent: false
+            )
+        }
+
+        if lowered.contains("wait") || lowered.contains("shh") || lowered.contains("quiet") {
+            return AssistantConversationReply(
+                sessionId: sessionId ?? UUID().uuidString,
+                text: "",
+                shouldBeSilent: true
             )
         }
 
         if lowered.contains("next") || lowered.contains("what should i do") {
             if let title = context.nextAction?.title {
-                return AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "The next move is \(title).")
+                return AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "The next move is \(title).", shouldBeSilent: false)
             }
-            return AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "The next move is to import content or scan for opportunities.")
+            return AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "The next move is to import content or scan for opportunities.", shouldBeSilent: false)
         }
 
         if lowered.contains("call") {
-            return AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "I’m ready to support a pre-call brief, live call handoff, and post-call debrief here once that workflow is active.")
+            return AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "I’m ready to support a pre-call brief, live call handoff, and post-call debrief here once that workflow is active.", shouldBeSilent: false)
         }
 
         if lowered.contains("draft") {
-            return AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "I can prepare the draft in this workspace so you stay in the assistant flow.")
+            return AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "I can prepare the draft in this workspace so you stay in the assistant flow.", shouldBeSilent: false)
         }
 
         return AssistantConversationReply(
             sessionId: sessionId ?? UUID().uuidString,
             text: history.last(where: { $0.role == .assistant })?.text
-                ?? "I’m staying with you here. We can keep talking through the next move one turn at a time."
+                ?? "I’m staying with you here. We can keep talking through the next move one turn at a time.",
+            shouldBeSilent: false
         )
     }
 
@@ -195,23 +205,31 @@ struct StubAssistantConversationService: AssistantConversationServiceProtocol {
         if lowered.contains("why") {
             resolvedReply = AssistantConversationReply(
                 sessionId: sessionId ?? UUID().uuidString,
-                text: context.nextAction?.reason ?? "This is the best available move based on the current outreach and discovery context."
+                text: context.nextAction?.reason ?? "This is the best available move based on the current outreach and discovery context.",
+                shouldBeSilent: false
+            )
+        } else if lowered.contains("wait") || lowered.contains("shh") || lowered.contains("quiet") {
+            resolvedReply = AssistantConversationReply(
+                sessionId: sessionId ?? UUID().uuidString,
+                text: "",
+                shouldBeSilent: true
             )
         } else if lowered.contains("next") || lowered.contains("what should i do") {
             if let title = context.nextAction?.title {
-                resolvedReply = AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "The next move is \(title).")
+                resolvedReply = AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "The next move is \(title).", shouldBeSilent: false)
             } else {
-                resolvedReply = AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "The next move is to import content or scan for opportunities.")
+                resolvedReply = AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "The next move is to import content or scan for opportunities.", shouldBeSilent: false)
             }
         } else if lowered.contains("call") {
-            resolvedReply = AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "I’m ready to support a pre-call brief, live call handoff, and post-call debrief here once that workflow is active.")
+            resolvedReply = AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "I’m ready to support a pre-call brief, live call handoff, and post-call debrief here once that workflow is active.", shouldBeSilent: false)
         } else if lowered.contains("draft") {
-            resolvedReply = AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "I can prepare the draft in this workspace so you stay in the assistant flow.")
+            resolvedReply = AssistantConversationReply(sessionId: sessionId ?? UUID().uuidString, text: "I can prepare the draft in this workspace so you stay in the assistant flow.", shouldBeSilent: false)
         } else {
             resolvedReply = AssistantConversationReply(
                 sessionId: sessionId ?? UUID().uuidString,
                 text: history.last(where: { $0.role == .assistant })?.text
-                    ?? "I’m staying with you here. We can keep talking through the next move one turn at a time."
+                    ?? "I’m staying with you here. We can keep talking through the next move one turn at a time.",
+                shouldBeSilent: false
             )
         }
 
@@ -244,7 +262,8 @@ struct StubAssistantConversationService: AssistantConversationServiceProtocol {
                         kind: .done,
                         sessionId: resolvedReply.sessionId,
                         text: nil,
-                        fullReply: resolvedReply.text
+                        fullReply: resolvedReply.text,
+                        shouldBeSilent: resolvedReply.shouldBeSilent
                     )
                 )
                 continuation.finish()

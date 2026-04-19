@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AiProvider, AiRequest, AiResponse } from '../interfaces/ai-provider.interface';
+import { AiProvider, AiRequest, AiResponse, AiMessage } from '../interfaces/ai-provider.interface';
 
 @Injectable()
 export class OpenRouterAiProvider implements AiProvider {
@@ -26,6 +26,13 @@ export class OpenRouterAiProvider implements AiProvider {
     try {
       this.logger.log(`Making OpenRouter request with model: ${model}`);
       
+      const messages: AiMessage[] = request.messages ? request.messages : [
+        {
+          role: 'user',
+          content: request.prompt || '',
+        },
+      ];
+
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -36,12 +43,10 @@ export class OpenRouterAiProvider implements AiProvider {
         },
         body: JSON.stringify({
           model,
-          messages: [
-            {
-              role: 'user',
-              content: request.prompt,
-            },
-          ],
+          messages: messages.map(m => ({
+            role: m.role,
+            content: m.content,
+          })),
           temperature: request.temperature ?? 0.7,
           max_tokens: request.maxTokens ?? 1000,
         }),

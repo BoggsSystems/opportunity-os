@@ -1,39 +1,6 @@
 import AVFoundation
 import Foundation
 
-struct SessionMessage: Identifiable, Hashable {
-    enum Role: Hashable {
-        case assistant
-        case user
-    }
-
-    let id: UUID
-    let role: Role
-    var text: String
-
-    init(id: UUID = UUID(), role: Role, text: String) {
-        self.id = id
-        self.role = role
-        self.text = text
-    }
-}
-
-enum SessionWorkspaceState: Hashable {
-    case nextAction
-    case discovery(ContentItem)
-    case drafting(Opportunity)
-    case draftReady(OutreachMessage)
-    case completion(title: String, detail: String)
-    case empty
-}
-
-enum VoiceConversationState: Hashable {
-    case ready
-    case listening
-    case thinking
-    case speaking
-}
-
 @MainActor
 final class HomeViewModel: ObservableObject {
     @Published var cycle = PreviewData.cycle

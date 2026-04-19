@@ -10,10 +10,6 @@ struct GoalDiscoveryView: View {
             VStack(alignment: .leading, spacing: 24) {
                 voiceHeroRegion
 
-                if let plan = viewModel.inferredPlan {
-                    planPreview(plan)
-                }
-
                 conversationSummary
 
                 controls
@@ -27,6 +23,7 @@ struct GoalDiscoveryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("screen.goalDiscovery")
         .task {
+            viewModel.onFinishRequest = onContinue
             viewModel.playIntroductionIfNeeded()
         }
         .sheet(item: $viewModel.pendingEmailDraft) { draft in
@@ -36,7 +33,7 @@ struct GoalDiscoveryView: View {
                     body: draft.body,
                     recipients: draft.recipients.compactMap(\.email),
                     onDismiss: { result in
-                        viewModel.pendingEmailDraft = nil
+                        viewModel.handleMailResult(result, for: draft)
                     }
                 )
                 .ignoresSafeArea()
@@ -67,7 +64,7 @@ struct GoalDiscoveryView: View {
                     .padding(.horizontal, 24)
 
                     Button("Dismiss") {
-                        viewModel.pendingEmailDraft = nil
+                        viewModel.handleMailResult(.cancelled, for: draft)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(AppTheme.accent)
@@ -219,20 +216,6 @@ struct GoalDiscoveryView: View {
                 .tint(AppTheme.accent)
                 .disabled(viewModel.voiceState == .listening || viewModel.voiceState == .thinking)
             }
-
-            Button("Continue With This Plan") {
-                if let plan = viewModel.inferredPlan {
-                    onContinue(plan)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(AppTheme.accent)
-            .controlSize(.large)
-            .disabled(!viewModel.canContinue)
-
-            Text("We’ll use this to keep setup light, create your account, and carry the first cycle into the app.")
-                .font(.footnote)
-                .foregroundStyle(AppTheme.mutedText)
         }
     }
 

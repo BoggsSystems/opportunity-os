@@ -54,6 +54,7 @@ final class OnboardingCoordinator: ObservableObject {
                     assistantConversationService: self.container.assistantConversationService,
                     speechRecognitionService: self.container.speechRecognitionService,
                     speechSynthesisService: self.container.speechSynthesisService,
+                    emailService: self.container.emailService,
                     sessionManager: self.container.sessionManager
                 )
             ) { plan in
