@@ -1,4 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as crypto from 'crypto';
+import { 
+  prisma, 
+  AIConversationPurpose, 
+  AIConversationMessageType, 
+  AIConversationStatus,
+  AIContextSummaryType,
+  AIContextSummarySourceType
+} from '@opportunity-os/db';
 import { AiProviderFactory } from './ai-provider.factory';
 import { AiRequest, AiMessage } from './interfaces/ai-provider.interface';
 
@@ -28,15 +37,10 @@ interface ConversationContext {
   };
 }
 
-interface ConversationSessionState {
-  history: ConversationTurn[];
-  updatedAt: number;
-}
-
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private readonly conversationSessions = new Map<string, ConversationSessionState>();
+
 
   constructor(private aiProviderFactory: AiProviderFactory) {}
 
@@ -93,35 +97,39 @@ export class AiService {
   }
 
   async converse(input: {
-    userId: string;
+    userId?: string;
     userName?: string;
     sessionId?: string;
     message: string;
     history?: ConversationTurn[];
     context?: ConversationContext;
-  }): Promise<{ sessionId: string; reply: string }> {
+  }): Promise<{ sessionId: string; reply: string; shouldBeSilent: boolean }> {
     this.logger.log(
-      `Generating conversational assistant response userId=${input.userId} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
+      `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
     );
 
-    const sessionId = input.sessionId;
+    let sessionId = input.sessionId;
     
     // If no sessionId is provided, try to resume the most recent active conversation
-    if (!sessionId) {
+    if (!sessionId && input.userId) {
       const lastConversation = await prisma.aIConversation.findFirst({
         where: { userId: input.userId, status: 'active' },
         orderBy: { updatedAt: 'desc' },
         select: { id: true }
       });
-      sessionId = lastConversation?.id || crypto.randomUUID();
-      this.logger.log(`No sessionId provided, resolved to=${sessionId === lastConversation?.id ? 'existing' : 'new'} sessionId=${sessionId}`);
+      sessionId = lastConversation?.id;
+    }
+
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      this.logger.log(`No sessionId provided, generated new sessionId=${sessionId}`);
     }
     
-    // Memory Retrieval: Load long-term summaries for this user
-    const summaries = await this.getLongTermSummaries(input.userId);
+    // Memory Retrieval: Load long-term summaries for this user (if authenticated)
+    const summaries = input.userId ? await this.getLongTermSummaries(input.userId) : [];
     
-    // Load persistent history from DB
-    const dbHistory = await this.getPersistentHistory(input.userId, sessionId);
+    // Load persistent history from DB (if authenticated)
+    const dbHistory = input.userId ? await this.getPersistentHistory(input.userId, sessionId) : [];
     
     // Merge provided history with DB history
     const history = this.mergeConversationHistory(
@@ -144,25 +152,31 @@ export class AiService {
       maxTokens: 500,
     };
 
+    // Deep Trace: Log the exact messages being sent to the AI
+    this.logger.debug(`[DEEP TRACE] Final messages sent to provider: ${JSON.stringify(messages, null, 2)}`);
+
     const response = await this.aiProviderFactory.getProvider().generateText(request);
     const reply = response.content.trim();
+    this.logger.log(`RAW Provider reply: "${response.content}"`);
     this.logger.log(`Provider reply sessionId=${sessionId} reply=${reply.slice(0, 300)}`);
     
     // Check if the AI is indicating it should be silent (empty reply or specific indicator)
     const shouldBeSilent = reply === "" || reply.toLowerCase().includes("[silence]");
     const cleanedReply = shouldBeSilent ? "" : reply.replace(/\[silence\]/gi, "").trim();
 
-    // Persist to DB asynchronously
-    this.persistConversation(input.userId, sessionId, history, input.message, cleanedReply).then(() => {
-      // Trigger background auto-summarization if the history is getting long
-      if (history.length >= 10 && history.length % 5 === 0) {
-        this.summarizeConversation(input.userId, sessionId).catch(err => {
-          this.logger.error(`Auto-summarization failed for sessionId=${sessionId}`, err);
-        });
-      }
-    }).catch(err => {
-      this.logger.error(`Failed to persist conversation sessionId=${sessionId}`, err);
-    });
+    // Persist to DB asynchronously (only if authenticated)
+    if (input.userId) {
+      this.persistConversation(input.userId, sessionId, input.message, cleanedReply).then(() => {
+        // Trigger background auto-summarization if the history is getting long
+        if (history.length >= 10 && history.length % 5 === 0) {
+          this.summarizeConversation(input.userId!, sessionId).catch(err => {
+            this.logger.error(`Auto-summarization failed for sessionId=${sessionId}`, err);
+          });
+        }
+      }).catch(err => {
+        this.logger.error(`Failed to persist conversation sessionId=${sessionId}`, err);
+      });
+    }
     
     return { sessionId, reply: cleanedReply, shouldBeSilent };
   }
@@ -229,9 +243,9 @@ Rules:
         userId,
         aiConversationId: sessionId,
         title: `Summary of session ${sessionId.slice(0, 8)}`,
-        summaryType: 'conversation_highlights',
+        summaryType: AIContextSummaryType.conversation_highlights,
         content,
-        sourceType: 'ai_conversation',
+        sourceType: AIContextSummarySourceType.ai_conversation,
         sourceId: sessionId,
       },
       update: {
@@ -270,7 +284,6 @@ Rules:
   private async persistConversation(
     userId: string,
     sessionId: string,
-    history: ConversationTurn[],
     userMessage: string,
     assistantReply: string,
   ) {
@@ -281,7 +294,8 @@ Rules:
         id: sessionId,
         userId,
         title: userMessage.slice(0, 50),
-        purpose: 'general',
+        purpose: AIConversationPurpose.general,
+        status: AIConversationStatus.active,
       },
       update: {
         lastMessageAt: new Date(),
@@ -294,12 +308,12 @@ Rules:
       data: [
         {
           conversationId: sessionId,
-          messageType: 'user',
+          messageType: AIConversationMessageType.user,
           content: userMessage,
         },
         {
           conversationId: sessionId,
-          messageType: 'assistant',
+          messageType: AIConversationMessageType.assistant,
           content: assistantReply,
         },
       ],
@@ -394,49 +408,39 @@ Please provide a JSON response with this structure:
     summaries?: string[];
   }): AiMessage[] {
     const systemPrompt = `
-You are Opportunity OS, a voice-first assistant guiding business outreach on iPhone.
+You are Opportunity OS, a friendly and proactive voice-first assistant.
 You are talking to ${input.userName ?? 'the user'}.
 
-Your job:
-- respond conversationally, as if speaking aloud
-- keep replies concise and natural for voice
-- stay grounded in current context
-- help user advance next steps without sounding robotic
+Your Core Mission:
+- Acknowledge every user message warmly and concisely.
+- Speak naturally, like a human assistant on a phone call.
+- Help the user turn high-level goals into tactical business outreach.
 
-Rules:
-- keep responses extremely crisp and short, usually under 5 seconds of speaking time (1-2 short sentences max)
-- ONLY provide longer explanations if the user explicitly requests one
-- avoid markdown, bullets, or labels
-- if asked "what next", recommend current step from context
-- don't invent facts not present in context
-- IF the user says "wait", "hold on", "shh", "quiet", "stop", "listen to me", or asks you to be silent, you MUST respond with ONLY the text "[SILENCE]" and nothing else. This signals the UI to stay in listening mode without speaking.
-- IF you receive a [SYSTEM] message about an email being sent, acknowledge it warmly as a completed "Action Cycle," and suggest the next logical step (e.g. waiting for a reply or targeting another company).
-- When drafting an email for the user, ALWAYS sign off with the user's first name: ${input.userName ?? 'the user'}. Avoid placeholders like "[your name]".
+Response Rules:
+- Keep responses short (1-2 sentences) so they are easy to listen to.
+- DO NOT be silent. Even for "testing" or short phrases like "hello," respond with a friendly greeting or an offer to help.
+- Use plain language. Avoid markdown, bullets, or complex technical terms.
+- If the user asks "what next," check the context below and recommend the next logical step.
 
-Long-term memory (key highlights from past interactions):
-${input.summaries?.length ? input.summaries.join('\n') : '- No long-term highlights yet.'}
-
-Current context:
+Current Context:
 ${[
-  input.context?.workspaceState ? `- Workspace state: ${input.context.workspaceState}` : null,
-  input.context?.nextAction?.title ? `- Next action: ${input.context.nextAction.title}` : null,
-  input.context?.nextAction?.reason ? `- Why this action matters: ${input.context.nextAction.reason}` : null,
-  input.context?.nextAction?.recommendedAction ? `- Recommended move: ${input.context.nextAction.recommendedAction}` : null,
-  input.context?.opportunity?.title ? `- Opportunity: ${input.context.opportunity.title}` : null,
-  input.context?.opportunity?.companyName ? `- Company: ${input.context.opportunity.companyName}` : null,
-  input.context?.opportunity?.summary ? `- Opportunity summary: ${input.context.opportunity.summary}` : null,
-  input.context?.contentItem?.title ? `- Active content item: ${input.context.contentItem.title}` : null,
-  input.context?.contentItem?.summary ? `- Content summary: ${input.context.contentItem.summary}` : null,
-  input.context?.contentItem?.source ? `- Content source: ${input.context.contentItem.source}` : null,
-].filter(Boolean).join('\n') || '- No special context is active.'}
-    `.trim();
+  input.context?.workspaceState ? `- We are in the ${input.context.workspaceState} phase.` : null,
+  input.context?.nextAction?.title ? `- Recommended next move: ${input.context.nextAction.title}` : null,
+  input.context?.opportunity?.companyName ? `- Active company: ${input.context.opportunity.companyName}` : null,
+].filter(Boolean).join('\n') || '- No specific business context yet. Let\'s get started!'}
+
+IMPORTANT: Always respond with actual spoken words. Do not return empty strings or technical indicators.
+`.trim();
 
     const messages: AiMessage[] = [
       { role: 'system', content: systemPrompt }
     ];
 
-    // Add recent history (up to last 8 turns)
-    const history = (input.history ?? []).slice(-8);
+    // Add recent history (up to last 8 turns), filtering out placeholders and empty messages
+    const history = (input.history ?? [])
+      .filter(turn => turn.text && turn.text.trim() !== '' && turn.text !== '...')
+      .slice(-8);
+      
     for (const turn of history) {
       messages.push({
         role: turn.role === 'assistant' ? 'assistant' : 'user',

@@ -221,19 +221,6 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
                         self.onSpeechDetected?()
                     }
                 }
-
-                // Call completion callback when speech recognition finishes
-                if result.isFinal {
-                    debugTrace("SpeechRecognition", "✅ SUCCESS: result.isFinal=true, calling finishListeningSession")
-                    Task { @MainActor in
-                        self.finishListeningSession(returning: self.transcript)
-                    }
-                } else {
-                    debugTrace("SpeechRecognition", "⏳ PARTIAL: result.isFinal=false, continuing to listen")
-                    // Workaround: Reset silence timer on each partial result
-                    // This detects when user stops speaking and isFinal never fires
-                    self.resetSilenceTimer()
-                }
             }
 
             if let error {
@@ -244,14 +231,30 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
             }
 
             if result?.isFinal == true {
+                debugTrace("SpeechRecognition", "✅ SUCCESS: result.isFinal=true, calling finishListeningSession")
                 Task { @MainActor in
                     self.finishListeningSession(returning: self.transcript)
                 }
+            } else {
+                debugTrace("SpeechRecognition", "⏳ PARTIAL: result.isFinal=false, continuing to listen")
+                // Workaround: Reset silence timer on each partial result
+                // This detects when user stops speaking and isFinal never fires
+                self.resetSilenceTimer()
             }
         }
     }
 
+    private var isFinishing = false
+
     private func finishListeningSession(returning value: String, error: Error? = nil) {
+        // Ensure we only finish once
+        if isFinishing { return }
+        isFinishing = true
+        
+        defer {
+            isFinishing = false
+        }
+
         // Stop silence detection timer
         silenceTimer?.invalidate()
         silenceTimer = nil
@@ -262,15 +265,15 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
         } else {
             debugTrace("SpeechRecognition", "🏁 VOICE COMPLETE: finishing successfully with transcript=\(trimmed)")
         }
+
+        // Cleanup recognition resources immediately
         recognitionTask?.cancel()
         recognitionTask = nil
-
         recognitionRequest?.endAudio()
         recognitionRequest = nil
 
         if audioEngine.isRunning {
             audioEngine.stop()
-            // Cleanup EQ node and taps
             for node in audioEngine.attachedNodes {
                 if node is AVAudioUnitEQ {
                     node.removeTap(onBus: 0)
@@ -283,18 +286,19 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
 
         guard let continuation = utteranceContinuation else {
-            debugTrace("SpeechRecognition", "❌ VOICE ERROR: no continuation to resume - transcript lost!")
+            debugTrace("SpeechRecognition", "❌ VOICE ERROR: no continuation to resume - session already finished or never started")
             return
         }
 
         utteranceContinuation = nil
 
-        if let error, value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        // If we have an error AND no transcript, throw the error
+        if let error, trimmed.isEmpty {
             continuation.resume(throwing: error)
-            return
+        } else {
+            // Otherwise, prioritize whatever we managed to capture
+            continuation.resume(returning: value)
         }
-
-        continuation.resume(returning: value)
     }
 
     // MARK: - Silence Detection Workaround

@@ -26,9 +26,9 @@ export class OutreachService {
     const subject = `Idea for ${companyName}: ${opportunity.title}`;
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { firstName: true }
+      select: { fullName: true }
     });
-    const userName = user?.firstName || 'Jeff';
+    const userName = user?.fullName?.split(' ')[0] || 'Jeff';
 
     const body = [
       `Hi ${contactName},`,

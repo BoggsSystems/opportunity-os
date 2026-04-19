@@ -97,15 +97,16 @@ export class AiController {
     context?: Record<string, unknown>;
   }, @Req() req: any) {
     const userId = req.user?.id;
-    if (!userId) {
-      throw new HttpException({ message: 'Unauthorized' }, HttpStatus.UNAUTHORIZED);
+    
+    let userName: string | undefined = undefined;
+    if (userId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { fullName: true }
+      });
+      userName = user?.fullName || undefined;
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { fullName: true }
-    });
-    
     if (!body.message?.trim()) {
       throw new HttpException(
         { message: 'Message is required for conversational turns' },
@@ -115,15 +116,15 @@ export class AiController {
 
     try {
       this.logger.log(
-        `🎤 VOICE PIPELINE: converse request userId=${userId} userName=${user?.fullName ?? 'unknown'} sessionId=${body.sessionId ?? 'new'} message="${body.message}"`,
+        `🎤 VOICE PIPELINE: converse request userId=${userId ?? 'GUEST'} userName=${userName ?? 'unknown'} sessionId=${body.sessionId ?? 'new'} message="${body.message}"`,
       );
       const reply = await this.aiService.converse({
         userId,
-        userName: user?.fullName || undefined,
+        userName,
         sessionId: body.sessionId,
         message: body.message,
         history: body.history,
-        context: body.context,
+        context: body.context as any,
       });
       this.logger.log(
         `🎤 VOICE PIPELINE: converse response sessionId=${reply.sessionId} reply="${reply.reply.slice(0, 200)}..."`,
@@ -136,13 +137,13 @@ export class AiController {
         shouldBeSilent: reply.shouldBeSilent,
         timestamp: new Date().toISOString(),
       };
-    } catch (error) {
-      this.logger.error(`Conversation turn failed: ${error.message}`, error.stack);
+    } catch (err: any) {
+      this.logger.error(`Conversation turn failed: ${err.message}`, err.stack);
       throw new HttpException(
         {
           success: false,
           message: 'Conversation turn failed',
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: err instanceof Error ? err.message : 'Unknown error',
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
@@ -210,13 +211,13 @@ export class AiController {
         `${JSON.stringify({ type: 'done', sessionId: reply.sessionId, reply: reply.reply, shouldBeSilent: reply.shouldBeSilent })}\n`,
       );
       res.end();
-    } catch (error) {
-      this.logger.error(`Conversation stream failed: ${error.message}`, error.stack);
+    } catch (err: any) {
+      this.logger.error(`Conversation stream failed: ${err.message}`, err.stack);
       throw new HttpException(
         {
           success: false,
           message: 'Conversation stream failed',
-          error: error instanceof Error ? error.message : 'Unknown error',
+          error: err instanceof Error ? err.message : 'Unknown error',
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );

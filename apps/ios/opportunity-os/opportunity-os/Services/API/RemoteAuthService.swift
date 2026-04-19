@@ -67,6 +67,9 @@ struct OpportunityOSAPIClient {
         let (data, response) = try await executeDataRequest(request)
         if let httpResponse = response as? HTTPURLResponse {
             debugTrace("APIClient", "POST \(path) completed status=\(httpResponse.statusCode), bytes=\(data.count)")
+            if let bodyString = String(data: data, encoding: .utf8) {
+                debugTrace("APIClient", "RAW RESPONSE BODY: \(bodyString)")
+            }
         }
         return try decodeResponse(data: data, response: response)
     }

@@ -3,6 +3,8 @@ import Foundation
 import SwiftUI
 import MessageUI
 
+// MARK: - Global Assistant Shell Models
+
 enum AssistantSessionMode: Hashable {
     case onboarding(OnboardingPhase)
     case pro
@@ -20,14 +22,18 @@ enum UnifiedWorkspaceState: Hashable {
     case onboardingDiscovery
     case onboardingIdentity
     
-    // Pro States (inherited from Home)
-    case nextAction
-    case discovery(ContentItem)
-    case drafting(Opportunity)
-    case draftReady(OutreachMessage)
-    case completion(title: String, detail: String)
-    case empty
+    // Pro Workspace States
+    case dashboard              // Overview of momentum and next steps
+    case opportunityFocus       // Specific opportunity details
+    case opportunityList        // Browse all recommendations
+    case discoveryFocus         // Specific content/news item
+    case discoveryInventory     // Browse all discovered content
+    case outreachDrafting       // Active email drafting
+    case activityLog            // Past actions
+    case settings               // Voice & Account preferences
 }
+
+// MARK: - Unified Assistant ViewModel
 
 @MainActor
 final class UnifiedAssistantViewModel: ObservableObject {
@@ -47,6 +53,8 @@ final class UnifiedAssistantViewModel: ObservableObject {
     @Published var opportunities: [Opportunity] = []
     @Published var contentItems: [ContentItem] = []
     @Published var nextAction: NextAction?
+    @Published var activeOpportunity: Opportunity?
+    @Published var activeContentItem: ContentItem?
     @Published var pendingEmailDraft: OutreachMessage?
     @Published var isLoading = false
     @Published var isExecutingAction = false
@@ -102,7 +110,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
     private func setupInitialState() {
         if sessionManager.isAuthenticated {
             sessionMode = .pro
-            workspaceState = .nextAction
+            workspaceState = .dashboard
             Task { await loadProData() }
         } else {
             sessionMode = .onboarding(.introduction)
@@ -123,29 +131,27 @@ final class UnifiedAssistantViewModel: ObservableObject {
         nextAction = await nextActionService.fetchTopNextAction()
         contentItems = await contentDiscoveryService.fetchDiscoveredContent()
         
-        if let action = nextAction {
-            workspaceState = .nextAction
-            if messages.isEmpty {
-                messages = [SessionMessage(role: .assistant, text: "I’ve surfaced the next best move: \(action.title). Stay here with me and I’ll help you execute it step by step.")]
-            }
-        } else {
-            workspaceState = .empty
+        if workspaceState == .onboardingIntro || workspaceState == .onboardingIdentity {
+            workspaceState = .dashboard
         }
     }
     
-    // MARK: - Voice Interaction Logic (Unified)
+    // MARK: - Voice Interaction Logic
     
     func toggleListening() {
-        debugTrace("UnifiedAssistant", "toggleListening state=\(voiceState)")
+        if workspaceState == .onboardingIntro {
+            withAnimation {
+                workspaceState = .onboardingDiscovery
+            }
+        }
+        
         switch voiceState {
         case .ready:
             beginVoiceConversationTurn()
         case .listening:
             return
         case .thinking, .speaking:
-            Task {
-                await interruptConversationAndResumeListening()
-            }
+            Task { await interruptConversationAndResumeListening() }
         }
     }
     
@@ -167,21 +173,8 @@ final class UnifiedAssistantViewModel: ObservableObject {
                     return
                 }
                 
-                // Unified Intent Detection
-                if isPauseCommand(normalized) {
-                    beginVoiceConversationTurn()
-                    return
-                }
-                
-                if isFinishOnboardingCommand(normalized) {
-                    handleFinishOnboardingRequest()
-                    return
-                }
-                
-                if isSendEmailCommand(normalized) {
-                    handleSendEmailRequest()
-                    return
-                }
+                // Route navigation commands
+                if routeCommand(normalized) { return }
                 
                 voiceState = .thinking
                 await processUserMessage(normalized, shouldSpeakResponse: true)
@@ -192,6 +185,32 @@ final class UnifiedAssistantViewModel: ObservableObject {
                 if isContinuousVoiceModeEnabled { beginVoiceConversationTurn() }
             }
         }
+    }
+    
+    private func routeCommand(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        
+        if lower.contains("show my opportunities") || lower.contains("view recommendations") {
+            withAnimation { workspaceState = .opportunityList }
+            return true
+        }
+        
+        if lower.contains("go to settings") || lower.contains("open settings") {
+            withAnimation { workspaceState = .settings }
+            return true
+        }
+        
+        if lower.contains("show my content") || lower.contains("view discovery") {
+            withAnimation { workspaceState = .discoveryInventory }
+            return true
+        }
+        
+        if lower.contains("back to home") || lower.contains("go home") {
+            withAnimation { workspaceState = .dashboard }
+            return true
+        }
+        
+        return false
     }
     
     private func interruptConversationAndResumeListening() async {
@@ -205,18 +224,12 @@ final class UnifiedAssistantViewModel: ObservableObject {
     private func processUserMessage(_ text: String, shouldSpeakResponse: Bool) async {
         messages.append(SessionMessage(role: .user, text: text))
         
-        // Update onboarding plan if in discovery
-        if case .onboarding(.discovery) = sessionMode {
-            updateOnboardingPlan()
-        }
-        
         let messageId = UUID()
         messages.append(SessionMessage(id: messageId, role: .assistant, text: "..."))
         
         assistantResponseTask = Task {
             voiceState = .speaking
             do {
-                // Determine context based on unified state
                 let context = buildAssistantContext()
                 let reply = try await assistantConversationService.respond(
                     to: text,
@@ -236,10 +249,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
                 
                 await speechSynthesisService.speak(reply.text, preference: sessionManager.voicePreference)
                 voiceState = .ready
-                
-                if isContinuousVoiceModeEnabled {
-                    beginVoiceConversationTurn()
-                }
+                if isContinuousVoiceModeEnabled { beginVoiceConversationTurn() }
             } catch {
                 errorMessage = error.localizedDescription
                 updateAssistantMessage(id: messageId, text: "I'm having trouble connecting right now.")
@@ -249,114 +259,65 @@ final class UnifiedAssistantViewModel: ObservableObject {
         await assistantResponseTask?.value
     }
     
-    // MARK: - Intent Handlers
+    // MARK: - Identity & Auth
     
-    private func handleFinishOnboardingRequest() {
-        guard case .onboarding = sessionMode else { return }
-        
-        if let plan = onboardingPlan {
-            withAnimation {
-                sessionMode = .onboarding(.identityRequest)
-                workspaceState = .onboardingIdentity
+    func signUp() {
+        guard !onboardingEmail.isEmpty && !onboardingPassword.isEmpty else { return }
+        isExecutingAction = true
+        Task {
+            do {
+                let session = try await authService.signUp(email: onboardingEmail, password: onboardingPassword)
+                sessionManager.start(session: session)
+                withAnimation {
+                    sessionMode = .pro
+                    workspaceState = .dashboard
+                }
+                await loadProData()
+                messages.append(SessionMessage(role: .assistant, text: "Welcome aboard! Your first cycle is ready."))
+            } catch {
+                errorMessage = "Signup failed: \(error.localizedDescription)"
             }
-            Task {
-                await processUserMessage("[SYSTEM]: User is ready to create their account and finish setup.", shouldSpeakResponse: true)
-            }
-        } else {
-            Task {
-                await processUserMessage("I'm ready to start", shouldSpeakResponse: true)
-            }
+            isExecutingAction = false
         }
     }
     
-    private func handleSendEmailRequest() {
-        if let draft = buildDraftFromConversation() {
-            pendingEmailDraft = draft
-            Task {
-                await speechSynthesisService.speak("Opening that draft for you now.", preference: sessionManager.voicePreference)
-            }
+    // MARK: - Workspace Actions
+    
+    func focusOpportunity(_ opportunity: Opportunity) {
+        withAnimation {
+            activeOpportunity = opportunity
+            workspaceState = .opportunityFocus
+        }
+    }
+    
+    func focusContent(_ item: ContentItem) {
+        withAnimation {
+            activeContentItem = item
+            workspaceState = .discoveryFocus
         }
     }
     
     func handleMailResult(_ result: MFMailComposeResult, for draft: OutreachMessage) {
         pendingEmailDraft = nil
         if result == .sent {
-            messages.append(SessionMessage(role: .assistant, text: "Email sent to \(draft.recipients.first?.name ?? "the contact")."))
+            messages.append(SessionMessage(role: .assistant, text: "Email sent! I've updated the cycle status."))
             Task {
                 try? await emailService.send(draft)
-                await processUserMessage("[SYSTEM]: User successfully sent the email draft.", shouldSpeakResponse: true)
+                await processUserMessage("[SYSTEM]: User sent the outreach email.", shouldSpeakResponse: true)
             }
         } else {
             beginVoiceConversationTurn()
         }
     }
     
-    // MARK: - Identity Flow
-    
-    func signUp() {
-        guard !onboardingEmail.isEmpty && !onboardingPassword.isEmpty else { return }
-        
-        isExecutingAction = true
-        Task {
-            do {
-                let session = try await authService.signUp(email: onboardingEmail, password: onboardingPassword)
-                sessionManager.start(session: session)
-                
-                withAnimation {
-                    sessionMode = .pro
-                    workspaceState = .nextAction
-                }
-                await loadProData()
-                
-                messages.append(SessionMessage(role: .assistant, text: "Account created! You're all set. I've loaded your first cycle and I'm ready to keep going."))
-                await processUserMessage("[SYSTEM]: User successfully signed up and is now in Pro mode.", shouldSpeakResponse: true)
-                
-            } catch {
-                errorMessage = "Failed to create account: \(error.localizedDescription)"
-            }
-            isExecutingAction = false
-        }
-    }
-    
-    // MARK: - Helpers (Drafts, Plans, Commands)
-    
-    private func updateOnboardingPlan() {
-        let userTexts = messages.filter { $0.role == .user }.map(\.text)
-        let combined = userTexts.joined(separator: " ").lowercased()
-        // Simplistic logic for demonstration, real one would be more robust
-        if combined.contains("job") || combined.contains("role") {
-            onboardingPlan = OnboardingPlan(
-                focusArea: "Job Search",
-                opportunityType: "roles",
-                targetAudience: "Hiring Managers",
-                firstCycleTitle: "First Cycle",
-                assistantSummary: "Finding roles",
-                confirmationMessage: "Let's find some roles.",
-                firstCycleSteps: ["Step 1"],
-                firstDraftPrompt: "Draft an email"
-            )
-        }
-    }
+    // MARK: - Helpers
     
     private func buildAssistantContext() -> AssistantConversationContext {
-        let workspaceLabel: String
-        switch workspaceState {
-        case .onboardingIntro: workspaceLabel = "onboarding_intro"
-        case .onboardingDiscovery: workspaceLabel = "onboarding_discovery"
-        case .onboardingIdentity: workspaceLabel = "onboarding_identity"
-        case .nextAction: workspaceLabel = "next_action"
-        case .discovery: workspaceLabel = "discovery"
-        case .drafting: workspaceLabel = "drafting"
-        case .draftReady: workspaceLabel = "draft_ready"
-        case .completion: workspaceLabel = "completion"
-        case .empty: workspaceLabel = "empty"
-        }
-        
-        return AssistantConversationContext(
-            workspaceState: workspaceLabel,
+        AssistantConversationContext(
+            workspaceState: "\(workspaceState)",
             nextAction: nextAction,
-            opportunity: nil,
-            contentItem: nil
+            opportunity: activeOpportunity,
+            contentItem: activeContentItem
         )
     }
     
@@ -369,27 +330,9 @@ final class UnifiedAssistantViewModel: ObservableObject {
             messages[index].text = text
         }
     }
-    
-    private func isPauseCommand(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        return lower.contains("wait") || lower.contains("be quiet") || lower.contains("listen to me")
-    }
-    
-    private func isFinishOnboardingCommand(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        return lower.contains("create account") || lower.contains("sign up") || lower.contains("ready to start")
-    }
-    
-    private func isSendEmailCommand(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        return lower.contains("send email") || lower.contains("draft email")
-    }
-    
-    private func buildDraftFromConversation() -> OutreachMessage? {
-        // Placeholder logic to bridge to existing draft services
-        return nil
-    }
 }
+
+// MARK: - Global Assistant View (The Shell)
 
 struct UnifiedAssistantView: View {
     @StateObject var viewModel: UnifiedAssistantViewModel
@@ -399,18 +342,13 @@ struct UnifiedAssistantView: View {
             AppTheme.pageBackground.ignoresSafeArea()
             
             VStack(spacing: 0) {
-                header
+                // Persistent Assistant Hero Section
+                assistantHeroRegion
+                    .zIndex(1)
                 
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 24) {
-                            voiceHeroRegion
-                            transcriptRegion
-                            contextualWorkspaceRegion
-                        }
-                        .padding(20)
-                    }
-                }
+                // Dynamic Workspace Region
+                workspaceRegion
+                    .zIndex(0)
             }
         }
         .sheet(item: $viewModel.pendingEmailDraft) { draft in
@@ -418,146 +356,460 @@ struct UnifiedAssistantView: View {
                 subject: draft.subject,
                 body: draft.body,
                 recipients: draft.recipients.compactMap(\.email),
-                onDismiss: { result in
-                    viewModel.handleMailResult(result, for: draft)
-                }
+                onDismiss: { result in viewModel.handleMailResult(result, for: draft) }
             )
         }
     }
     
+    // MARK: - Assistant Hero
+    
+    private var assistantHeroRegion: some View {
+        VStack(spacing: 0) {
+            header
+                .padding(.bottom, 8)
+            
+            VStack(spacing: 0) {
+                // Top Half: Voice Interaction
+                VStack(spacing: 24) {
+                    Button(action: viewModel.toggleListening) {
+                        VoiceOrbView(isListening: viewModel.voiceState != .ready, pulse: true)
+                            .frame(width: 160, height: 160)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 20)
+                    
+                    Text(orbCaption)
+                        .font(.caption.weight(.bold))
+                        .tracking(2)
+                        .foregroundStyle(AppTheme.accent)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 24)
+                
+                // Bottom Half: Chat History
+                VStack(spacing: 0) {
+                    Divider()
+                        .background(AppTheme.border.opacity(0.5))
+                    
+                    AssistantChatHistoryView(messages: viewModel.messages)
+                        .frame(height: 240) // Fixed height for the chat portion of the pillar
+                }
+            }
+            .background(AppTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 32))
+            .shadow(color: AppTheme.shadow, radius: 20, y: 10)
+            .padding(.horizontal)
+            .padding(.bottom, 20)
+        }
+        .background(
+            LinearGradient(
+                colors: [AppTheme.surface, AppTheme.surface.opacity(0.95)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+    
     private var header: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("Opportunity OS")
-                    .font(.title2.weight(.bold))
+                    .font(.headline.weight(.bold))
                 Text(modeSubtitle)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(AppTheme.mutedText)
             }
             Spacer()
             if case .pro = viewModel.sessionMode {
-                Button(action: {}) {
-                    Image(systemName: "slider.horizontal.3")
+                Button(action: { withAnimation { viewModel.workspaceState = .settings } }) {
+                    Image(systemName: "person.crop.circle")
+                        .font(.title3)
                 }
-                .buttonStyle(.bordered)
+                .foregroundStyle(AppTheme.primaryText)
             }
         }
-        .padding()
-        .background(AppTheme.surface.opacity(0.8))
+        .padding(.horizontal)
+        .padding(.top)
     }
     
-    private var voiceHeroRegion: some View {
-        VStack(spacing: 20) {
-            Button(action: viewModel.toggleListening) {
-                VoiceOrbView(isListening: viewModel.voiceState != .ready, pulse: true)
-                    .frame(width: 200, height: 200)
+    // MARK: - Workspace
+    
+    private var workspaceRegion: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
+                Text(workspaceTitle)
+                    .font(.title3.weight(.bold))
+                    .padding(.horizontal)
+                
+                workspaceContent
+                    .padding(.horizontal)
             }
-            .buttonStyle(.plain)
-            
-            Text(orbCaption)
-                .font(.headline)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
+            .padding(.vertical, 20)
         }
-        .padding(30)
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 30))
-        .overlay(RoundedRectangle(cornerRadius: 30).stroke(AppTheme.border))
-        .shadow(color: AppTheme.shadow, radius: 20, y: 10)
-    }
-    
-    private var transcriptRegion: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("Conversation", systemImage: "text.bubble")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(AppTheme.accent)
-            
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(viewModel.messages.suffix(3)) { message in
-                    HStack {
-                        if message.role == .user { Spacer() }
-                        Text(message.text)
-                            .padding(12)
-                            .background(message.role == .assistant ? AppTheme.accentSoft : AppTheme.accent, in: RoundedRectangle(cornerRadius: 15))
-                            .foregroundStyle(message.role == .assistant ? AppTheme.primaryText : .white)
-                        if message.role == .assistant { Spacer() }
-                    }
-                }
-            }
-        }
-        .padding(20)
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 25))
-        .overlay(RoundedRectangle(cornerRadius: 25).stroke(AppTheme.border))
-    }
-    
-    private var contextualWorkspaceRegion: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(workspaceTitle)
-                .font(.headline)
-            
-            workspaceContent
-        }
-        .padding(22)
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 30))
-        .overlay(RoundedRectangle(cornerRadius: 30).stroke(AppTheme.border))
-        .shadow(color: AppTheme.shadow, radius: 15, y: 5)
+        .background(AppTheme.pageBackground)
     }
     
     @ViewBuilder
     private var workspaceContent: some View {
         switch viewModel.workspaceState {
         case .onboardingIntro:
-            Text("Tell me what you're looking for, and I'll build your first outreach strategy.")
-                .foregroundStyle(AppTheme.mutedText)
-            Button("Start Talking") { viewModel.toggleListening() }
-                .buttonStyle(.borderedProminent)
+            OnboardingIntroView(onStart: { viewModel.toggleListening() })
+            
+        case .onboardingDiscovery:
+            DiscoveryOnboardingWorkspaceView(viewModel: viewModel)
             
         case .onboardingIdentity:
-            VStack(spacing: 12) {
-                TextField("Email", text: $viewModel.onboardingEmail)
-                    .textFieldStyle(.roundedBorder)
-                SecureField("Password", text: $viewModel.onboardingPassword)
-                    .textFieldStyle(.roundedBorder)
-                Button("Create My Account") { viewModel.signUp() }
-                    .buttonStyle(.borderedProminent)
+            IdentitySetupView(email: $viewModel.onboardingEmail, password: $viewModel.onboardingPassword, onSignUp: { viewModel.signUp() })
+            
+        case .dashboard:
+            DashboardWorkspaceView(viewModel: viewModel)
+            
+        case .opportunityList:
+            OpportunityListWorkspaceView(opportunities: viewModel.opportunities, onSelect: { viewModel.focusOpportunity($0) })
+            
+        case .opportunityFocus:
+            if let opp = viewModel.activeOpportunity {
+                OpportunityDetailWorkspaceView(opportunity: opp, onBack: { viewModel.workspaceState = .opportunityList })
             }
             
-        case .nextAction:
-            if let action = viewModel.nextAction {
-                Text(action.title)
-                    .font(.title3.weight(.bold))
-                Text(action.reason)
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.mutedText)
-            }
+        case .discoveryInventory:
+            ContentListWorkspaceView(items: viewModel.contentItems, onSelect: { viewModel.focusContent($0) })
+            
+        case .settings:
+            SettingsWorkspaceView(viewModel: viewModel)
             
         default:
-            Text("Ready for the next move.")
+            Text("Ready for your next command.")
                 .foregroundStyle(AppTheme.mutedText)
+                .padding()
+        }
+    }
+    
+    // MARK: - Onboarding Discovery View
+    
+    struct DiscoveryOnboardingWorkspaceView: View {
+        @ObservedObject var viewModel: UnifiedAssistantViewModel
+        
+        var body: some View {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Building Your Strategy", systemImage: "sparkles")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.accent)
+                    
+                    Text("I'm analyzing your goals to generate your first set of opportunities.")
+                        .font(.headline)
+                        .foregroundStyle(AppTheme.primaryText)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+                
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("COMING SOON")
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundStyle(AppTheme.mutedText)
+                    
+                    HStack(spacing: 12) {
+                        PlaceholderCard(title: "Target Companies", icon: "building.2")
+                        PlaceholderCard(title: "Contact Leads", icon: "person.2")
+                    }
+                }
+            }
+        }
+    }
+    
+    struct PlaceholderCard: View {
+        let title: String
+        let icon: String
+        var body: some View {
+            VStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(AppTheme.mutedText)
+                Text(title)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 30)
+            .background(AppTheme.surface.opacity(0.5))
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(AppTheme.border.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5]))
+            )
+        }
+    }
+    
+    // MARK: - Chat History Component
+    
+    struct AssistantChatHistoryView: View {
+        let messages: [SessionMessage]
+        
+        var body: some View {
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(messages) { message in
+                            ChatBubble(message: message)
+                                .id(message.id)
+                        }
+                    }
+                    .padding()
+                }
+                .onChange(of: messages.count) { _ in
+                    withAnimation {
+                        proxy.scrollTo(messages.last?.id, anchor: .bottom)
+                    }
+                }
+                .onAppear {
+                    proxy.scrollTo(messages.last?.id, anchor: .bottom)
+                }
+            }
+            .background(AppTheme.secondaryBackground.opacity(0.3))
+        }
+    }
+    
+    struct ChatBubble: View {
+        let message: SessionMessage
+        
+        var body: some View {
+            HStack(alignment: .top, spacing: 12) {
+                if message.role == .assistant {
+                    Circle()
+                        .fill(AppTheme.accentSoft)
+                        .frame(width: 24, height: 24)
+                        .overlay(
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(AppTheme.accent)
+                        )
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(message.role == .assistant ? "ASSISTANT" : "YOU")
+                        .font(.system(size: 8, weight: .black))
+                        .tracking(1)
+                        .foregroundStyle(AppTheme.mutedText)
+                    
+                    Text(message.text)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(message.role == .assistant ? AppTheme.primaryText : AppTheme.accent)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                
+                Spacer()
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(message.role == .assistant ? AppTheme.surface : AppTheme.accentSoft.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(AppTheme.border.opacity(0.5), lineWidth: 0.5)
+            )
+        }
+    }
+    
+    // MARK: - Local Helpers
+    
+    private var orbCaption: String {
+        switch viewModel.voiceState {
+        case .ready: return "TAP TO TALK"
+        case .listening: return "I'M LISTENING"
+        case .thinking: return "THINKING"
+        case .speaking: return "SPEAKING"
         }
     }
     
     private var modeSubtitle: String {
         switch viewModel.sessionMode {
-        case .onboarding: return "Onboarding Session"
-        case .pro: return "Pro Assistant"
-        }
-    }
-    
-    private var orbCaption: String {
-        switch viewModel.voiceState {
-        case .ready: return "Tap to talk"
-        case .listening: return "I'm listening..."
-        case .thinking: return "Thinking..."
-        case .speaking: return "Speaking..."
+        case .onboarding: return "Setup Mode"
+        case .pro: return "Pro Mode"
         }
     }
     
     private var workspaceTitle: String {
         switch viewModel.workspaceState {
         case .onboardingIntro: return "Welcome"
-        case .onboardingDiscovery: return "Finding Your Goal"
-        case .onboardingIdentity: return "Secure Your Progress"
-        default: return "Current Action"
+        case .onboardingDiscovery: return "Discovery"
+        case .onboardingIdentity: return "Identity"
+        case .dashboard: return "Strategy Dashboard"
+        case .opportunityList: return "Recommendations"
+        case .opportunityFocus: return "Opportunity Focus"
+        case .discoveryInventory: return "Discovered Content"
+        case .settings: return "Preferences"
+        default: return "Active Session"
+        }
+    }
+}
+
+// MARK: - Modular Workspace Components
+
+struct OnboardingIntroView: View {
+    let onStart: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("I'm here to help you turn high-level goals into tactical outreach.")
+                .font(.headline)
+            Text("We'll start by talking through what you're looking for, then I'll generate a custom outreach engine for you.")
+                .foregroundStyle(AppTheme.mutedText)
+            Button("Start Talking", action: onStart)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+        }
+        .padding()
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+struct IdentitySetupView: View {
+    @Binding var email: String
+    @Binding var password: String
+    let onSignUp: () -> Void
+    var body: some View {
+        VStack(spacing: 16) {
+            TextField("Email Address", text: $email)
+                .textFieldStyle(.roundedBorder)
+            SecureField("Create Password", text: $password)
+                .textFieldStyle(.roundedBorder)
+            Button("Secure My Account", action: onSignUp)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+        }
+        .padding()
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+struct DashboardWorkspaceView: View {
+    @ObservedObject var viewModel: UnifiedAssistantViewModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if let action = viewModel.nextAction {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Next Best Move", systemImage: "bolt.fill")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.accent)
+                    Text(action.title)
+                        .font(.title3.weight(.bold))
+                    Text(action.reason)
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.mutedText)
+                }
+                .padding()
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+            }
+            
+            HStack(spacing: 16) {
+                MetricCard(title: "Active", value: "\(viewModel.opportunities.count)", icon: "target")
+                MetricCard(title: "Discovery", value: "\(viewModel.contentItems.count)", icon: "doc.text.magnifyingglass")
+            }
+        }
+    }
+}
+
+struct MetricCard: View {
+    let title: String
+    let value: String
+    let icon: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(AppTheme.accent)
+            Text(value)
+                .font(.title.weight(.bold))
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(AppTheme.mutedText)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+struct OpportunityListWorkspaceView: View {
+    let opportunities: [Opportunity]
+    let onSelect: (Opportunity) -> Void
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(opportunities) { opp in
+                Button(action: { onSelect(opp) }) {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(opp.title).font(.headline)
+                            Text(opp.companyName).font(.subheadline).foregroundStyle(AppTheme.mutedText)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(AppTheme.mutedText)
+                    }
+                    .padding()
+                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 15))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+struct OpportunityDetailWorkspaceView: View {
+    let opportunity: Opportunity
+    let onBack: () -> Void
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Button(action: onBack) {
+                Label("All Recommendations", systemImage: "chevron.left")
+                    .font(.caption.weight(.bold))
+            }
+            
+            Text(opportunity.companyName)
+                .font(.title.weight(.bold))
+            
+            Text(opportunity.summary)
+                .foregroundStyle(AppTheme.mutedText)
+            
+            Button("Draft Outreach") { }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding()
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+struct ContentListWorkspaceView: View {
+    let items: [ContentItem]
+    let onSelect: (ContentItem) -> Void
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(items) { item in
+                Button(action: { onSelect(item) }) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(item.title).font(.headline)
+                        Text(item.summary).lineLimit(2).font(.caption).foregroundStyle(AppTheme.mutedText)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 15))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+struct SettingsWorkspaceView: View {
+    @ObservedObject var viewModel: UnifiedAssistantViewModel
+    var body: some View {
+        VStack(spacing: 20) {
+            Toggle("Continuous Voice Mode", isOn: $viewModel.isContinuousVoiceModeEnabled)
+                .padding()
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 15))
+            
+            Button("Sign Out") { }
+                .foregroundStyle(.red)
         }
     }
 }
