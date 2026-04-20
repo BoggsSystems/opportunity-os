@@ -8,6 +8,7 @@ import {
   AIContextSummaryType,
   AIContextSummarySourceType
 } from '@opportunity-os/db';
+import { SearchService } from './search.service';
 import { AiProviderFactory } from './ai-provider.factory';
 import { AiRequest, AiMessage } from './interfaces/ai-provider.interface';
 
@@ -42,7 +43,10 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
 
 
-  constructor(private aiProviderFactory: AiProviderFactory) {}
+  constructor(
+    private aiProviderFactory: AiProviderFactory,
+    private searchService: SearchService,
+  ) {}
 
   async summarizeText(input: string): Promise<string> {
     this.logger.log('Summarizing text with AI');
@@ -104,7 +108,7 @@ export class AiService {
     message: string;
     history?: ConversationTurn[];
     context?: ConversationContext;
-  }): Promise<{ sessionId: string; reply: string; shouldBeSilent: boolean }> {
+  }): Promise<{ sessionId: string; reply: string; shouldBeSilent: boolean; suggestedAction?: string }> {
     this.logger.log(
       `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} guestSessionId=${input.guestSessionId ?? 'none'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
     );
@@ -147,11 +151,23 @@ export class AiService {
     const onboardingState = await this.determineOnboardingState(input.userId, input.guestSessionId);
     this.logger.log(`Determined onboarding state: ${onboardingState.phase}`);
 
+    // Detect Search Intent & Perform Research
+    let searchResults: string | undefined;
+    if (this.detectSearchIntent(input.message)) {
+      this.logger.log(`Search intent detected for message: "${input.message}"`);
+      const results = await this.searchService.search(input.message);
+      if (results.length > 0) {
+        searchResults = results.map(r => `Title: ${r.title}\nURL: ${r.url}\nContent: ${r.content}`).join('\n---\n');
+        this.logger.log(`Injected ${results.length} search results into context.`);
+      }
+    }
+
     const messages = this.buildConversationMessages({
       ...input,
       history,
       summaries,
       onboardingState,
+      searchResults,
     });
 
     const request: AiRequest = {
@@ -167,15 +183,23 @@ export class AiService {
     let reply = response.content.trim();
     let suggestedAction: string | undefined;
 
-    if (reply.includes('[PROPOSE_GOAL]')) {
+    // Detection with Tag or Heuristic Fallback
+    const hasGoalTag = reply.includes('[PROPOSE_GOAL]');
+    const hasGoalPhrase = reply.toLowerCase().includes('drafted that goal') || reply.toLowerCase().includes('summary on your screen');
+    
+    const hasCampaignTag = reply.includes('[PROPOSE_CAMPAIGN]');
+    const hasCampaignPhrase = reply.toLowerCase().includes('drafted that campaign') || reply.toLowerCase().includes('strategy on your screen');
+
+    if (hasGoalTag || hasGoalPhrase) {
       suggestedAction = 'PROPOSE_GOAL';
       reply = reply.replace('[PROPOSE_GOAL]', '').trim();
-    } else if (reply.includes('[PROPOSE_CAMPAIGN]')) {
+    } else if (hasCampaignTag || hasCampaignPhrase) {
       suggestedAction = 'PROPOSE_CAMPAIGN';
       reply = reply.replace('[PROPOSE_CAMPAIGN]', '').trim();
     }
 
     this.logger.log(`RAW Provider reply: "${response.content}"`);
+    if (suggestedAction) this.logger.log(`Detected suggestedAction: ${suggestedAction}`);
     this.logger.log(`Provider reply sessionId=${sessionId} reply=${reply.slice(0, 300)}`);
     
     // Check if the AI is indicating it should be silent (empty reply or specific indicator)
@@ -382,6 +406,16 @@ Rules:
     }
   }
 
+  private detectSearchIntent(message: string): boolean {
+    const searchKeywords = [
+      'search', 'find', 'who', 'where', 'recruiters', 'jobs', 
+      'look up', 'research', 'latest', 'news', 'companies',
+      'hiring', 'openings', 'firm', 'agency'
+    ];
+    const lowerMessage = message.toLowerCase();
+    return searchKeywords.some(keyword => lowerMessage.includes(keyword));
+  }
+
   private async persistConversation(
     userId: string | undefined,
     guestSessionId: string | undefined,
@@ -512,6 +546,7 @@ Please provide a JSON response with this structure:
     context?: ConversationContext;
     summaries?: string[];
     onboardingState?: { phase: string; mission: string };
+    searchResults?: string;
   }): AiMessage[] {
     const systemPrompt = `
 You are Opportunity OS, a friendly and proactive voice-first assistant.
@@ -526,13 +561,15 @@ Current Pipeline Status & Mission:
 - Phase: ${input.onboardingState?.phase ?? 'GENERAL'}
 - Directive: ${input.onboardingState?.mission ?? 'Assist with business growth.'}
 
-Phase Triggers:
-- If you have enough information to form a clear business GOAL, start your response with "[PROPOSE_GOAL]". 
-- If the goal is confirmed and you have enough information to suggest a CAMPAIGN strategy, start your response with "[PROPOSE_CAMPAIGN]".
+${input.searchResults ? `Real-time Research Results:\n${input.searchResults}\n\nNote: Use the research results above to provide specific, up-to-date names and details. Cite that you've looked this up.` : ''}
+
+Phase Triggers (MANDATORY):
+- If you have enough information to form a clear business GOAL, you MUST start your response with "[PROPOSE_GOAL]". 
+- If the goal is confirmed and you have enough information to suggest a CAMPAIGN strategy, you MUST start your response with "[PROPOSE_CAMPAIGN]".
 
 Response Rules:
 - Keep responses short (1-2 sentences) so they are easy to listen to.
-- If you are proposing a Goal or Campaign, be explicit: "I've drafted that goal for you. Take a look at the summary on your screen."
+- If you are proposing a Goal or Campaign, ALWAYS use the trigger tag above AND be explicit: "I've drafted that goal for you. Take a look at the summary on your screen."
 - DO NOT be silent. Even for "testing" or short phrases like "hello," respond with a friendly greeting or an offer to help.
 - Use plain language. Avoid markdown, bullets, or complex technical terms.
 - If the user asks "what next," check the context below and recommend the next logical step.
