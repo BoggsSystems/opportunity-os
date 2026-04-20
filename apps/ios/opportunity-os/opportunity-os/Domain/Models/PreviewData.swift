@@ -68,13 +68,15 @@ enum PreviewData {
         )
     ]
 
-    static let campaigns = [
+    static let campaigns: [Campaign] = [
         Campaign(
             id: UUID(),
+            goalId: UUID(),
             title: "Agentic Engineering Credibility Campaign",
-            theme: "Use third-party research to open high-signal conversations about AI-native SDLC transformation.",
-            status: .ready,
-            linkedContentItems: contentItems
+            strategicAngle: "Use third-party research to open high-signal conversations about AI-native SDLC transformation.",
+            targetSegment: "CTOs at mid-market tech companies",
+            status: .active,
+            assetIds: contentItems.map { $0.id }
         )
     ]
 

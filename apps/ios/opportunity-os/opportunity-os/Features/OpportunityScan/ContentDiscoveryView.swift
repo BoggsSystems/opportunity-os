@@ -112,7 +112,7 @@ struct ContentDiscoveryView: View {
                             Text(campaign.title)
                                 .font(.headline)
                                 .foregroundStyle(AppTheme.primaryText)
-                            Text(campaign.theme)
+                            Text(campaign.strategicAngle ?? "No theme set")
                                 .font(.subheadline)
                                 .foregroundStyle(AppTheme.mutedText)
                         }

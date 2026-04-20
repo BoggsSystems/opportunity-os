@@ -15,6 +15,8 @@ final class AppContainer {
     let emailService: EmailServiceProtocol
     let campaignService: CampaignServiceProtocol
     let contentDiscoveryService: ContentDiscoveryServiceProtocol
+    let reEngagementBriefingService: ReEngagementBriefingService
+    let onboardingService: OnboardingServiceProtocol
     let apiClient: OpportunityOSAPIClient
 
     init(
@@ -32,7 +34,9 @@ final class AppContainer {
         messageDraftService: MessageDraftServiceProtocol,
         emailService: EmailServiceProtocol,
         campaignService: CampaignServiceProtocol,
-        contentDiscoveryService: ContentDiscoveryServiceProtocol
+        contentDiscoveryService: ContentDiscoveryServiceProtocol,
+        reEngagementBriefingService: ReEngagementBriefingService,
+        onboardingService: OnboardingServiceProtocol
     ) {
         self.authService = authService
         self.sessionManager = sessionManager
@@ -48,6 +52,8 @@ final class AppContainer {
         self.emailService = emailService
         self.campaignService = campaignService
         self.contentDiscoveryService = contentDiscoveryService
+        self.reEngagementBriefingService = reEngagementBriefingService
+        self.onboardingService = onboardingService
         self.apiClient = apiClient
     }
 }
@@ -173,10 +179,25 @@ extension AppContainer {
                 : RemoteEmailService(client: apiClient, sessionManager: sessionManager),
             campaignService: ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1"
                 ? StubCampaignService()
-                : RemoteCampaignService(),
+                : RemoteCampaignService(client: apiClient, sessionManager: sessionManager),
             contentDiscoveryService: ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1"
                 ? StubContentDiscoveryService()
-                : RemoteContentDiscoveryService(client: apiClient, sessionManager: sessionManager)
+                : RemoteContentDiscoveryService(client: apiClient, sessionManager: sessionManager),
+            reEngagementBriefingService: ReEngagementBriefingService(
+                opportunityService: ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1"
+                    ? StubOpportunityService()
+                    : RemoteOpportunityService(client: apiClient, sessionManager: sessionManager),
+                nextActionService: ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1"
+                    ? StubNextActionService()
+                    : RemoteNextActionService(client: apiClient, sessionManager: sessionManager),
+                followUpService: StubFollowUpService(),
+                campaignService: ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1"
+                    ? StubCampaignService()
+                    : RemoteCampaignService(client: apiClient, sessionManager: sessionManager)
+            ),
+            onboardingService: ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1"
+                ? StubOnboardingService()
+                : RemoteOnboardingService(client: apiClient, sessionManager: sessionManager)
         )
     }
 }

@@ -79,6 +79,7 @@ struct Opportunity: Identifiable, Hashable {
     var cycleStatus: CycleStatus
     var momentumScore: Int
     var recipients: [Recipient]
+    var campaignId: UUID?
 }
 
 enum OpportunityType: String, CaseIterable, Codable, Hashable {
@@ -132,12 +133,36 @@ struct ContentExecutionResult: Hashable {
     var targets: [ExecutedTarget]
 }
 
-struct Campaign: Identifiable, Hashable {
+enum GoalStatus: String, Codable, Hashable, CaseIterable {
+    case active
+    case completed
+    case archived
+}
+
+struct Goal: Identifiable, Hashable, Codable {
     let id: UUID
     var title: String
-    var theme: String
-    var status: CycleStatus
-    var linkedContentItems: [ContentItem]
+    var description: String?
+    var targetDate: Date?
+    var status: GoalStatus
+    var campaigns: [StrategicCampaign]?
+}
+
+enum CampaignStatus: String, Codable, Hashable, CaseIterable {
+    case planning
+    case active
+    case paused
+    case completed
+}
+
+struct StrategicCampaign: Identifiable, Hashable, Codable {
+    let id: UUID
+    var goalId: UUID
+    var title: String
+    var strategicAngle: String?
+    var targetSegment: String?
+    var status: CampaignStatus
+    var assetIds: [UUID]?
 }
 
 struct OutreachMessage: Identifiable, Hashable {
@@ -334,3 +359,16 @@ enum SessionWorkspaceState: Hashable {
     case completion(title: String, detail: String)
     case empty
 }
+
+enum ReentryTier: String, Codable, Hashable {
+    case tier0 // < 2 min
+    case tier1 // 2-30 min
+    case tier2 // 30 min - 4 hours
+    case tier3 // 4-24 hours
+    case tier4 // > 24 hours
+}
+
+
+// MARK: - Type Aliases for Backward Compatibility
+
+typealias Campaign = StrategicCampaign

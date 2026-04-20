@@ -17,6 +17,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
     private let speechSynthesisService: SpeechSynthesisServiceProtocol
     private let emailService: EmailServiceProtocol
     private let sessionManager: SessionManager
+    private let onboardingService: OnboardingServiceProtocol
 
     private var assistantSessionId: String?
     private var hasPlayedIntroduction = false
@@ -38,13 +39,15 @@ final class GoalDiscoveryViewModel: ObservableObject {
         speechRecognitionService: SpeechRecognitionServiceProtocol,
         speechSynthesisService: SpeechSynthesisServiceProtocol,
         emailService: EmailServiceProtocol,
-        sessionManager: SessionManager
+        sessionManager: SessionManager,
+        onboardingService: OnboardingServiceProtocol
     ) {
         self.assistantConversationService = assistantConversationService
         self.speechRecognitionService = speechRecognitionService
         self.speechSynthesisService = speechSynthesisService
         self.emailService = emailService
         self.sessionManager = sessionManager
+        self.onboardingService = onboardingService
         self.messages = [
             AssistantConversationMessage(
                 role: .assistant,
@@ -190,12 +193,8 @@ final class GoalDiscoveryViewModel: ObservableObject {
 
                 if self.isFinishOnboardingCommand(normalized) {
                     debugTrace("GoalDiscovery", "🏁 FINISH ONBOARDING intent detected ('\(normalized)')")
-                    if let plan = inferredPlan {
-                        onFinishRequest?(plan)
-                        return
-                    } else {
-                        await speechSynthesisService.speak("I'm almost ready. Let's finish identifying your first target first.", preference: sessionManager.voicePreference)
-                    }
+                    await self.finalizeOnboardingFromBackend()
+                    return
                 }
 
                 if self.isSendEmailCommand(normalized) {
@@ -401,7 +400,48 @@ final class GoalDiscoveryViewModel: ObservableObject {
         )
     }
 
-    private func buildPlan(from userMessages: [String]) -> OnboardingPlan? {
+    /// Finalizes onboarding by calling the backend to extract goal from conversation
+    private func finalizeOnboardingFromBackend() async {
+        guard let sessionId = assistantSessionId else {
+            debugTrace("GoalDiscovery", "❌ Cannot finalize onboarding: no sessionId")
+            errorMessage = "Session error. Please try again."
+            return
+        }
+        
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            debugTrace("GoalDiscovery", "🎯 Calling backend to finalize onboarding with sessionId=\(sessionId)")
+            let result = try await onboardingService.finalizeOnboarding(sessionId: sessionId)
+            
+            guard result.success else {
+                throw OnboardingError.serverError("Backend returned unsuccessful response")
+            }
+            
+            let plan = result.toOnboardingPlan()
+            self.inferredPlan = plan
+            
+            debugTrace("GoalDiscovery", "✅ Onboarding finalized: Goal=\"\(result.goal.title)\", Campaign=\"\(result.campaign.title)\"")
+            
+            onFinishRequest?(plan)
+        } catch {
+            debugTrace("GoalDiscovery", "❌ Failed to finalize onboarding: \(error.localizedDescription)")
+            
+            // Fallback to local inference if backend fails
+            debugTrace("GoalDiscovery", "⚠️ Falling back to local goal inference")
+            if let plan = buildPlanFallback(from: self.userMessages) {
+                self.inferredPlan = plan
+                onFinishRequest?(plan)
+            } else {
+                errorMessage = "Failed to complete onboarding. Please try again."
+                await speechSynthesisService.speak("I'm having trouble completing your setup. Let's try once more.", preference: sessionManager.voicePreference)
+            }
+        }
+    }
+    
+    /// Fallback local goal inference (simplified version for resilience)
+    private func buildPlanFallback(from userMessages: [String]) -> OnboardingPlan? {
         let combined = userMessages.joined(separator: " ").lowercased()
         guard !combined.isEmpty else { return nil }
 
@@ -412,43 +452,34 @@ final class GoalDiscoveryViewModel: ObservableObject {
         if combined.contains("job") || combined.contains("role") || combined.contains("hire") {
             opportunityType = "job opportunities"
             focusArea = "positioning you for a role with a sharper story"
-            targetAudience = audienceMatch(in: combined, fallback: "hiring managers and team leaders")
-        } else if combined.contains("contract") || combined.contains("fractional") || combined.contains("project") {
+            targetAudience = "hiring managers and team leaders"
+        } else if combined.contains("contract") || combined.contains("fractional") {
             opportunityType = "contract opportunities"
             focusArea = "turning your experience into a targeted contract offer"
-            targetAudience = audienceMatch(in: combined, fallback: "buyers who can sponsor contract work")
-        } else if combined.contains("client") || combined.contains("consult") || combined.contains("service") {
+            targetAudience = "buyers who can sponsor contract work"
+        } else if combined.contains("client") || combined.contains("consult") {
             opportunityType = "consulting clients"
             focusArea = "shaping your service into a credible first outreach motion"
-            targetAudience = audienceMatch(in: combined, fallback: "decision-makers who can buy advisory or delivery work")
+            targetAudience = "decision-makers who can buy advisory work"
         } else if combined.contains("partner") {
             opportunityType = "partnership conversations"
             focusArea = "creating a partner-ready narrative and first target list"
-            targetAudience = audienceMatch(in: combined, fallback: "partners who can open new distribution or delivery paths")
+            targetAudience = "partners who can open new paths"
         } else {
             opportunityType = "outbound opportunities"
             focusArea = "clarifying your offer and turning it into a practical first move"
-            targetAudience = audienceMatch(in: combined, fallback: "people who can say yes to the next conversation")
+            targetAudience = "people who can say yes to the next conversation"
         }
 
-        let specialty = specialtyMatch(in: combined)
-        let firstCycleTitle = "First cycle: \(specialty) outreach"
-        let summary = "You are looking for \(opportunityType) and the strongest immediate move is \(focusArea)."
-        let confirmation = "It sounds like your first goal is to create \(opportunityType) through a focused first cycle aimed at \(targetAudience)."
-
         return OnboardingPlan(
-            focusArea: specialty,
+            focusArea: "general",
             opportunityType: opportunityType,
             targetAudience: targetAudience,
-            firstCycleTitle: firstCycleTitle,
-            assistantSummary: summary,
-            confirmationMessage: confirmation,
-            firstCycleSteps: [
-                "Confirm your offer in one sentence",
-                "Pick the first target set: \(targetAudience)",
-                "Draft the first message together"
-            ],
-            firstDraftPrompt: "Draft a first outreach message for \(targetAudience) around \(specialty)."
+            firstCycleTitle: "First cycle: \(opportunityType) outreach",
+            assistantSummary: "You are looking for \(opportunityType).",
+            confirmationMessage: "Let's create \(opportunityType) through focused outreach.",
+            firstCycleSteps: ["Confirm your offer", "Pick first targets", "Draft your message"],
+            firstDraftPrompt: "Draft a first outreach message for \(targetAudience)."
         )
     }
 

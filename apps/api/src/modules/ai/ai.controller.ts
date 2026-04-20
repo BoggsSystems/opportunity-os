@@ -262,4 +262,56 @@ export class AiController {
       );
     }
   }
+
+  /**
+   * Finalizes onboarding by extracting goal from conversation and persisting to database.
+   * Called when user completes the goal discovery conversation.
+   */
+  @Post('finalize-onboarding')
+  async finalizeOnboarding(
+    @Body() body: { sessionId: string },
+    @Req() req: any,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new HttpException({ message: 'Unauthorized' }, HttpStatus.UNAUTHORIZED);
+    }
+
+    if (!body.sessionId?.trim()) {
+      throw new HttpException(
+        { message: 'sessionId is required' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      this.logger.log(
+        `🎯 ONBOARDING: Finalizing for userId=${userId}, sessionId=${body.sessionId}`
+      );
+
+      const result = await this.aiService.finalizeOnboarding(userId, body.sessionId);
+
+      this.logger.log(
+        `🎯 ONBOARDING: Completed - Goal "${result.goal.title}" created with campaign "${result.campaign.title}"`
+      );
+
+      return {
+        success: true,
+        goal: result.goal,
+        campaign: result.campaign,
+        extractedIntent: result.extractedIntent,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      this.logger.error(`Onboarding finalization failed: ${err.message}`, err.stack);
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Failed to finalize onboarding',
+          error: err instanceof Error ? err.message : 'Unknown error',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }

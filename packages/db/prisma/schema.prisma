@@ -145,6 +145,7 @@ enum OfferingPositioningStatus {
 }
 
 enum AIConversationPurpose {
+  onboarding
   offering_strategy
   opportunity_analysis
   general
@@ -166,6 +167,13 @@ enum AssetInteractionType {
   suggested
   attached
   sent
+}
+
+enum CampaignStatus {
+  PLANNING
+  ACTIVE
+  PAUSED
+  COMPLETED
 }
 
 enum AIConversationStatus {
@@ -236,6 +244,8 @@ model User {
   people         Person[]
   opportunities  Opportunity[]
   activities     Activity[]
+  goals          Goal[]
+  campaigns      StrategicCampaign[]
   tasks          Task[]
   notes          Note[]
   tags           Tag[]
@@ -517,6 +527,9 @@ model Opportunity {
   closeProbability    Int?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
+
+  campaignId String?            @db.Uuid
+  campaign   StrategicCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   company       Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
@@ -922,6 +935,7 @@ model UserAsset {
   narrative    AssetNarrative?
   rules        AssetDeploymentRule[]
   interactions AssetInteraction[]
+  campaigns    CampaignAsset[]
 
   @@index([userId])
   @@index([category])
@@ -969,9 +983,67 @@ model AssetInteraction {
   asset       UserAsset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
   opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   person      Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
+  campaignId  String?      @db.Uuid
+  campaign    StrategicCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([assetId])
   @@index([opportunityId])
   @@index([personId])
   @@map("asset_interactions")
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+model Goal {
+  id          String     @id @default(uuid()) @db.Uuid
+  userId      String     @db.Uuid
+  title       String
+  description String?
+  targetDate  DateTime?
+  status      GoalStatus @default(ACTIVE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns  StrategicCampaign[]
+
+  @@index([userId])
+  @@map("goals")
+}
+
+model StrategicCampaign {
+  id             String         @id @default(uuid()) @db.Uuid
+  userId         String         @db.Uuid
+  goalId         String         @db.Uuid
+  title          String
+  strategicAngle String?
+  targetSegment  String?
+  status         CampaignStatus @default(PLANNING)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal         Goal               @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  opportunities Opportunity[]
+  assets       CampaignAsset[]
+  interactions AssetInteraction[]
+
+  @@index([userId])
+  @@index([goalId])
+  @@map("strategic_campaigns")
+}
+
+model CampaignAsset {
+  campaignId String @db.Uuid
+  assetId    String @db.Uuid
+
+  campaign StrategicCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  asset    UserAsset         @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, assetId])
+  @@map("campaign_assets")
 }

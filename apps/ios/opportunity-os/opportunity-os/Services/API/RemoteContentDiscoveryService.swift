@@ -63,8 +63,59 @@ struct RemoteContentDiscoveryService: ContentDiscoveryServiceProtocol {
 }
 
 struct RemoteCampaignService: CampaignServiceProtocol {
+    private let client: OpportunityOSAPIClient
+    private let sessionManager: SessionManager
+    
+    init(client: OpportunityOSAPIClient, sessionManager: SessionManager) {
+        self.client = client
+        self.sessionManager = sessionManager
+    }
+    
     func fetchCampaigns() async -> [Campaign] {
-        []
+        guard let accessToken = await MainActor.run(body: { sessionManager.session?.accessToken }) else {
+            return []
+        }
+        
+        do {
+            let response: [APICampaign] = try await client.get("campaigns", accessToken: accessToken)
+            return response.map { $0.toDomain() }
+        } catch {
+            #if DEBUG
+            print("[RemoteCampaignService] fetchCampaigns failed: \(error.localizedDescription)")
+            #endif
+            return []
+        }
+    }
+}
+
+private struct APICampaign: Decodable {
+    let id: String
+    let goalId: String
+    let title: String
+    let strategicAngle: String?
+    let targetSegment: String?
+    let status: String
+    let assetIds: [String]?
+    
+    func toDomain() -> Campaign {
+        Campaign(
+            id: UUID(uuidString: id) ?? UUID(),
+            goalId: UUID(uuidString: goalId) ?? UUID(),
+            title: title,
+            strategicAngle: strategicAngle,
+            targetSegment: targetSegment,
+            status: mapStatus(status),
+            assetIds: assetIds?.compactMap { UUID(uuidString: $0) }
+        )
+    }
+    
+    private func mapStatus(_ value: String) -> CampaignStatus {
+        switch value.lowercased() {
+        case "active": return .active
+        case "paused": return .paused
+        case "completed": return .completed
+        default: return .planning
+        }
     }
 }
 

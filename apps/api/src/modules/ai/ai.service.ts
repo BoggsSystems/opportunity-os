@@ -475,4 +475,205 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
 
     return combined.slice(-12);
   }
+
+  // ============================================================================
+  // ONBOARDING GOAL EXTRACTION
+  // ============================================================================
+
+  /**
+   * Finalizes onboarding by extracting goal from conversation and persisting to database.
+   * Called when user completes the onboarding conversation.
+   */
+  async finalizeOnboarding(
+    userId: string,
+    sessionId: string,
+  ): Promise<OnboardingResult> {
+    this.logger.log(`Finalizing onboarding for userId=${userId}, sessionId=${sessionId}`);
+
+    // 1. Get full conversation history
+    const conversationHistory = await this.getPersistentHistory(userId, sessionId);
+    
+    if (conversationHistory.length === 0) {
+      throw new Error('No conversation history found for onboarding');
+    }
+
+    // 2. Extract goal using AI
+    const extractedGoal = await this.extractGoalFromConversation(conversationHistory);
+    
+    this.logger.log(
+      `Extracted goal: "${extractedGoal.title}" (${extractedGoal.opportunityType}) for ${extractedGoal.targetAudience}`
+    );
+
+    // 3. Persist Goal to database
+    const goal = await prisma.goal.create({
+      data: {
+        userId,
+        title: extractedGoal.title,
+        description: extractedGoal.description,
+        status: 'ACTIVE',
+      },
+    });
+
+    // 4. Create initial Campaign from the goal
+    const campaign = await prisma.strategicCampaign.create({
+      data: {
+        userId,
+        goalId: goal.id,
+        title: `${extractedGoal.focusArea} Outreach`,
+        strategicAngle: extractedGoal.suggestedApproach,
+        targetSegment: extractedGoal.targetAudience,
+        status: 'PLANNING',
+      },
+    });
+
+    // 5. Update conversation to mark as onboarding purpose
+    await prisma.aIConversation.update({
+      where: { id: sessionId },
+      data: {
+        purpose: 'onboarding',
+        status: 'completed',
+      },
+    });
+
+    // 6. Return structured onboarding result
+    return {
+      goal: {
+        id: goal.id,
+        title: goal.title,
+        description: goal.description,
+        status: goal.status,
+      },
+      campaign: {
+        id: campaign.id,
+        title: campaign.title,
+        strategicAngle: campaign.strategicAngle,
+        targetSegment: campaign.targetSegment,
+        status: campaign.status,
+      },
+      extractedIntent: {
+        focusArea: extractedGoal.focusArea,
+        opportunityType: extractedGoal.opportunityType,
+        targetAudience: extractedGoal.targetAudience,
+        firstCycleTitle: extractedGoal.firstCycleTitle,
+        firstCycleSteps: extractedGoal.firstCycleSteps,
+        firstDraftPrompt: extractedGoal.firstDraftPrompt,
+      },
+    };
+  }
+
+  /**
+   * Uses AI to extract structured goal information from conversation history.
+   */
+  private async extractGoalFromConversation(
+    history: ConversationTurn[],
+  ): Promise<ExtractedGoal> {
+    // Build the extraction prompt
+    const prompt = this.buildGoalExtractionPrompt(history);
+
+    // Call AI provider
+    const response = await this.aiProviderFactory.getProvider().generateText({
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: 'Extract the goal from this conversation.' },
+      ],
+    });
+
+    // Parse JSON response
+    try {
+      const extracted = JSON.parse(response.content) as ExtractedGoal;
+      
+      // Validate required fields
+      if (!extracted.title || !extracted.opportunityType) {
+        throw new Error('AI response missing required fields');
+      }
+
+      return extracted;
+    } catch (error) {
+      this.logger.error('Failed to parse AI goal extraction:', error);
+      // Return a default goal if extraction fails
+      return {
+        title: 'Professional Outreach Goal',
+        description: 'Build meaningful professional connections and opportunities',
+        opportunityType: 'outreach',
+        focusArea: 'general',
+        targetAudience: 'relevant professionals',
+        suggestedApproach: 'Direct outreach with value-first messaging',
+        firstCycleTitle: 'Initial Outreach',
+        firstCycleSteps: ['Identify targets', 'Draft messages', 'Send outreach'],
+        firstDraftPrompt: 'Introduce yourself and suggest a conversation',
+      };
+    }
+  }
+
+  /**
+   * Builds the prompt for goal extraction.
+   */
+  private buildGoalExtractionPrompt(history: ConversationTurn[]): string {
+    const conversationText = history
+      .map(turn => `${turn.role === 'assistant' ? 'Assistant' : 'User'}: ${turn.text}`)
+      .join('\n\n');
+
+    return `
+You are an expert at understanding user intent from conversations. 
+Analyze the following onboarding conversation and extract the user's professional goal.
+
+Conversation:
+${conversationText}
+
+Based on this conversation, extract the following information as JSON:
+{
+  "title": "A clear, concise goal title (e.g., 'CTO Outreach for AI Consulting', 'Job Search at Tech Startups')",
+  "description": "A one-sentence description of what the user wants to accomplish",
+  "opportunityType": "The type of opportunity they're seeking: job, contract, consulting, partnership, or outreach",
+  "focusArea": "The main focus area (e.g., 'AI-focused', 'leadership roles', 'consulting engagements')",
+  "targetAudience": "Who they want to reach (e.g., 'CTOs at mid-market tech companies', 'recruiters in fintech')",
+  "suggestedApproach": "A strategic angle or approach suggested by the conversation",
+  "firstCycleTitle": "Title for the first outreach cycle (e.g., 'Initial CTO Outreach')",
+  "firstCycleSteps": ["Array of 3-5 specific steps to get started"],
+  "firstDraftPrompt": "A prompt that could be used to generate the first outreach message"
+}
+
+Important:
+- The opportunityType must be exactly one of: job, contract, consulting, partnership, outreach
+- Be specific and concrete based on what was discussed
+- If the user mentions multiple things, pick the primary focus
+- The firstCycleSteps should be actionable and clear`.trim();
+  }
+}
+
+// Types for goal extraction
+interface ExtractedGoal {
+  title: string;
+  description: string;
+  opportunityType: string;
+  focusArea: string;
+  targetAudience: string;
+  suggestedApproach: string;
+  firstCycleTitle: string;
+  firstCycleSteps: string[];
+  firstDraftPrompt: string;
+}
+
+export interface OnboardingResult {
+  goal: {
+    id: string;
+    title: string;
+    description: string | null;
+    status: string;
+  };
+  campaign: {
+    id: string;
+    title: string;
+    strategicAngle: string | null;
+    targetSegment: string | null;
+    status: string;
+  };
+  extractedIntent: {
+    focusArea: string;
+    opportunityType: string;
+    targetAudience: string;
+    firstCycleTitle: string;
+    firstCycleSteps: string[];
+    firstDraftPrompt: string;
+  };
 }

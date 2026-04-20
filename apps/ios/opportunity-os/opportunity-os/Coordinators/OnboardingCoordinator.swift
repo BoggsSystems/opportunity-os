@@ -55,7 +55,8 @@ final class OnboardingCoordinator: ObservableObject {
                     speechRecognitionService: self.container.speechRecognitionService,
                     speechSynthesisService: self.container.speechSynthesisService,
                     emailService: self.container.emailService,
-                    sessionManager: self.container.sessionManager
+                    sessionManager: self.container.sessionManager,
+                    onboardingService: self.container.onboardingService
                 )
             ) { plan in
                 self.debugLog("Goal discovery produced plan: \(plan.firstCycleTitle)")

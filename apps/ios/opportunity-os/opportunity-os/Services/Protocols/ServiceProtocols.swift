@@ -12,6 +12,7 @@ final class SessionManager: ObservableObject {
         static let hasSeenWelcome = "opportunity_os.has_seen_welcome"
         static let lastSignedInEmail = "opportunity_os.last_signed_in_email"
         static let persistedSession = "opportunity_os.persisted_session"
+        static let lastActiveTimestamp = "opportunity_os.last_active_timestamp"
     }
 
     @Published var session: AuthSession?
@@ -56,9 +57,14 @@ final class SessionManager: ObservableObject {
         defaults.set(true, forKey: StorageKeys.hasSeenWelcome)
     }
 
+    func recordActivity() {
+        defaults.set(Date().timeIntervalSince1970, forKey: StorageKeys.lastActiveTimestamp)
+    }
+
     func clear() {
         session = nil
         defaults.removeObject(forKey: StorageKeys.persistedSession)
+        defaults.removeObject(forKey: StorageKeys.lastActiveTimestamp)
     }
 
     func resetForFreshStart() {
@@ -66,6 +72,7 @@ final class SessionManager: ObservableObject {
         defaults.removeObject(forKey: StorageKeys.persistedSession)
         defaults.removeObject(forKey: StorageKeys.hasSeenWelcome)
         defaults.removeObject(forKey: StorageKeys.lastSignedInEmail)
+        defaults.removeObject(forKey: StorageKeys.lastActiveTimestamp)
     }
 }
 
