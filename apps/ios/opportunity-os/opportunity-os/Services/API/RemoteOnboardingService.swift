@@ -10,15 +10,16 @@ struct RemoteOnboardingService: OnboardingServiceProtocol {
     }
     
     func finalizeOnboarding(sessionId: String) async throws -> OnboardingResult {
-        guard let accessToken = await MainActor.run(body: { sessionManager.session?.accessToken }) else {
-            throw OnboardingError.noSessionId
+        let (accessToken, guestSessionId) = await MainActor.run {
+            (sessionManager.session?.accessToken, sessionManager.guestSessionId)
         }
         
         struct RequestBody: Codable {
             let sessionId: String
+            let guestSessionId: String?
         }
         
-        let body = RequestBody(sessionId: sessionId)
+        let body = RequestBody(sessionId: sessionId, guestSessionId: guestSessionId)
         
         do {
             let response: OnboardingResult = try await apiClient.post(

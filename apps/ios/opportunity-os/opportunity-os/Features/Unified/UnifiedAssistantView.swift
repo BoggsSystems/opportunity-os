@@ -269,7 +269,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
         isExecutingAction = true
         Task {
             do {
-                let session = try await authService.signUp(email: onboardingEmail, password: onboardingPassword)
+                let session = try await authService.signUp(email: onboardingEmail, password: onboardingPassword, guestSessionId: sessionManager.guestSessionId)
                 sessionManager.start(session: session)
                 withAnimation {
                     sessionMode = .pro

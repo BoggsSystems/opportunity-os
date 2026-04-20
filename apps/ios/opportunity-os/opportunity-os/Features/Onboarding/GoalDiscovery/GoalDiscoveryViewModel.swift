@@ -9,6 +9,8 @@ final class GoalDiscoveryViewModel: ObservableObject {
     @Published var inferredPlan: OnboardingPlan?
     @Published var voiceState: VoiceConversationState = .ready
     @Published var pendingEmailDraft: OutreachMessage?
+    @Published var isLoading = false
+    @Published var showingConfirmationModal = false
     
     var onFinishRequest: ((OnboardingPlan) -> Void)?
 
@@ -193,7 +195,12 @@ final class GoalDiscoveryViewModel: ObservableObject {
 
                 if self.isFinishOnboardingCommand(normalized) {
                     debugTrace("GoalDiscovery", "🏁 FINISH ONBOARDING intent detected ('\(normalized)')")
-                    await self.finalizeOnboardingFromBackend()
+                    if let plan = buildPlan(from: userMessages) {
+                        self.inferredPlan = plan
+                        self.showingConfirmationModal = true
+                    } else {
+                        await self.finalizeOnboardingFromBackend()
+                    }
                     return
                 }
 
@@ -305,7 +312,14 @@ final class GoalDiscoveryViewModel: ObservableObject {
 
                 assistantSessionId = reply.sessionId
                 updateAssistantMessage(id: messageId, text: reply.text)
-                debugTrace("GoalDiscovery", "assistant reply received sessionId=\(reply.sessionId ?? "nil"), text=\(reply.text.prefix(160)), silent=\(reply.shouldBeSilent)")
+                debugTrace("GoalDiscovery", "assistant reply received sessionId=\(reply.sessionId ?? "nil"), text=\(reply.text.prefix(160)), silent=\(reply.shouldBeSilent), action=\(reply.suggestedAction ?? "none")")
+
+                if reply.suggestedAction == "PROPOSE_GOAL" || reply.suggestedAction == "PROPOSE_CAMPAIGN" {
+                    debugTrace("GoalDiscovery", "🚀 PROACTIVE TRIGGER: \(reply.suggestedAction!) detected")
+                    Task {
+                        await self.loadPlanAndShowModal()
+                    }
+                }
 
                 if reply.shouldBeSilent {
                     debugTrace("GoalDiscovery", "🤫 SILENT RESPONSE: skipping speech synthesis")
@@ -401,7 +415,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
     }
 
     /// Finalizes onboarding by calling the backend to extract goal from conversation
-    private func finalizeOnboardingFromBackend() async {
+    func finalizeOnboardingFromBackend() async {
         guard let sessionId = assistantSessionId else {
             debugTrace("GoalDiscovery", "❌ Cannot finalize onboarding: no sessionId")
             errorMessage = "Session error. Please try again."
@@ -421,6 +435,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
             
             let plan = result.toOnboardingPlan()
             self.inferredPlan = plan
+            self.showingConfirmationModal = false
             
             debugTrace("GoalDiscovery", "✅ Onboarding finalized: Goal=\"\(result.goal.title)\", Campaign=\"\(result.campaign.title)\"")
             
@@ -438,6 +453,27 @@ final class GoalDiscoveryViewModel: ObservableObject {
                 await speechSynthesisService.speak("I'm having trouble completing your setup. Let's try once more.", preference: sessionManager.voicePreference)
             }
         }
+    }
+
+    private func loadPlanAndShowModal() async {
+        guard let sessionId = assistantSessionId else { return }
+        isLoading = true
+        do {
+            debugTrace("GoalDiscovery", "🎯 Proactively loading plan for sessionId=\(sessionId)")
+            let result = try await onboardingService.finalizeOnboarding(sessionId: sessionId)
+            if result.success {
+                self.inferredPlan = result.toOnboardingPlan()
+                self.showingConfirmationModal = true
+                debugTrace("GoalDiscovery", "✨ Proactive modal triggered for goal: \(result.goal.title)")
+            }
+        } catch {
+            debugTrace("GoalDiscovery", "❌ Failed to load plan for proactive proposal: \(error.localizedDescription)")
+        }
+        isLoading = false
+    }
+
+    private func buildPlan(from userMessages: [String]) -> OnboardingPlan? {
+        return buildPlanFallback(from: userMessages)
     }
     
     /// Fallback local goal inference (simplified version for resilience)

@@ -100,12 +100,13 @@ export class AiService {
     userId?: string;
     userName?: string;
     sessionId?: string;
+    guestSessionId?: string;
     message: string;
     history?: ConversationTurn[];
     context?: ConversationContext;
   }): Promise<{ sessionId: string; reply: string; shouldBeSilent: boolean }> {
     this.logger.log(
-      `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
+      `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} guestSessionId=${input.guestSessionId ?? 'none'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
     );
 
     let sessionId = input.sessionId;
@@ -128,8 +129,10 @@ export class AiService {
     // Memory Retrieval: Load long-term summaries for this user (if authenticated)
     const summaries = input.userId ? await this.getLongTermSummaries(input.userId) : [];
     
-    // Load persistent history from DB (if authenticated)
-    const dbHistory = input.userId ? await this.getPersistentHistory(input.userId, sessionId) : [];
+    // Load persistent history from DB (authenticated or guest with sessionId)
+    const dbHistory = (input.userId || input.sessionId) 
+      ? await this.getPersistentHistoryForSession(sessionId, input.userId, input.guestSessionId) 
+      : [];
     
     // Merge provided history with DB history
     const history = this.mergeConversationHistory(
@@ -140,10 +143,15 @@ export class AiService {
     this.logger.log(
       `Conversation state prepared sessionId=${sessionId} mergedHistoryCount=${history.length} dbHistoryCount=${dbHistory.length} summaryCount=${summaries.length}`,
     );
+
+    const onboardingState = await this.determineOnboardingState(input.userId, input.guestSessionId);
+    this.logger.log(`Determined onboarding state: ${onboardingState.phase}`);
+
     const messages = this.buildConversationMessages({
       ...input,
       history,
       summaries,
+      onboardingState,
     });
 
     const request: AiRequest = {
@@ -156,7 +164,17 @@ export class AiService {
     this.logger.debug(`[DEEP TRACE] Final messages sent to provider: ${JSON.stringify(messages, null, 2)}`);
 
     const response = await this.aiProviderFactory.getProvider().generateText(request);
-    const reply = response.content.trim();
+    let reply = response.content.trim();
+    let suggestedAction: string | undefined;
+
+    if (reply.includes('[PROPOSE_GOAL]')) {
+      suggestedAction = 'PROPOSE_GOAL';
+      reply = reply.replace('[PROPOSE_GOAL]', '').trim();
+    } else if (reply.includes('[PROPOSE_CAMPAIGN]')) {
+      suggestedAction = 'PROPOSE_CAMPAIGN';
+      reply = reply.replace('[PROPOSE_CAMPAIGN]', '').trim();
+    }
+
     this.logger.log(`RAW Provider reply: "${response.content}"`);
     this.logger.log(`Provider reply sessionId=${sessionId} reply=${reply.slice(0, 300)}`);
     
@@ -164,11 +182,11 @@ export class AiService {
     const shouldBeSilent = reply === "" || reply.toLowerCase().includes("[silence]");
     const cleanedReply = shouldBeSilent ? "" : reply.replace(/\[silence\]/gi, "").trim();
 
-    // Persist to DB asynchronously (only if authenticated)
-    if (input.userId) {
-      this.persistConversation(input.userId, sessionId, input.message, cleanedReply).then(() => {
-        // Trigger background auto-summarization if the history is getting long
-        if (history.length >= 10 && history.length % 5 === 0) {
+    // Persist to DB asynchronously (if authenticated OR guestSessionId provided)
+    if (input.userId || input.guestSessionId) {
+      this.persistConversation(input.userId, input.guestSessionId, sessionId, input.message, cleanedReply).then(() => {
+        // Trigger background auto-summarization if the history is getting long and user is authenticated
+        if (input.userId && history.length >= 10 && history.length % 5 === 0) {
           this.summarizeConversation(input.userId!, sessionId).catch(err => {
             this.logger.error(`Auto-summarization failed for sessionId=${sessionId}`, err);
           });
@@ -178,7 +196,12 @@ export class AiService {
       });
     }
     
-    return { sessionId, reply: cleanedReply, shouldBeSilent };
+    return {
+      sessionId,
+      reply: cleanedReply,
+      shouldBeSilent,
+      suggestedAction,
+    };
   }
 
   private async getLongTermSummaries(userId: string): Promise<string[]> {
@@ -257,10 +280,46 @@ Rules:
     this.logger.log(`Persistent summary updated for sessionId=${sessionId}`);
   }
 
-  private async getPersistentHistory(userId: string, sessionId: string): Promise<ConversationTurn[]> {
+  private async getPersistentHistoryForOnboarding(sessionId: string, guestSessionId?: string): Promise<ConversationTurn[]> {
+    const conversation = await prisma.aIConversation.findFirst({
+      where: {
+        id: sessionId,
+        OR: [
+          { guestSessionId: guestSessionId || undefined },
+          { userId: { not: null } } // Fallback to check if it's already linked
+        ]
+      },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!conversation) {
+      return [];
+    }
+
+    return conversation.messages.map(m => ({
+      role: this.mapDbRoleToConversationRole(m.messageType),
+      text: m.content,
+    }));
+  }
+
+  private async getPersistentHistoryForSession(
+    sessionId: string,
+    userId?: string,
+    guestSessionId?: string,
+  ): Promise<ConversationTurn[]> {
     try {
       const conversation = await prisma.aIConversation.findFirst({
-        where: { id: sessionId, userId },
+        where: { 
+          id: sessionId,
+          OR: [
+            ...(userId ? [{ userId }] : []),
+            ...(guestSessionId ? [{ guestSessionId }] : []),
+          ]
+        },
         include: {
           messages: {
             orderBy: { createdAt: 'asc' },
@@ -281,8 +340,51 @@ Rules:
     }
   }
 
+  private async determineOnboardingState(userId?: string, guestSessionId?: string) {
+    if (!userId && !guestSessionId) {
+      return { phase: 'INITIAL_INTRO', mission: 'Welcome the user and ask what they want to make happen.' };
+    }
+
+    const where: any = userId ? { userId } : { guestSessionId };
+
+    try {
+      const goal = await prisma.goal.findFirst({
+        where: { ...where },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (!goal) {
+        return { 
+          phase: 'GOAL_DISCOVERY', 
+          mission: 'Help the user define a clear business goal. We need a "What" (e.g. Find recruiters) and a "Why" (e.g. to get a greenfield role).' 
+        };
+      }
+
+      const campaign = await prisma.strategicCampaign.findFirst({
+        where: { ...where, goalId: goal.id },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (!campaign) {
+        return { 
+          phase: 'CAMPAIGN_SETUP', 
+          mission: `Goal established: "${goal.title}". Now, help the user define a campaign strategy—specifically who they want to target and what the hook is.` 
+        };
+      }
+
+      return { 
+        phase: 'EXECUTION', 
+        mission: `Goal and Campaign are set. Now help the user move to execution, like drafting the first message or picking specific targets.` 
+      };
+    } catch (error) {
+      this.logger.error('Failed to determine onboarding state', error);
+      return { phase: 'UNKNOWN', mission: 'Assist the user with their business pipeline.' };
+    }
+  }
+
   private async persistConversation(
-    userId: string,
+    userId: string | undefined,
+    guestSessionId: string | undefined,
     sessionId: string,
     userMessage: string,
     assistantReply: string,
@@ -292,7 +394,8 @@ Rules:
       where: { id: sessionId },
       create: {
         id: sessionId,
-        userId,
+        userId: userId || null,
+        guestSessionId: guestSessionId || null,
         title: userMessage.slice(0, 50),
         purpose: AIConversationPurpose.general,
         status: AIConversationStatus.active,
@@ -300,6 +403,8 @@ Rules:
       update: {
         lastMessageAt: new Date(),
         updatedAt: new Date(),
+        // Link user if they just signed up/logged in mid-session
+        ...(userId ? { userId } : {}),
       },
     });
 
@@ -406,6 +511,7 @@ Please provide a JSON response with this structure:
     history?: ConversationTurn[];
     context?: ConversationContext;
     summaries?: string[];
+    onboardingState?: { phase: string; mission: string };
   }): AiMessage[] {
     const systemPrompt = `
 You are Opportunity OS, a friendly and proactive voice-first assistant.
@@ -416,8 +522,17 @@ Your Core Mission:
 - Speak naturally, like a human assistant on a phone call.
 - Help the user turn high-level goals into tactical business outreach.
 
+Current Pipeline Status & Mission:
+- Phase: ${input.onboardingState?.phase ?? 'GENERAL'}
+- Directive: ${input.onboardingState?.mission ?? 'Assist with business growth.'}
+
+Phase Triggers:
+- If you have enough information to form a clear business GOAL, start your response with "[PROPOSE_GOAL]". 
+- If the goal is confirmed and you have enough information to suggest a CAMPAIGN strategy, start your response with "[PROPOSE_CAMPAIGN]".
+
 Response Rules:
 - Keep responses short (1-2 sentences) so they are easy to listen to.
+- If you are proposing a Goal or Campaign, be explicit: "I've drafted that goal for you. Take a look at the summary on your screen."
 - DO NOT be silent. Even for "testing" or short phrases like "hello," respond with a friendly greeting or an offer to help.
 - Use plain language. Avoid markdown, bullets, or complex technical terms.
 - If the user asks "what next," check the context below and recommend the next logical step.
@@ -485,13 +600,14 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
    * Called when user completes the onboarding conversation.
    */
   async finalizeOnboarding(
-    userId: string,
+    userId: string | undefined,
     sessionId: string,
+    guestSessionId?: string,
   ): Promise<OnboardingResult> {
-    this.logger.log(`Finalizing onboarding for userId=${userId}, sessionId=${sessionId}`);
+    this.logger.log(`Finalizing onboarding for userId=${userId ?? 'GUEST'}, sessionId=${sessionId}`);
 
     // 1. Get full conversation history
-    const conversationHistory = await this.getPersistentHistory(userId, sessionId);
+    const conversationHistory = await this.getPersistentHistoryForOnboarding(sessionId, guestSessionId);
     
     if (conversationHistory.length === 0) {
       throw new Error('No conversation history found for onboarding');
@@ -507,7 +623,8 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     // 3. Persist Goal to database
     const goal = await prisma.goal.create({
       data: {
-        userId,
+        userId: userId || null,
+        guestSessionId: guestSessionId || null,
         title: extractedGoal.title,
         description: extractedGoal.description,
         status: 'ACTIVE',
@@ -517,7 +634,8 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     // 4. Create initial Campaign from the goal
     const campaign = await prisma.strategicCampaign.create({
       data: {
-        userId,
+        userId: userId || null,
+        guestSessionId: guestSessionId || null,
         goalId: goal.id,
         title: `${extractedGoal.focusArea} Outreach`,
         strategicAngle: extractedGoal.suggestedApproach,

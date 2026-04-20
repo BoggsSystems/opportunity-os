@@ -24,6 +24,7 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
             "ai/converse",
             body: ConversationRequest(
                 sessionId: sessionId,
+                guestSessionId: sessionManager.guestSessionId,
                 message: message,
                 history: history.map(APIConversationMessage.init),
                 context: APIConversationContext(context)
@@ -35,7 +36,8 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
         return AssistantConversationReply(
             sessionId: response.sessionId,
             text: response.reply,
-            shouldBeSilent: response.shouldBeSilent ?? false
+            shouldBeSilent: response.shouldBeSilent ?? false,
+            suggestedAction: response.suggestedAction
         )
     }
 
@@ -57,6 +59,7 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
             "ai/converse-stream",
             body: ConversationRequest(
                 sessionId: sessionId,
+                guestSessionId: sessionManager.guestSessionId,
                 message: message,
                 history: history.map(APIConversationMessage.init),
                 context: APIConversationContext(context)
@@ -87,6 +90,7 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
 
 private struct ConversationRequest: Encodable {
     let sessionId: String?
+    let guestSessionId: String?
     let message: String
     let history: [APIConversationMessage]
     let context: APIConversationContext
@@ -157,6 +161,7 @@ private struct ConversationResponse: Decodable {
     let sessionId: String
     let reply: String
     let shouldBeSilent: Bool?
+    let suggestedAction: String?
 }
 
 private struct ConversationStreamEvent: Decodable {

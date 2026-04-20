@@ -1,7 +1,7 @@
 import Foundation
 
 protocol AuthServiceProtocol {
-    func signUp(email: String, password: String) async throws -> AuthSession
+    func signUp(email: String, password: String, guestSessionId: String?) async throws -> AuthSession
     func signIn(email: String, password: String) async throws -> AuthSession
     func signOut(accessToken: String?) async
 }
@@ -13,9 +13,11 @@ final class SessionManager: ObservableObject {
         static let lastSignedInEmail = "opportunity_os.last_signed_in_email"
         static let persistedSession = "opportunity_os.persisted_session"
         static let lastActiveTimestamp = "opportunity_os.last_active_timestamp"
+        static let guestSessionId = "opportunity_os.guest_session_id"
     }
 
     @Published var session: AuthSession?
+    @Published var guestSessionId: String
     @Published var voicePreference: VoicePreference = PreviewData.voicePreference
 
     private let defaults: UserDefaults
@@ -38,6 +40,15 @@ final class SessionManager: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        
+        if let existingGuestId = defaults.string(forKey: StorageKeys.guestSessionId) {
+            self.guestSessionId = existingGuestId
+        } else {
+            let newId = UUID().uuidString
+            defaults.set(newId, forKey: StorageKeys.guestSessionId)
+            self.guestSessionId = newId
+        }
+
         if let data = defaults.data(forKey: StorageKeys.persistedSession),
            let session = try? JSONDecoder().decode(AuthSession.self, from: data) {
             self.session = session

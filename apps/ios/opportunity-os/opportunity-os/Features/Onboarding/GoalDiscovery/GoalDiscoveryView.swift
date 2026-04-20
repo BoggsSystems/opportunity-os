@@ -73,6 +73,34 @@ struct GoalDiscoveryView: View {
                 .background(AppTheme.pageBackground.ignoresSafeArea())
             }
         }
+        .overlay {
+            if viewModel.showingConfirmationModal, let plan = viewModel.inferredPlan {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            viewModel.showingConfirmationModal = false
+                        }
+                    
+                    OnboardingConfirmationModal(
+                        plan: plan,
+                        onConfirm: {
+                            Task {
+                                await viewModel.finalizeOnboardingFromBackend()
+                            }
+                        },
+                        onDismiss: {
+                            viewModel.showingConfirmationModal = false
+                        },
+                        onNavigateToDashboard: {
+                            viewModel.showingConfirmationModal = false
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.showingConfirmationModal)
+            }
+        }
     }
 
     private var voiceHeroRegion: some View {

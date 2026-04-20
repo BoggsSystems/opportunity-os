@@ -273,11 +273,17 @@ struct RemoteAuthService: AuthServiceProtocol {
         self.client = client
     }
 
-    func signUp(email: String, password: String) async throws -> AuthSession {
-        debugTrace("RemoteAuth", "sign up requested email=\(email)")
+    func signUp(email: String, password: String, guestSessionId: String?) async throws -> AuthSession {
+        debugTrace("RemoteAuth", "sign up requested email=\(email) guestSessionId=\(guestSessionId ?? "none")")
         let response: AuthResponse = try await client.post(
             "auth/signup",
-            body: SignUpRequest(email: email, password: password, fullName: nil, timezone: TimeZone.current.identifier)
+            body: SignUpRequest(
+                email: email,
+                password: password,
+                fullName: nil,
+                timezone: TimeZone.current.identifier,
+                guestSessionId: guestSessionId
+            )
         )
         return response.authSession
     }
@@ -359,6 +365,7 @@ private struct SignUpRequest: Encodable {
     let password: String
     let fullName: String?
     let timezone: String
+    let guestSessionId: String?
 }
 
 private struct LoginRequest: Encodable {

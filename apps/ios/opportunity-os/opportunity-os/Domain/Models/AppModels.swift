@@ -258,6 +258,7 @@ struct AssistantConversationReply: Hashable {
     var sessionId: String?
     var text: String
     var shouldBeSilent: Bool = false
+    var suggestedAction: String?
 }
 
 struct AssistantConversationStreamChunk: Hashable {

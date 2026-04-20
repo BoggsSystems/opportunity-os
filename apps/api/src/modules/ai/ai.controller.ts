@@ -96,6 +96,7 @@ export class AiController {
   @Post('converse')
   async converse(@Body() body: {
     sessionId?: string;
+    guestSessionId?: string;
     message?: string;
     history?: Array<{ role: 'system' | 'user' | 'assistant'; text: string }>;
     context?: Record<string, unknown>;
@@ -126,6 +127,7 @@ export class AiController {
         userId,
         userName,
         sessionId: body.sessionId,
+        guestSessionId: body.guestSessionId,
         message: body.message,
         history: body.history,
         context: body.context as any,
@@ -158,6 +160,7 @@ export class AiController {
   async converseStream(
     @Body() body: {
       sessionId?: string;
+      guestSessionId?: string;
       message?: string;
       history?: Array<{ role: 'system' | 'user' | 'assistant'; text: string }>;
       context?: Record<string, unknown>;
@@ -190,6 +193,7 @@ export class AiController {
         userId,
         userName: user?.fullName || undefined,
         sessionId: body.sessionId,
+        guestSessionId: body.guestSessionId,
         message: body.message,
         history: body.history,
         context: body.context,
@@ -269,14 +273,12 @@ export class AiController {
    */
   @Post('finalize-onboarding')
   async finalizeOnboarding(
-    @Body() body: { sessionId: string },
+    @Body() body: { sessionId: string; guestSessionId?: string },
     @Req() req: any,
   ) {
     const userId = req.user?.id;
-    if (!userId) {
-      throw new HttpException({ message: 'Unauthorized' }, HttpStatus.UNAUTHORIZED);
-    }
-
+    // We allow guests to finalize onboarding to establish their goals before signup
+    
     if (!body.sessionId?.trim()) {
       throw new HttpException(
         { message: 'sessionId is required' },
@@ -286,10 +288,10 @@ export class AiController {
 
     try {
       this.logger.log(
-        `🎯 ONBOARDING: Finalizing for userId=${userId}, sessionId=${body.sessionId}`
+        `🎯 ONBOARDING: Finalizing for userId=${userId ?? 'GUEST'}, sessionId=${body.sessionId}`
       );
 
-      const result = await this.aiService.finalizeOnboarding(userId, body.sessionId);
+      const result = await this.aiService.finalizeOnboarding(userId, body.sessionId, body.guestSessionId || body.sessionId);
 
       this.logger.log(
         `🎯 ONBOARDING: Completed - Goal "${result.goal.title}" created with campaign "${result.campaign.title}"`

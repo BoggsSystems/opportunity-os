@@ -48,7 +48,7 @@ final class PasswordEntryViewModel: ObservableObject {
             let session: AuthSession
             switch mode {
             case .signUp:
-                session = try await authService.signUp(email: email, password: password)
+                session = try await authService.signUp(email: email, password: password, guestSessionId: sessionManager.guestSessionId)
             case .signIn:
                 session = try await authService.signIn(email: email, password: password)
             }

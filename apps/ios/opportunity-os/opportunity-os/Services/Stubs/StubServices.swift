@@ -1,7 +1,7 @@
 import Foundation
 
 struct StubAuthService: AuthServiceProtocol {
-    func signUp(email: String, password: String) async throws -> AuthSession {
+    func signUp(email: String, password: String, guestSessionId: String?) async throws -> AuthSession {
         let user = User(
             id: UUID(),
             firstName: "New",

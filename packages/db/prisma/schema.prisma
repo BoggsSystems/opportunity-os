@@ -820,19 +820,20 @@ model OfferingAsset {
 }
 
 model AIConversation {
-  id            String                @id @default(uuid()) @db.Uuid
-  userId        String                @db.Uuid
-  title         String
-  purpose       AIConversationPurpose
-  offeringId    String?               @db.Uuid
-  opportunityId String?               @db.Uuid
-  status        AIConversationStatus  @default(active)
-  messageCount  Int                   @default(0)
-  lastMessageAt DateTime?
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
+  id             String                @id @default(uuid()) @db.Uuid
+  userId         String?               @db.Uuid
+  guestSessionId String?               @db.VarChar(255)
+  title          String
+  purpose        AIConversationPurpose @default(general)
+  offeringId     String?               @db.Uuid
+  opportunityId  String?               @db.Uuid
+  status         AIConversationStatus  @default(active)
+  messageCount   Int                   @default(0)
+  lastMessageAt  DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
 
-  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   offering    Offering?               @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   opportunity Opportunity?            @relation("AIConversationOpportunity", fields: [opportunityId], references: [id], onDelete: SetNull)
   messages    AIConversationMessage[]
@@ -840,6 +841,7 @@ model AIConversation {
   tasks       AITask[]
 
   @@index([userId])
+  @@index([guestSessionId])
   @@index([offeringId])
   @@index([opportunityId])
   @@index([status, updatedAt])
@@ -1000,7 +1002,8 @@ enum GoalStatus {
 
 model Goal {
   id          String     @id @default(uuid()) @db.Uuid
-  userId      String     @db.Uuid
+  userId      String?    @db.Uuid
+  guestSessionId String? @db.VarChar(255)
   title       String
   description String?
   targetDate  DateTime?
@@ -1008,16 +1011,18 @@ model Goal {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
   campaigns  StrategicCampaign[]
 
   @@index([userId])
+  @@index([guestSessionId])
   @@map("goals")
 }
 
 model StrategicCampaign {
   id             String         @id @default(uuid()) @db.Uuid
-  userId         String         @db.Uuid
+  userId         String?        @db.Uuid
+  guestSessionId String?        @db.VarChar(255)
   goalId         String         @db.Uuid
   title          String
   strategicAngle String?
@@ -1026,7 +1031,7 @@ model StrategicCampaign {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
   goal         Goal               @relation(fields: [goalId], references: [id], onDelete: Cascade)
   opportunities Opportunity[]
   assets       CampaignAsset[]
@@ -1034,6 +1039,7 @@ model StrategicCampaign {
 
   @@index([userId])
   @@index([goalId])
+  @@index([guestSessionId])
   @@map("strategic_campaigns")
 }
 

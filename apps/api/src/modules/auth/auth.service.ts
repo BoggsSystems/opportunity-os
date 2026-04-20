@@ -103,6 +103,23 @@ export class AuthService {
         },
       });
 
+      if (dto.guestSessionId) {
+        await tx.goal.updateMany({
+          where: { guestSessionId: dto.guestSessionId, userId: null },
+          data: { userId: user.id },
+        });
+
+        await tx.strategicCampaign.updateMany({
+          where: { guestSessionId: dto.guestSessionId, userId: null },
+          data: { userId: user.id },
+        });
+
+        await tx.aIConversation.updateMany({
+          where: { guestSessionId: dto.guestSessionId, userId: null },
+          data: { userId: user.id },
+        });
+      }
+
       return {
         user,
         identity,

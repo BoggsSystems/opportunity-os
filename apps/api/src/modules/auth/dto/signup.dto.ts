@@ -15,4 +15,8 @@ export class SignUpDto {
   @IsOptional()
   @IsString()
   timezone?: string;
+
+  @IsOptional()
+  @IsString()
+  guestSessionId?: string;
 }
