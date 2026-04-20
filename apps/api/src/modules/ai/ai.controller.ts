@@ -169,14 +169,6 @@ export class AiController {
     @Res() res: Response,
   ) {
     const userId = req.user?.id;
-    if (!userId) {
-      throw new HttpException({ message: 'Unauthorized' }, HttpStatus.UNAUTHORIZED);
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { fullName: true }
-    });
 
     if (!body.message?.trim()) {
       throw new HttpException(
@@ -187,48 +179,89 @@ export class AiController {
 
     try {
       this.logger.log(
-        `🎤 VOICE PIPELINE: converse-stream request userId=${userId} userName=${user?.fullName ?? 'unknown'} sessionId=${body.sessionId ?? 'new'} message="${body.message}"`,
+        `🎤 VOICE PIPELINE: converse-stream request userId=${userId ?? 'GUEST'} sessionId=${body.sessionId ?? 'new'} message="${body.message}"`,
       );
-      const reply = await this.aiService.converse({
-        userId,
-        userName: user?.fullName || undefined,
-        sessionId: body.sessionId,
-        guestSessionId: body.guestSessionId,
-        message: body.message,
-        history: body.history,
-        context: body.context,
-      });
 
       res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
 
-      res.write(`${JSON.stringify({ type: 'session', sessionId: reply.sessionId })}\n`);
-      this.logger.log(`🎤 VOICE PIPELINE: converse-stream session established sessionId=${reply.sessionId}`);
+      // 1. Setup the session and start the stream
+      const sessionResponse = await this.aiService.startStreamConversation({
+        userId,
+        sessionId: body.sessionId,
+        guestSessionId: body.guestSessionId,
+        message: body.message,
+        history: body.history,
+        context: body.context as any,
+      });
 
-      for (const chunk of this.aiService.streamReplyChunks(reply.reply)) {
-        this.logger.log(`🎤 VOICE PIPELINE: converse-stream chunk sessionId=${reply.sessionId} text="${chunk.slice(0, 200)}..."`);
-        res.write(`${JSON.stringify({ type: 'chunk', sessionId: reply.sessionId, text: chunk })}\n`);
-        await new Promise((resolve) => setTimeout(resolve, 55));
+      const activeSessionId = sessionResponse.sessionId;
+      res.write(`${JSON.stringify({ type: 'session', sessionId: activeSessionId })}\n`);
+
+      // 2. Consume the stream
+      let fullReply = '';
+      let sentenceBuffer = '';
+      let isFirstChunk = true;
+
+      for await (const chunk of sessionResponse.stream) {
+        if (chunk.startsWith('{"_tool_calls":')) {
+          try {
+            const parsed = JSON.parse(chunk);
+            for (const call of parsed._tool_calls) {
+              if (call.function?.name === 'propose_goal') {
+                suggestedAction = 'PROPOSE_GOAL';
+                res.write(`${JSON.stringify({ type: 'action', sessionId: activeSessionId, action: 'PROPOSE_GOAL' })}\n`);
+              }
+            }
+          } catch (e) {
+            this.logger.warn('Failed to parse tool call chunk');
+          }
+          continue;
+        }
+
+        fullReply += chunk;
+        sentenceBuffer += chunk;
+        res.write(`${JSON.stringify({ type: 'chunk', sessionId: activeSessionId, text: chunk })}\n`);
+
+        // Basic sentence boundary detection
+        if (/[.!?]\s/.test(sentenceBuffer) || (chunk.match(/[.!?]$/) && !isFirstChunk)) {
+          const sentenceToSpeak = sentenceBuffer.trim();
+          sentenceBuffer = ''; // Reset buffer immediately so text stream continues
+
+          // Fire and forget TTS generation
+          this.ttsService.generateSpeech(sentenceToSpeak).then(audioBuffer => {
+            const base64Audio = audioBuffer.toString('base64');
+            res.write(`${JSON.stringify({ type: 'audio_chunk', sessionId: activeSessionId, audio: base64Audio })}\n`);
+          }).catch(err => {
+            this.logger.error('Failed to generate audio chunk', err);
+          });
+        }
+        isFirstChunk = false;
       }
 
-      this.logger.log(
-        `🎤 VOICE PIPELINE: converse-stream done sessionId=${reply.sessionId} reply="${reply.reply.slice(0, 200)}..." shouldBeSilent=${reply.shouldBeSilent}`
-      );
-      res.write(
-        `${JSON.stringify({ type: 'done', sessionId: reply.sessionId, reply: reply.reply, shouldBeSilent: reply.shouldBeSilent })}\n`,
-      );
+      // 3. Handle trailing sentence for TTS
+      if (sentenceBuffer.trim().length > 0) {
+        const sentenceToSpeak = sentenceBuffer.trim();
+        this.ttsService.generateSpeech(sentenceToSpeak).then(audioBuffer => {
+          const base64Audio = audioBuffer.toString('base64');
+          res.write(`${JSON.stringify({ type: 'audio_chunk', sessionId: activeSessionId, audio: base64Audio })}\n`);
+        }).catch(err => {
+          this.logger.error('Failed to generate final audio chunk', err);
+        });
+      }
+
+      // 5. Finalize and Persist
+      this.aiService.finalizeStreamConversation(userId, body.guestSessionId, activeSessionId, body.message, fullReply).catch(err => {
+        this.logger.error(`Failed to persist stream conversation sessionId=${activeSessionId}`, err);
+      });
+
+      res.write(`${JSON.stringify({ type: 'done', sessionId: activeSessionId, reply: fullReply, shouldBeSilent: false })}\n`);
       res.end();
     } catch (err: any) {
       this.logger.error(`Conversation stream failed: ${err.message}`, err.stack);
-      throw new HttpException(
-        {
-          success: false,
-          message: 'Conversation stream failed',
-          error: err instanceof Error ? err.message : 'Unknown error',
-        },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      res.write(`${JSON.stringify({ type: 'error', message: err.message })}\n`);
+      res.end();
     }
   }
 

@@ -9,10 +9,12 @@ export interface AiRequest {
   context?: Record<string, any>;
   temperature?: number;
   maxTokens?: number;
+  tools?: any[];
 }
 
 export interface AiResponse {
   content: string;
+  tool_calls?: any[];
   usage?: {
     promptTokens?: number;
     completionTokens?: number;
@@ -26,6 +28,7 @@ export interface AiProvider {
   name: string;
   isConfigured(): boolean;
   generateText(request: AiRequest): Promise<AiResponse>;
+  streamText?(request: AiRequest): AsyncGenerator<string, void, unknown>;
 }
 
 export interface AiProviderConfig {

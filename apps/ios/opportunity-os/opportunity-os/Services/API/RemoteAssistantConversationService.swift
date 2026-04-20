@@ -169,7 +169,10 @@ private struct ConversationStreamEvent: Decodable {
     let sessionId: String?
     let text: String?
     let reply: String?
+    let audio: String?
+    let action: String?
     let shouldBeSilent: Bool?
+    let message: String?
 
     var domainChunk: AssistantConversationStreamChunk {
         let kind: AssistantConversationStreamChunk.Kind
@@ -178,6 +181,12 @@ private struct ConversationStreamEvent: Decodable {
             kind = .session
         case "chunk":
             kind = .textDelta
+        case "audio_chunk":
+            kind = .audioChunk
+        case "action":
+            kind = .action
+        case "error":
+            kind = .error
         default:
             kind = .done
         }
@@ -187,7 +196,10 @@ private struct ConversationStreamEvent: Decodable {
             sessionId: sessionId,
             text: text,
             fullReply: reply,
-            shouldBeSilent: shouldBeSilent ?? false
+            audioData: audio,
+            action: action,
+            shouldBeSilent: shouldBeSilent ?? false,
+            errorMessage: message
         )
     }
 }

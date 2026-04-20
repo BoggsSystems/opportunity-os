@@ -2,27 +2,40 @@ import AVFoundation
 import Foundation
 
 @MainActor
-final class HybridSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtocol, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
+final class HybridSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtocol, AVSpeechSynthesizerDelegate {
     private let apiClient: OpportunityOSAPIClient
     private let sessionManager: SessionManager
     private let nativeSynthesizer = AVSpeechSynthesizer()
-    private var audioPlayer: AVAudioPlayer?
+    private let queuePlayer = AVQueuePlayer()
     private var queueDrainedContinuation: CheckedContinuation<Void, Never>?
     private var isRemoteActive = false
     private var queuedUtteranceCount = 0
+    private var tempFiles: [URL] = []
+    private var observerTokens: [Any] = []
 
     init(apiClient: OpportunityOSAPIClient, sessionManager: SessionManager) {
         self.apiClient = apiClient
         self.sessionManager = sessionManager
         super.init()
         nativeSynthesizer.delegate = self
+        setupQueuePlayerObserver()
+    }
+
+    private func setupQueuePlayerObserver() {
+        let token = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] notification in
+            guard let self = self else { return }
+            guard let item = notification.object as? AVPlayerItem, self.queuePlayer.items().contains(item) || self.queuePlayer.currentItem == item else { return }
+            
+            self.checkQueueState()
+        }
+        observerTokens.append(token)
     }
 
     func speak(_ text: String, preference: VoicePreference) async {
         debugTrace("SpeechSynthesis", "🎤 HYBRID: speak requested text=\(text.prefix(160))")
         await stopSpeaking()
         
-        // Attempt Remote OpenAI TTS
+        // Attempt Remote OpenAI TTS (Legacy full request)
         do {
             try await playRemoteSpeech(text, preference: preference)
         } catch {
@@ -32,6 +45,22 @@ final class HybridSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
         }
         
         debugTrace("SpeechSynthesis", "🎤 HYBRID: speak completed")
+    }
+
+    func enqueueAudioData(_ data: Data) async {
+        isRemoteActive = true
+        configurePlaybackAudioSession()
+        
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp3")
+        do {
+            try data.write(to: tempURL)
+            tempFiles.append(tempURL)
+            let item = AVPlayerItem(url: tempURL)
+            queuePlayer.insert(item, after: nil)
+            queuePlayer.play()
+        } catch {
+            debugTrace("SpeechSynthesis", "failed to write audio chunk: \(error)")
+        }
     }
 
     func enqueueSpeech(_ text: String, preference: VoicePreference) async {
@@ -50,7 +79,7 @@ final class HybridSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
     }
 
     func waitForSpeechQueue() async {
-        guard (queuedUtteranceCount > 0 || nativeSynthesizer.isSpeaking) || isRemoteActive else { return }
+        guard (queuedUtteranceCount > 0 || nativeSynthesizer.isSpeaking) || (queuePlayer.currentItem != nil) else { return }
         
         await withCheckedContinuation { continuation in
             self.queueDrainedContinuation = continuation
@@ -62,38 +91,49 @@ final class HybridSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
             nativeSynthesizer.stopSpeaking(at: .immediate)
         }
         
-        audioPlayer?.stop()
-        audioPlayer = nil
+        queuePlayer.removeAllItems()
         isRemoteActive = false
-        
         queuedUtteranceCount = 0
+        
+        // Cleanup temp files
+        for url in tempFiles {
+            try? FileManager.default.removeItem(at: url)
+        }
+        tempFiles.removeAll()
+        
         queueDrainedContinuation?.resume()
         queueDrainedContinuation = nil
     }
 
     private func playRemoteSpeech(_ text: String, preference: VoicePreference) async throws {
         isRemoteActive = true
-        
         configurePlaybackAudioSession()
         
-        // Fetch binary audio from backend
         let audioData = try await apiClient.postBinary(
             "ai/tts",
-            body: ["text": text, "voice": "nova"], // Switched to 'nova' to make the change obvious
+            body: ["text": text, "voice": "nova"],
             accessToken: sessionManager.session?.accessToken
         )
         
-        // Play using AVAudioPlayer
-        audioPlayer = try AVAudioPlayer(data: audioData)
-        audioPlayer?.delegate = self
-        audioPlayer?.prepareToPlay()
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp3")
+        try audioData.write(to: tempURL)
+        tempFiles.append(tempURL)
         
-        await withCheckedContinuation { continuation in
-            self.queueDrainedContinuation = continuation
-            audioPlayer?.play()
-        }
+        let item = AVPlayerItem(url: tempURL)
+        queuePlayer.insert(item, after: nil)
+        queuePlayer.play()
         
+        await waitForSpeechQueue()
         isRemoteActive = false
+    }
+
+    private func checkQueueState() {
+        Task { @MainActor in
+            if self.queuePlayer.items().isEmpty && self.queuePlayer.currentItem == nil {
+                self.queueDrainedContinuation?.resume()
+                self.queueDrainedContinuation = nil
+            }
+        }
     }
 
     private func configurePlaybackAudioSession() {
@@ -116,13 +156,4 @@ final class HybridSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
             }
         }
     }
-
-    // MARK: - Audio Player Delegate
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in
-            self.queueDrainedContinuation?.resume()
-            self.queueDrainedContinuation = nil
-        }
-    }
 }
-

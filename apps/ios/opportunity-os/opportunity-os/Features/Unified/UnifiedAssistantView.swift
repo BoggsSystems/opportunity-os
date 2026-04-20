@@ -63,6 +63,9 @@ final class UnifiedAssistantViewModel: ObservableObject {
     @Published var onboardingPlan: OnboardingPlan?
     @Published var onboardingEmail = ""
     @Published var onboardingPassword = ""
+    @Published var showingConfirmationModal = false
+    @Published var inferredPlan: OnboardingPlan?
+    @Published var isLoadingPlan = false
     
     private let opportunityService: OpportunityServiceProtocol
     private let nextActionService: NextActionServiceProtocol
@@ -74,6 +77,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
     private let messageDraftService: MessageDraftServiceProtocol
     private let emailService: EmailServiceProtocol
     private let authService: AuthServiceProtocol
+    private let onboardingService: OnboardingServiceProtocol
     let sessionManager: SessionManager
     let apiClient: OpportunityOSAPIClient
     
@@ -91,6 +95,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
         messageDraftService: MessageDraftServiceProtocol,
         emailService: EmailServiceProtocol,
         authService: AuthServiceProtocol,
+        onboardingService: OnboardingServiceProtocol,
         sessionManager: SessionManager,
         apiClient: OpportunityOSAPIClient
     ) {
@@ -104,6 +109,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
         self.messageDraftService = messageDraftService
         self.emailService = emailService
         self.authService = authService
+        self.onboardingService = onboardingService
         self.sessionManager = sessionManager
         self.apiClient = apiClient
         
@@ -244,6 +250,10 @@ final class UnifiedAssistantViewModel: ObservableObject {
                 assistantSessionId = reply.sessionId
                 updateAssistantMessage(id: messageId, text: reply.text)
                 
+                if reply.suggestedAction == "PROPOSE_GOAL" || reply.suggestedAction == "PROPOSE_CAMPAIGN" {
+                    await self.loadPlanAndShowModal()
+                }
+                
                 if reply.shouldBeSilent {
                     voiceState = .ready
                     if isContinuousVoiceModeEnabled { beginVoiceConversationTurn() }
@@ -291,6 +301,44 @@ final class UnifiedAssistantViewModel: ObservableObject {
             activeOpportunity = opportunity
             workspaceState = .opportunityFocus
         }
+    }
+    
+    func loadPlanAndShowModal() async {
+        guard let sessionId = assistantSessionId else { return }
+        isLoadingPlan = true
+        do {
+            let result = try await onboardingService.finalizeOnboarding(sessionId: sessionId)
+            if result.success {
+                self.inferredPlan = result.toOnboardingPlan()
+                self.showingConfirmationModal = true
+            }
+        } catch {
+            print("Failed to load plan: \(error)")
+        }
+        isLoadingPlan = false
+    }
+    
+    func finalizeOnboardingFromBackend() async {
+        guard let sessionId = assistantSessionId else { return }
+        isLoadingPlan = true
+        do {
+            let result = try await onboardingService.finalizeOnboarding(sessionId: sessionId)
+            if result.success {
+                self.inferredPlan = result.toOnboardingPlan()
+                self.showingConfirmationModal = false
+                
+                // Steer into campaign creation or dashboard
+                messages.append(SessionMessage(role: .assistant, text: "Goal saved! We're moving to your new campaign workspace now."))
+                
+                withAnimation {
+                    workspaceState = .dashboard
+                }
+                await loadProData()
+            }
+        } catch {
+            print("Failed to finalize onboarding: \(error)")
+        }
+        isLoadingPlan = false
     }
     
     func focusContent(_ item: ContentItem) {
@@ -398,6 +446,35 @@ struct UnifiedAssistantView: View {
             .shadow(color: AppTheme.shadow, radius: 20, y: 10)
             .padding(.horizontal)
             .padding(.bottom, 20)
+        }
+        .overlay {
+            if viewModel.showingConfirmationModal, let plan = viewModel.inferredPlan {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            viewModel.showingConfirmationModal = false
+                        }
+                    
+                    OnboardingConfirmationModal(
+                        plan: plan,
+                        onConfirm: {
+                            Task {
+                                await viewModel.finalizeOnboardingFromBackend()
+                            }
+                        },
+                        onDismiss: {
+                            viewModel.showingConfirmationModal = false
+                        },
+                        onNavigateToDashboard: {
+                            viewModel.showingConfirmationModal = false
+                            withAnimation { viewModel.workspaceState = .dashboard }
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.showingConfirmationModal)
+            }
         }
     }
     

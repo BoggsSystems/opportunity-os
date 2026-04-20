@@ -199,7 +199,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
                         self.inferredPlan = plan
                         self.showingConfirmationModal = true
                     } else {
-                        await self.finalizeOnboardingFromBackend()
+                        await self.loadPlanAndShowModal()
                     }
                     return
                 }
@@ -297,54 +297,66 @@ final class GoalDiscoveryViewModel: ObservableObject {
             voiceState = .speaking
             debugTrace("GoalDiscovery", "🔍 DEBUG: assistantResponseTask START messageId=\(messageId)")
             do {
-                debugTrace("GoalDiscovery", "awaiting assistant response for message=\(text)")
-                let reply = try await assistantConversationService.respond(
+                debugTrace("GoalDiscovery", "awaiting assistant stream for message=\(text)")
+                let stream = try assistantConversationService.streamResponse(
                     to: text,
                     sessionId: assistantSessionId,
                     history: conversationHistory,
                     context: assistantContext
                 )
 
-                guard !Task.isCancelled else {
-                    debugTrace("GoalDiscovery", "🔍 DEBUG: assistantResponseTask CANCELLED after response")
-                    return
-                }
+                for try await chunk in stream {
+                    guard !Task.isCancelled else { break }
 
-                assistantSessionId = reply.sessionId
-                updateAssistantMessage(id: messageId, text: reply.text)
-                debugTrace("GoalDiscovery", "assistant reply received sessionId=\(reply.sessionId ?? "nil"), text=\(reply.text.prefix(160)), silent=\(reply.shouldBeSilent), action=\(reply.suggestedAction ?? "none")")
-
-                if reply.suggestedAction == "PROPOSE_GOAL" || reply.suggestedAction == "PROPOSE_CAMPAIGN" {
-                    debugTrace("GoalDiscovery", "🚀 PROACTIVE TRIGGER: \(reply.suggestedAction!) detected")
-                    Task {
-                        await self.loadPlanAndShowModal()
+                    switch chunk.kind {
+                    case .session:
+                        self.assistantSessionId = chunk.sessionId
+                    case .textDelta:
+                        if let delta = chunk.text {
+                            self.appendAssistantMessage(id: messageId, delta: delta)
+                        }
+                    case .audioChunk:
+                        if let audioBase64 = chunk.audioData, let audioData = Data(base64Encoded: audioBase64) {
+                            #if targetEnvironment(simulator)
+                            // Skip audio playback in simulator for speed
+                            #else
+                            // Requires updated SpeechSynthesisService
+                            if let hybridService = self.speechSynthesisService as? HybridSpeechSynthesisService {
+                                await hybridService.enqueueAudioData(audioData)
+                            }
+                            #endif
+                        }
+                    case .action:
+                        if let action = chunk.action, action == "PROPOSE_GOAL" || action == "PROPOSE_CAMPAIGN" {
+                            debugTrace("GoalDiscovery", "🚀 PROACTIVE TRIGGER: \(action) detected in stream")
+                            Task {
+                                await self.loadPlanAndShowModal()
+                            }
+                        }
+                    case .done:
+                        debugTrace("GoalDiscovery", "stream done. silent=\(chunk.shouldBeSilent)")
+                        if chunk.shouldBeSilent {
+                            self.voiceState = .listening
+                            self.beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+                        } else {
+                            #if targetEnvironment(simulator)
+                            if self.voiceState == .speaking { self.voiceState = .listening }
+                            self.beginVoiceConversationTurn(isConcurrentWithSpeech: false)
+                            #else
+                            self.beginVoiceConversationTurn(isConcurrentWithSpeech: true)
+                            // Wait for audio queue to drain before listening again
+                            if let hybridService = self.speechSynthesisService as? HybridSpeechSynthesisService {
+                                await hybridService.waitForSpeechQueue()
+                            }
+                            self.debugTrace("GoalDiscovery", "finished speaking assistant stream")
+                            if self.voiceState == .speaking { self.voiceState = .listening }
+                            #endif
+                        }
+                    case .error:
+                        self.errorMessage = chunk.errorMessage ?? "Unknown stream error"
+                        self.appendAssistantMessage(id: messageId, delta: "\n[Error: \(self.errorMessage!)]")
                     }
                 }
-
-                if reply.shouldBeSilent {
-                    debugTrace("GoalDiscovery", "🤫 SILENT RESPONSE: skipping speech synthesis")
-                    voiceState = .listening
-                    beginVoiceConversationTurn(isConcurrentWithSpeech: false)
-                    return
-                }
-
-                debugTrace("GoalDiscovery", "speaking assistant reply")
-                
-                voiceState = .speaking
-                #if targetEnvironment(simulator)
-                await speechSynthesisService.speak(reply.text, preference: sessionManager.voicePreference)
-                debugTrace("GoalDiscovery", "finished speaking assistant reply")
-                if voiceState == .speaking {
-                    voiceState = .listening
-                }
-                beginVoiceConversationTurn(isConcurrentWithSpeech: false)
-                #else
-                beginVoiceConversationTurn(isConcurrentWithSpeech: true)
-                speechRecognitionService.activeSynthesizedText = reply.text
-                await speechSynthesisService.speak(reply.text, preference: sessionManager.voicePreference)
-                speechRecognitionService.activeSynthesizedText = nil
-                debugTrace("GoalDiscovery", "finished speaking assistant reply")
-                #endif
             } catch {
                 errorMessage = error.localizedDescription
                 let fallbackReply = localFallbackReply()
@@ -403,6 +415,12 @@ final class GoalDiscoveryViewModel: ObservableObject {
         let assistantMessages = messages.indices.filter { messages[$0].role == .assistant }
         guard let index = assistantMessages.last else { return }
         messages[index].text = text
+    }
+
+    private func appendAssistantMessage(id: UUID, delta: String) {
+        let assistantMessages = messages.indices.filter { messages[$0].role == .assistant }
+        guard let index = assistantMessages.last else { return }
+        messages[index].text += delta
     }
 
     private var assistantContext: AssistantConversationContext {

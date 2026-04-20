@@ -265,14 +265,20 @@ struct AssistantConversationStreamChunk: Hashable {
     enum Kind: Hashable {
         case session
         case textDelta
+        case audioChunk
+        case action
         case done
+        case error
     }
 
     var kind: Kind
     var sessionId: String?
     var text: String?
     var fullReply: String?
+    var audioData: String?
+    var action: String?
     var shouldBeSilent: Bool = false
+    var errorMessage: String?
 }
 
 enum AppRouteState: Hashable {

@@ -174,6 +174,15 @@ export class AiService {
       messages,
       temperature: 0.6,
       maxTokens: 500,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'propose_goal',
+            description: 'Call this tool IMMEDIATELY when the user explicitly affirms that they want to proceed with the goal you proposed. Do not call this if the user is still asking questions.'
+          }
+        }
+      ]
     };
 
     // Deep Trace: Log the exact messages being sent to the AI
@@ -183,19 +192,21 @@ export class AiService {
     let reply = response.content.trim();
     let suggestedAction: string | undefined;
 
-    // Detection with Tag or Heuristic Fallback
-    const hasGoalTag = reply.includes('[PROPOSE_GOAL]');
-    const hasGoalPhrase = reply.toLowerCase().includes('drafted that goal') || reply.toLowerCase().includes('summary on your screen');
-    
-    const hasCampaignTag = reply.includes('[PROPOSE_CAMPAIGN]');
-    const hasCampaignPhrase = reply.toLowerCase().includes('drafted that campaign') || reply.toLowerCase().includes('strategy on your screen');
+    // Check for tool calls first
+    if (response.tool_calls && response.tool_calls.length > 0) {
+      for (const call of response.tool_calls) {
+        if (call.function?.name === 'propose_goal') {
+          suggestedAction = 'PROPOSE_GOAL';
+        }
+      }
+    }
 
-    if (hasGoalTag || hasGoalPhrase) {
-      suggestedAction = 'PROPOSE_GOAL';
-      reply = reply.replace('[PROPOSE_GOAL]', '').trim();
-    } else if (hasCampaignTag || hasCampaignPhrase) {
-      suggestedAction = 'PROPOSE_CAMPAIGN';
-      reply = reply.replace('[PROPOSE_CAMPAIGN]', '').trim();
+    // Fallback heuristic detection (in case model ignores tools)
+    if (!suggestedAction) {
+      const hasGoalPhrase = reply.toLowerCase().includes('drafted that goal') || reply.toLowerCase().includes('summary on your screen');
+      if (hasGoalPhrase) {
+        suggestedAction = 'PROPOSE_GOAL';
+      }
     }
 
     this.logger.log(`RAW Provider reply: "${response.content}"`);
@@ -226,6 +237,103 @@ export class AiService {
       shouldBeSilent,
       suggestedAction,
     };
+  }
+
+  async startStreamConversation(input: {
+    userId?: string;
+    userName?: string;
+    sessionId?: string;
+    guestSessionId?: string;
+    message: string;
+    history?: ConversationTurn[];
+    context?: ConversationContext;
+  }): Promise<{ sessionId: string; stream: AsyncGenerator<string, void, unknown> }> {
+    let sessionId = input.sessionId;
+    
+    // If no sessionId is provided, try to resume the most recent active conversation
+    if (!sessionId && input.userId) {
+      const lastConversation = await prisma.aIConversation.findFirst({
+        where: { userId: input.userId, status: 'active' },
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true }
+      });
+      sessionId = lastConversation?.id;
+    }
+
+    if (!sessionId) {
+      sessionId = require('crypto').randomUUID();
+    }
+    
+    const summaries = input.userId ? await this.getLongTermSummaries(input.userId) : [];
+    
+    const dbHistory = (input.userId || input.sessionId) 
+      ? await this.getPersistentHistoryForSession(sessionId, input.userId, input.guestSessionId) 
+      : [];
+    
+    const history = this.mergeConversationHistory(
+      dbHistory,
+      input.history ?? [],
+    );
+
+    const onboardingState = await this.determineOnboardingState(input.userId, input.guestSessionId);
+    
+    // Note: We skip search intent here for speed, or we could run it concurrently
+    // For pure streaming speed, we skip the blocking search call
+    const messages = this.buildConversationMessages({
+      ...input,
+      history,
+      summaries,
+      onboardingState,
+    });
+
+    const request: AiRequest = {
+      messages,
+      temperature: 0.6,
+      maxTokens: 500,
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'propose_goal',
+            description: 'Call this tool IMMEDIATELY when the user explicitly affirms that they want to proceed with the goal you proposed. Do not call this if the user is still asking questions.'
+          }
+        }
+      ]
+    };
+
+    const provider = this.aiProviderFactory.getProvider();
+    
+    if (!provider.streamText) {
+      throw new Error('Selected AI provider does not support streaming');
+    }
+
+    return {
+      sessionId,
+      stream: provider.streamText(request),
+    };
+  }
+
+  async finalizeStreamConversation(
+    userId: string | undefined,
+    guestSessionId: string | undefined,
+    sessionId: string,
+    message: string,
+    fullReply: string
+  ): Promise<void> {
+    const cleanedReply = fullReply.replace(/\[PROPOSE_GOAL\]/gi, '').replace(/\[PROPOSE_CAMPAIGN\]/gi, '').trim();
+    
+    if (userId || guestSessionId) {
+      await this.persistConversation(userId, guestSessionId, sessionId, message, cleanedReply);
+      
+      if (userId) {
+        const historyCount = await prisma.aIConversationMessage.count({ where: { conversationId: sessionId } });
+        if (historyCount >= 10 && historyCount % 5 === 0) {
+          this.summarizeConversation(userId, sessionId).catch(err => {
+            this.logger.error(`Auto-summarization failed for sessionId=${sessionId}`, err);
+          });
+        }
+      }
+    }
   }
 
   private async getLongTermSummaries(userId: string): Promise<string[]> {
@@ -564,12 +672,12 @@ Current Pipeline Status & Mission:
 ${input.searchResults ? `Real-time Research Results:\n${input.searchResults}\n\nNote: Use the research results above to provide specific, up-to-date names and details. Cite that you've looked this up.` : ''}
 
 Phase Triggers (MANDATORY):
-- If you have enough information to form a clear business GOAL, you MUST start your response with "[PROPOSE_GOAL]". 
-- If the goal is confirmed and you have enough information to suggest a CAMPAIGN strategy, you MUST start your response with "[PROPOSE_CAMPAIGN]".
+- When you first understand the user's desired business GOAL, explicitly state the goal in your spoken response and ask if they are ready to proceed with it.
+- Once the user AFFIRMS the proposed goal (e.g. "Yes, let's do that"), you MUST call the "propose_goal" tool function. Do not use text tags.
 
 Response Rules:
 - Keep responses short (1-2 sentences) so they are easy to listen to.
-- If you are proposing a Goal or Campaign, ALWAYS use the trigger tag above AND be explicit: "I've drafted that goal for you. Take a look at the summary on your screen."
+- If the user affirms the goal, call the tool and say something like "Great, I'm pulling up the details now."
 - DO NOT be silent. Even for "testing" or short phrases like "hello," respond with a friendly greeting or an offer to help.
 - Use plain language. Avoid markdown, bullets, or complex technical terms.
 - If the user asks "what next," check the context below and recommend the next logical step.

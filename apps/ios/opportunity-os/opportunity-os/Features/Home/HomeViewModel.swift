@@ -592,6 +592,17 @@ final class HomeViewModel: ObservableObject {
                         )
                     }
                 }
+            case .audioChunk:
+                if let audioBase64 = chunk.audioData, let audioData = Data(base64Encoded: audioBase64) {
+                    if let hybridService = self.speechSynthesisService as? HybridSpeechSynthesisService {
+                        await hybridService.enqueueAudioData(audioData)
+                    }
+                }
+            case .action:
+                // Actions not currently handled in HomeViewModel stream
+                break
+            case .error:
+                debugTrace("HomeConversation", "stream error: \(chunk.errorMessage ?? "unknown")")
             case .done:
                 if let sessionId = chunk.sessionId {
                     assistantSessionId = sessionId
