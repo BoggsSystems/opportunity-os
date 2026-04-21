@@ -384,8 +384,21 @@ export class AiService {
       
       if (hasGoalPhrase) {
         suggestedAction = 'PROPOSE_GOAL';
-      } else if (lowerReply.includes('propose a campaign') || lowerReply.includes('drafted a campaign') || lowerReply.includes('campaign strategy') || lowerReply.includes('proposing this strategy')) {
-        suggestedAction = 'PROPOSE_CAMPAIGN';
+      } else {
+        // PROPOSE_CAMPAIGN requires BOTH the AI to reference the campaign AND the user to have affirmed
+        const aiMentionsCampaign = lowerReply.includes('propose a campaign') || 
+                                   lowerReply.includes('drafted a campaign') || 
+                                   lowerReply.includes('proposing this strategy') ||
+                                   lowerReply.includes('setting up the campaign') ||
+                                   lowerReply.includes('locking in the campaign');
+        
+        const userAffirmed = message ? (
+          /\b(yes|yep|yeah|sure|ok|okay|proceed|let's do it|sounds good|go ahead|perfect|great|do it|confirm|agreed|absolutely|let's go)\b/i.test(message)
+        ) : false;
+
+        if (aiMentionsCampaign && userAffirmed) {
+          suggestedAction = 'PROPOSE_CAMPAIGN';
+        }
       }
     }
 
@@ -749,7 +762,8 @@ Phase Triggers (Sequential Ladder):
 - STEP 1 (GOAL VERIFICATION): Repeat the goal and ask: "To confirm, is [GOAL] the objective we're setting today?". 
 - STEP 2 (GOAL PROPOSAL): Once the user affirms, you MUST IMMEDIATELY call \`propose_goal\`. DO NOT continue speaking about the next phase until the modal has been confirmed.
 - STEP 3 (PHASE GATE): DO NOT discuss any strategy, campaigns, or tactical details until AFTER the Goal is confirmed via the modal.
-- STEP 4 (CAMPAIGN): Once the goal is set, verbally propose the strategy. Wait for affirmation, then call \`propose_campaign\`.
+- STEP 4 (CAMPAIGN PITCH): Once the goal is confirmed, give the user a SHORT verbal pitch of your proposed email outreach strategy — 2 sentences max. End with "Would you like to proceed with this plan?". DO NOT call \`propose_campaign\` yet.
+- STEP 5 (CAMPAIGN CONFIRM): ONLY after the user explicitly says yes/proceed/sounds good/let's do it — THEN call \`propose_campaign\`. Never skip the verbal pitch first.
 
 Response Rules:
 - You are the Strategic Commander. ALWAYS stay in the Assistant view.
@@ -765,6 +779,12 @@ ${[
   input.context?.nextAction?.title ? `- Recommended next move: ${input.context.nextAction.title}` : null,
   input.context?.opportunity?.companyName ? `- Active company: ${input.context.opportunity.companyName}` : null,
 ].filter(Boolean).join('\n') || '- No specific business context yet. Let\'s get started!'}
+
+SYSTEM Message Handling:
+- Messages prefixed with [SYSTEM] are internal app signals, NOT from the user.
+- Respond to [SYSTEM] messages naturally as if continuing the conversation — do NOT quote or acknowledge the [SYSTEM] prefix.
+- If a [SYSTEM] message says an email was sent, offer a follow-up reminder warmly and briefly (1 sentence).
+- If the user agrees to a follow-up, say you've set it and end with "Who do you want to reach out to next?"
 
 IMPORTANT: Always respond with actual spoken words. Do not return empty strings or technical indicators.
 `.trim();
@@ -1022,6 +1042,10 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     campaignId: string,
     extracted: ExtractedGoal
   ) {
+    if (!userId) {
+      this.logger.warn(`Skipping initial lead generation for campaign=${campaignId} (no userId)`);
+      return;
+    }
     this.logger.log(`Generating initial leads for campaign=${campaignId}`);
     
     // We'll create 3 "Seed" leads based on the target audience

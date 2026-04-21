@@ -453,9 +453,10 @@ final class GoalDiscoveryViewModel: ObservableObject {
             
             let plan = result.toStrategicPlan()
             self.inferredPlan = plan
-            self.showingConfirmationModal = false
-            
             debugTrace("GoalDiscovery", "✅ Onboarding finalized: Goal=\"\(result.goal.title)\", Campaign=\"\(result.campaign.title)\"")
+            
+            // Allow the modal to finish its success animation before transitioning
+            try? await Task.sleep(nanoseconds: 1_200_000_000) // 1.2s
             
             onFinishRequest?(plan)
         } catch {

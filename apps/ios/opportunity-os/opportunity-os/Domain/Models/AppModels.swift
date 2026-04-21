@@ -303,6 +303,7 @@ struct SessionMessage: Identifiable, Hashable {
     enum Role: Hashable {
         case assistant
         case user
+        case system // Internal app signals — never rendered in the chat UI
     }
 
     let id: UUID

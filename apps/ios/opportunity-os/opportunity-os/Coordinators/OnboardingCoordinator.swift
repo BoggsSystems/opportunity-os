@@ -60,8 +60,13 @@ final class OnboardingCoordinator: ObservableObject {
                 )
             ) { plan in
                 self.debugLog("Goal discovery produced plan: \(plan.firstCycleTitle)")
-                self.path.append(.emailEntry(mode: .signUp, plan: plan))
-                self.debugLog("Path after goal discovery: \(self.path)")
+                if self.container.sessionManager.isAuthenticated {
+                    self.debugLog("User already authenticated, finishing onboarding.")
+                    self.onFinish?()
+                } else {
+                    self.path.append(.emailEntry(mode: .signUp, plan: plan))
+                    self.debugLog("Path after goal discovery: \(self.path)")
+                }
             }
         case .emailEntry(let mode, let plan):
             EmailEntryView(

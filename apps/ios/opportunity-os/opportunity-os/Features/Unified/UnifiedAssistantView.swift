@@ -39,6 +39,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
     
     // Voice & Chat State
     @Published var messages: [SessionMessage] = []
+    @Published var isPendingModalPresentation = false // Blocks voice while modal is animating in
     @Published var transcript = ""
     @Published var voiceState: VoiceConversationState = .ready
     @Published var assistantSessionId: String?
@@ -85,6 +86,8 @@ final class UnifiedAssistantViewModel: ObservableObject {
     private let debugService: RemoteDebugServiceProtocol
     private let assistantSocketService: AssistantSocketService
     private let voicePreferenceService: VoicePreferenceServiceProtocol
+    private let activityService: ActivityServiceProtocol
+    private let taskService: TaskServiceProtocol
     let sessionManager: SessionManager
     let apiClient: OpportunityOSAPIClient
     
@@ -109,7 +112,9 @@ final class UnifiedAssistantViewModel: ObservableObject {
         voicePreferenceService: VoicePreferenceServiceProtocol,
         assistantSocketService: AssistantSocketService,
         sessionManager: SessionManager,
-        apiClient: OpportunityOSAPIClient
+        apiClient: OpportunityOSAPIClient,
+        activityService: ActivityServiceProtocol,
+        taskService: TaskServiceProtocol
     ) {
         self.opportunityService = opportunityService
         self.nextActionService = nextActionService
@@ -129,6 +134,8 @@ final class UnifiedAssistantViewModel: ObservableObject {
         self.assistantSocketService = assistantSocketService
         self.sessionManager = sessionManager
         self.apiClient = apiClient
+        self.activityService = activityService
+        self.taskService = taskService
         
         setupSocketSubscriptions()
         setupInitialState()
@@ -182,6 +189,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
                 // Pre-signal, could show loading or specific animation
             }
         case .done(let reply, let action, let plan):
+            debugTrace("UnifiedAssistant", "✅ .done received: action=\(action ?? "nil") hasPlan=\(plan != nil) replyLen=\(reply.count)")
             if let lastId = pendingAssistantMessageId, let index = messages.firstIndex(where: { $0.id == lastId }) {
                 messages[index].text = reply
                 pendingAssistantMessageId = nil
@@ -192,25 +200,58 @@ final class UnifiedAssistantViewModel: ObservableObject {
             if let action = action, let plan = plan {
                 self.currentSuggestedAction = action
                 self.inferredPlan = plan
-                self.showingConfirmationModal = true
+                
+                if action == "PROPOSE_GOAL" {
+                    debugTrace("UnifiedAssistant", "🎯 PROPOSE_GOAL: showing modal immediately")
+                    self.showingConfirmationModal = true
+                } else if action == "PROPOSE_CAMPAIGN" {
+                    debugTrace("UnifiedAssistant", "⚔️ PROPOSE_CAMPAIGN: locking voice, starting speech-wait task")
+                    self.isPendingModalPresentation = true
+                    
+                    Task {
+                        debugTrace("UnifiedAssistant", "⚔️ PROPOSE_CAMPAIGN: waiting 0.5s for TTS to start")
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        
+                        var pollCount = 0
+                        while self.speechSynthesisService.isSpeaking {
+                            pollCount += 1
+                            try? await Task.sleep(nanoseconds: 200_000_000)
+                        }
+                        debugTrace("UnifiedAssistant", "⚔️ PROPOSE_CAMPAIGN: TTS finished after \(pollCount) polls, waiting 0.3s buffer")
+                        
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        
+                        await MainActor.run {
+                            debugTrace("UnifiedAssistant", "⚔️ PROPOSE_CAMPAIGN: showing campaign modal, clearing isPendingModalPresentation")
+                            withAnimation(.spring()) {
+                                self.showingConfirmationModal = true
+                                self.isPendingModalPresentation = false
+                            }
+                        }
+                    }
+                }
+            } else {
+                debugTrace("UnifiedAssistant", "ℹ️ .done: no action/plan in this turn")
             }
             
-            if isContinuousVoiceModeEnabled && !self.showingConfirmationModal {
-                // Wait for audio to finish before resuming listening
+            let isModalBlocking = self.showingConfirmationModal || self.isPendingModalPresentation
+            debugTrace("UnifiedAssistant", "🔒 voice guard: continuousMode=\(isContinuousVoiceModeEnabled) modalBlocking=\(isModalBlocking) (showingModal=\(self.showingConfirmationModal) pendingModal=\(self.isPendingModalPresentation))")
+            
+            if isContinuousVoiceModeEnabled && !isModalBlocking {
                 let waitAndResume = { [weak self] in
                     if self?.speechSynthesisService.isSpeaking == true {
+                        debugTrace("UnifiedAssistant", "🎤 TTS still active, deferring voice turn 0.5s")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                             self?.beginVoiceConversationTurn()
                         }
                     } else {
+                        debugTrace("UnifiedAssistant", "🎤 TTS idle, starting voice turn now")
                         self?.beginVoiceConversationTurn()
                     }
                 }
                 waitAndResume()
-            } else if !self.showingConfirmationModal {
-                self.voiceState = .ready
             } else {
-                // If modal is shown, set state to ready but don't listen
+                debugTrace("UnifiedAssistant", "🔇 voice suppressed: modal active or pending")
                 self.voiceState = .ready
             }
         }
@@ -267,12 +308,20 @@ final class UnifiedAssistantViewModel: ObservableObject {
         }
     }
     
-    private func beginVoiceConversationTurn() {
+    func beginVoiceConversationTurn() {
+        debugTrace("UnifiedAssistant", "🎤 VOICE TURN: Requesting new turn. continuousMode=\(isContinuousVoiceModeEnabled)")
         voiceTurnTask?.cancel()
         voiceTurnTask = Task {
             errorMessage = nil
             transcript = ""
-            voiceState = .listening
+            
+            // Small delay to allow audio session category to switch from playback to recording
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            
+            await MainActor.run {
+                self.voiceState = .listening
+            }
+            debugTrace("UnifiedAssistant", "🎤 VOICE TURN: State set to .listening, calling speechRecognitionService.listenForUtterance()")
             
             do {
                 let utterance = try await speechRecognitionService.listenForUtterance()
@@ -334,14 +383,31 @@ final class UnifiedAssistantViewModel: ObservableObject {
         beginVoiceConversationTurn()
     }
     
-    private func processUserMessage(_ text: String, shouldSpeakResponse: Bool) async {
-        messages.append(SessionMessage(role: .user, text: text))
+    private func processUserMessage(_ text: String, shouldSpeakResponse: Bool, isSystemMessage: Bool = false) async {
+        // System messages are invisible in the chat UI but still drive the AI
+        if isSystemMessage {
+            messages.append(SessionMessage(role: .system, text: text))
+        } else {
+            messages.append(SessionMessage(role: .user, text: text))
+        }
         
         let messageId = UUID()
         pendingAssistantMessageId = messageId
-        messages.append(SessionMessage(id: messageId, role: .assistant, text: ""))
+        // Only show assistant placeholder bubble for non-system messages (system turns speak without a visible bubble until done)
+        if !isSystemMessage {
+            messages.append(SessionMessage(id: messageId, role: .assistant, text: ""))
+        } else {
+            messages.append(SessionMessage(id: messageId, role: .assistant, text: ""))
+        }
         
         voiceState = .thinking
+        
+        // Ensure socket is connected
+        if assistantSocketService.state != .connected {
+            debugTrace("UnifiedAssistant", "🔌 Socket not connected, attempting to connect before converse...")
+            assistantSocketService.connect()
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+        }
         
         let context = buildAssistantContext()
         assistantSocketService.converse(
@@ -502,41 +568,32 @@ final class UnifiedAssistantViewModel: ObservableObject {
             if result.success {
                 self.inferredPlan = result.toStrategicPlan()
                 
-                // 1. Transition UI IMMEDIATELY
+                // 1. Transition UI lifecycle
                 await MainActor.run {
-                    self.showingConfirmationModal = false
                     withAnimation(.spring()) {
                         self.lifecycle = .operations
                     }
                 }
                 
-                // 2. Speak Confirmation in the background (don't block the UI)
-                let confirmationText = "Excellent. Your goal is set! Now, let's discuss the tactical campaign strategy to achieve it. I've drafted some parameters—proposing them now."
-                let preference = await voicePreferenceService.loadPreference()
-                
-                await MainActor.run {
-                    self.voiceState = .speaking
-                    self.messages.append(SessionMessage(role: .assistant, text: confirmationText))
-                }
-                
-                // Note: We don't await the speech here because we want the UI to be interactive
-                Task {
-                    await speechSynthesisService.speak(confirmationText, preference: preference)
-                    await MainActor.run {
-                        self.voiceState = .ready
-                        if isContinuousVoiceModeEnabled {
-                            beginVoiceConversationTurn()
-                        }
-                    }
-                }
-                
-                // 3. Refresh data and focus
+                // 2. Load fresh data so we know what prospects exist
                 await loadProData()
-                if let firstOpp = opportunities.first {
-                    await MainActor.run {
-                        self.activeOpportunity = firstOpp
-                        self.workspaceState = .opportunityFocus
+                
+                // 3. Build a context-aware nudge based on what we actually found
+                Task {
+                    // Brief pause for DB propagation
+                    try? await Task.sleep(nanoseconds: 1_200_000_000) // 1.2s
+                    
+                    let prospectCount = self.opportunities.count
+                    let nudge: String
+                    
+                    if prospectCount > 0 {
+                        let names = self.opportunities.prefix(3).compactMap { $0.companyName }.joined(separator: ", ")
+                        nudge = "Goal confirmed. I've already found \(prospectCount) potential prospects for you — including \(names.isEmpty ? "several matching contacts" : names). Now let's talk about how you want to approach outreach. What kind of campaign are you thinking — email, LinkedIn, or both?"
+                    } else {
+                        nudge = "Goal confirmed. Now let's plan how to go after it. I'm thinking we start with a targeted email campaign — I'll identify the right people to reach out to. Want me to propose a specific outreach plan?"
                     }
+                    
+                    await processUserMessage(nudge, shouldSpeakResponse: true, isSystemMessage: true)
                 }
             }
         } catch {
@@ -559,23 +616,27 @@ final class UnifiedAssistantViewModel: ObservableObject {
         
         isLoadingPlan = true
         do {
-            // [Actual logic here later]
+            // Load fresh prospects now that the campaign is locked in
+            await loadProData()
             
             await MainActor.run {
-                self.showingConfirmationModal = false
                 self.currentSuggestedAction = nil
-                
-                let successMsg = "Strategy confirmed! I'm now identifying the first set of opportunities based on this campaign."
-                self.messages.append(SessionMessage(role: .assistant, text: successMsg))
-                
-                Task {
-                    let pref = await voicePreferenceService.loadPreference()
-                    await speechSynthesisService.speak(successMsg, preference: pref)
-                    if isContinuousVoiceModeEnabled { beginVoiceConversationTurn() }
-                }
             }
             
-            await loadProData()
+            // Give the AI a context-rich message with actual prospect names
+            Task {
+                let prospectCount = self.opportunities.count
+                let nudge: String
+                
+                if prospectCount > 0 {
+                    let names = self.opportunities.prefix(3).compactMap { $0.companyName }.joined(separator: ", ")
+                    nudge = "Campaign confirmed. I've identified \(prospectCount) targets for this outreach — \(names.isEmpty ? "strong prospects" : names). Who do you want to start with first?"
+                } else {
+                    nudge = "Campaign is locked in. I'm searching for the best people to contact. Who would you like to start with — direct hiring managers or recruiters at these firms?"
+                }
+                
+                await processUserMessage(nudge, shouldSpeakResponse: true, isSystemMessage: true)
+            }
         } catch {
             errorMessage = "Failed to confirm campaign: \(error.localizedDescription)"
         }
@@ -592,10 +653,31 @@ final class UnifiedAssistantViewModel: ObservableObject {
     func handleMailResult(_ result: MFMailComposeResult, for draft: OutreachMessage) {
         pendingEmailDraft = nil
         if result == .sent {
-            messages.append(SessionMessage(role: .assistant, text: "Email sent! I've updated the cycle status."))
+            messages.append(SessionMessage(role: .assistant, text: "Email sent! I've logged the outreach."))
+            
             Task {
-                try? await emailService.send(draft)
-                await processUserMessage("[SYSTEM]: User sent the outreach email.", shouldSpeakResponse: true)
+                // 1. Log the activity in the background
+                let opportunityId = activeOpportunity?.id.uuidString
+                let companyId: String? = nil // company ID not directly available on Opportunity model
+                try? await activityService.logEmailSent(
+                    opportunityId: opportunityId,
+                    companyId: companyId,
+                    subject: draft.subject,
+                    bodySummary: String(draft.body.prefix(200))
+                )
+                
+                // 2. Update opportunity stage to outreach_sent
+                if let opp = activeOpportunity {
+                    debugTrace("UnifiedAssistant", "📧 Logged email activity for opportunity=\(opp.id)")
+                }
+                
+                // 3. Tell the AI what happened so it can naturally offer a follow-up
+                let companyName = activeOpportunity?.companyName ?? "the contact"
+                await processUserMessage(
+                    "[SYSTEM]: Email to \(companyName) was sent successfully. Offer to set a follow-up reminder in 5 business days. Keep it brief.",
+                    shouldSpeakResponse: true,
+                    isSystemMessage: true
+                )
             }
         } else {
             beginVoiceConversationTurn()
@@ -614,7 +696,9 @@ final class UnifiedAssistantViewModel: ObservableObject {
     }
     
     private var conversationHistory: [AssistantConversationMessage] {
-        messages.map { AssistantConversationMessage(role: $0.role == .assistant ? .assistant : .user, text: $0.text) }
+        messages
+            .filter { $0.role != .system } // System messages drive AI but aren't part of visible history
+            .map { AssistantConversationMessage(role: $0.role == .assistant ? .assistant : .user, text: $0.text) }
     }
     
     private func updateAssistantMessage(id: UUID, text: String) {
@@ -694,11 +778,18 @@ struct UnifiedAssistantView: View {
                     Color.black.opacity(0.4)
                         .ignoresSafeArea()
                         .onTapGesture {
+                            debugTrace("UnifiedAssistant", "🚪 Modal dismissed (backdrop tap)")
                             viewModel.showingConfirmationModal = false
+                            if viewModel.isContinuousVoiceModeEnabled {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    viewModel.beginVoiceConversationTurn()
+                                }
+                            }
                         }
                     
                     StrategicProposalModal(
                         plan: plan,
+                        mode: viewModel.currentSuggestedAction == "PROPOSE_CAMPAIGN" ? .campaign : .goal,
                         titleOverride: viewModel.currentSuggestedAction == "PROPOSE_CAMPAIGN" ? "⚔️ Strategic Campaign" : nil,
                         confirmButtonLabel: viewModel.currentSuggestedAction == "PROPOSE_CAMPAIGN" ? "Confirm Strategy" : "Confirm & Set Goal",
                         onConfirm: {
@@ -709,7 +800,13 @@ struct UnifiedAssistantView: View {
                             }
                         },
                         onDismiss: {
+                            debugTrace("UnifiedAssistant", "🚪 Modal dismissed (user tapped X)")
                             viewModel.showingConfirmationModal = false
+                            if viewModel.isContinuousVoiceModeEnabled {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    viewModel.beginVoiceConversationTurn()
+                                }
+                            }
                         },
                         onNavigateToDashboard: {
                             viewModel.showingConfirmationModal = false
@@ -855,7 +952,7 @@ struct UnifiedAssistantView: View {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 16) {
-                        ForEach(messages) { message in
+                        ForEach(messages.filter { $0.role != .system }) { message in
                             ChatBubble(message: message)
                                 .id(message.id)
                         }

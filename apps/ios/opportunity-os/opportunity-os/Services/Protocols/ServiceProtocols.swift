@@ -163,3 +163,17 @@ protocol ContentDiscoveryServiceProtocol {
     func uploadContent(from fileURL: URL) async throws -> ContentUploadResult
     func executeContent(itemId: UUID, maxTargets: Int) async throws -> ContentExecutionResult
 }
+
+protocol ActivityServiceProtocol {
+    func logEmailSent(opportunityId: String?, companyId: String?, subject: String, bodySummary: String) async throws
+}
+
+struct CreatedTask: Codable, Identifiable {
+    let id: String
+    let title: String
+    let dueAt: String?
+}
+
+protocol TaskServiceProtocol {
+    func createFollowUpTask(title: String, opportunityId: String?, daysFromNow: Int) async throws -> CreatedTask
+}

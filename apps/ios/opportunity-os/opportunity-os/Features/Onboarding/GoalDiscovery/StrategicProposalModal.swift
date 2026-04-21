@@ -1,7 +1,13 @@
 import SwiftUI
 
 struct StrategicProposalModal: View {
+    enum ModalMode {
+        case goal
+        case campaign
+    }
+    
     let plan: StrategicPlan
+    var mode: ModalMode = .goal
     var titleOverride: String? = nil
     var confirmButtonLabel: String? = nil
     let onConfirm: () async -> Void
@@ -35,30 +41,30 @@ struct StrategicProposalModal: View {
             // Content
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("The Goal")
+                    Text(mode == .campaign ? "Strategic Focus" : "The Goal")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(AppTheme.accent)
                         .textCase(.uppercase)
                     
-                    Text(plan.firstCycleTitle)
+                    Text(mode == .campaign ? plan.focusArea : plan.firstCycleTitle)
                         .font(.title3.weight(.bold))
                         .foregroundStyle(AppTheme.primaryText)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("What I'm Hearing")
+                    Text(mode == .campaign ? "Operational Summary" : "What I'm Hearing")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(AppTheme.accent)
                         .textCase(.uppercase)
                     
-                    Text(plan.confirmationMessage)
+                    Text(mode == .campaign ? plan.assistantSummary : plan.confirmationMessage)
                         .font(.body)
                         .foregroundStyle(AppTheme.primaryText)
                         .lineLimit(4)
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Strategic Steps")
+                    Text(mode == .campaign ? "Tactical Steps" : "Strategic Steps")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(AppTheme.accent)
                         .textCase(.uppercase)
@@ -150,8 +156,12 @@ struct StrategicProposalModal: View {
                 }
             }
             
-            // Brief pause to let them see the green check before VM closes it
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            // Brief pause to let them see the green check before closing
+            try? await Task.sleep(nanoseconds: 1_200_000_000) // 1.2s
+            
+            await MainActor.run {
+                onDismiss()
+            }
         }
     }
 }

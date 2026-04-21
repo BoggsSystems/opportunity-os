@@ -25,7 +25,9 @@ final class RootCoordinator: ObservableObject {
             voicePreferenceService: container.voicePreferenceService,
             assistantSocketService: container.assistantSocketService,
             sessionManager: container.sessionManager,
-            apiClient: container.apiClient
+            apiClient: container.apiClient,
+            activityService: container.activityService,
+            taskService: container.taskService
         )
         debugTrace("RootCoordinator", "initialized with Unified Assistant architecture")
     }

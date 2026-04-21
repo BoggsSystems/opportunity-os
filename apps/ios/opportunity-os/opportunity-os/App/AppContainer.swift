@@ -19,6 +19,8 @@ final class AppContainer {
     let onboardingService: StrategyServiceProtocol
     let goalService: GoalServiceProtocol
     let remoteDebugService: RemoteDebugServiceProtocol
+    let activityService: ActivityServiceProtocol
+    let taskService: TaskServiceProtocol
     let apiClient: OpportunityOSAPIClient
     let assistantSocketService: AssistantSocketService
 
@@ -40,7 +42,9 @@ final class AppContainer {
         contentDiscoveryService: ContentDiscoveryServiceProtocol,
         reEngagementBriefingService: ReEngagementBriefingService,
         onboardingService: StrategyServiceProtocol,
-        goalService: GoalServiceProtocol
+        goalService: GoalServiceProtocol,
+        activityService: ActivityServiceProtocol,
+        taskService: TaskServiceProtocol
     ) {
         self.authService = authService
         self.sessionManager = sessionManager
@@ -59,6 +63,8 @@ final class AppContainer {
         self.reEngagementBriefingService = reEngagementBriefingService
         self.onboardingService = onboardingService
         self.goalService = goalService
+        self.activityService = activityService
+        self.taskService = taskService
         self.remoteDebugService = RemoteDebugService(client: apiClient)
         self.apiClient = apiClient
         
@@ -210,7 +216,13 @@ extension AppContainer {
             onboardingService: ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1"
                 ? StubStrategyService()
                 : RemoteStrategyService(client: apiClient, sessionManager: sessionManager),
-            goalService: RemoteGoalService(client: apiClient, sessionManager: sessionManager)
+            goalService: RemoteGoalService(client: apiClient, sessionManager: sessionManager),
+            activityService: isUITestMode
+                ? StubActivityService()
+                : RemoteActivityService(client: apiClient, sessionManager: sessionManager),
+            taskService: isUITestMode
+                ? StubTaskService()
+                : RemoteTaskService(client: apiClient, sessionManager: sessionManager)
         )
     }
 }
