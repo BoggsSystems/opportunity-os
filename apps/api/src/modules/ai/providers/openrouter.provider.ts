@@ -163,9 +163,11 @@ export class OpenRouterAiProvider implements AiProvider {
               if (data.choices && data.choices[0] && data.choices[0].delta) {
                 const delta = data.choices[0].delta;
                 if (delta.content) {
+                  this.logger.debug(`[OpenRouter Stream] Content chunk: ${delta.content.substring(0, 50)}...`);
                   yield delta.content;
                 }
                 if (delta.tool_calls) {
+                  this.logger.log(`[OpenRouter Stream] TOOL CALLS received: ${JSON.stringify(delta.tool_calls).substring(0, 200)}`);
                   yield JSON.stringify({ _tool_calls: delta.tool_calls });
                 }
               }

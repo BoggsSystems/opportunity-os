@@ -368,9 +368,14 @@ export class AiService {
     let suggestedAction: string | undefined;
     let strategicPlan: any = null;
 
+    this.logger.log(`[detectStrategicIntent] Starting detection for sessionId=${sessionId}`);
+    this.logger.log(`[detectStrategicIntent] User message: "${message?.substring(0, 100)}"`);
+    this.logger.log(`[detectStrategicIntent] AI reply: "${reply?.substring(0, 100)}"`);
+
     // 1. Heuristic Detection
     if (overrideAction) {
       suggestedAction = overrideAction;
+      this.logger.log(`[detectStrategicIntent] Using overrideAction: ${suggestedAction}`);
     } else {
       const hasGoalPhrase = lowerReply.includes('drafted that goal') || 
                            lowerReply.includes('summary on your screen') || 
@@ -382,8 +387,11 @@ export class AiService {
                            lowerReply.includes('goal confirmed') ||
                            lowerReply.includes('ready to start');
       
+      this.logger.log(`[detectStrategicIntent] Goal phrase check: ${hasGoalPhrase}`);
+      
       if (hasGoalPhrase) {
         suggestedAction = 'PROPOSE_GOAL';
+        this.logger.log(`[detectStrategicIntent] → Detected PROPOSE_GOAL from AI reply`);
       } else {
         // PROPOSE_CAMPAIGN requires BOTH the AI to reference the campaign AND the user to have affirmed
         const aiMentionsCampaign = lowerReply.includes('propose a campaign') || 
@@ -396,25 +404,35 @@ export class AiService {
           /\b(yes|yep|yeah|sure|ok|okay|proceed|let's do it|sounds good|go ahead|perfect|great|do it|confirm|agreed|absolutely|let's go)\b/i.test(message)
         ) : false;
 
+        this.logger.log(`[detectStrategicIntent] Campaign detection: aiMentionsCampaign=${aiMentionsCampaign}, userAffirmed=${userAffirmed}`);
+
         if (aiMentionsCampaign && userAffirmed) {
           suggestedAction = 'PROPOSE_CAMPAIGN';
+          this.logger.log(`[detectStrategicIntent] → Detected PROPOSE_CAMPAIGN from both AI reply and user affirmation`);
+        } else if (aiMentionsCampaign && !userAffirmed) {
+          this.logger.log(`[detectStrategicIntent] AI mentioned campaign but user did NOT affirm - waiting for confirmation`);
+        } else {
+          this.logger.log(`[detectStrategicIntent] No campaign/goal trigger detected - continuing conversation`);
         }
       }
     }
 
     // 2. Plan Extraction if needed
     if (suggestedAction === 'PROPOSE_GOAL') {
+      this.logger.log(`[detectStrategicIntent] Extracting strategic plan for PROPOSE_GOAL...`);
       try {
         const combinedHistory = this.mergeConversationHistory(history ?? [], [
           { role: 'user', text: message },
           { role: 'assistant', text: reply }
         ]);
         strategicPlan = await this.extractGoalFromConversation(combinedHistory);
+        this.logger.log(`[detectStrategicIntent] Plan extraction successful: ${JSON.stringify(strategicPlan, null, 2).substring(0, 200)}`);
       } catch (err: any) {
-        this.logger.error(`Plan extraction failed for sessionId=${sessionId}: ${err.message}`);
+        this.logger.error(`[detectStrategicIntent] Plan extraction failed for sessionId=${sessionId}: ${err.message}`);
       }
     }
 
+    this.logger.log(`[detectStrategicIntent] Returning: action=${suggestedAction || 'NONE'}, hasPlan=${strategicPlan ? 'YES' : 'NO'}`);
     return { action: suggestedAction, plan: strategicPlan };
   }
 

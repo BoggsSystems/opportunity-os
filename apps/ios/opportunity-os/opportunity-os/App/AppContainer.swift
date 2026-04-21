@@ -66,6 +66,10 @@ final class AppContainer {
         self.activityService = activityService
         self.taskService = taskService
         self.remoteDebugService = RemoteDebugService(client: apiClient)
+        
+        // Set global debug service reference for debugTrace function
+        sharedRemoteDebugService = self.remoteDebugService
+        
         self.apiClient = apiClient
         
         let socketHost = APIConfiguration.baseURL.host ?? "localhost"

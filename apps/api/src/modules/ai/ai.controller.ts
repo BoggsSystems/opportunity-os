@@ -206,17 +206,26 @@ export class AiController {
       let sentenceBuffer = '';
       let isFirstChunk = true;
 
+      let toolCallsDetected = 0;
+      let chunksReceived = 0;
+
       for await (const chunk of sessionResponse.stream) {
+        chunksReceived++;
+        
         if (chunk.startsWith('{"_tool_calls":')) {
+          toolCallsDetected++;
+          this.logger.log(`[ConverseStream] TOOL CALL chunk detected #${toolCallsDetected}: ${chunk.substring(0, 100)}`);
           try {
             const parsed = JSON.parse(chunk);
             for (const call of parsed._tool_calls) {
+              this.logger.log(`[ConverseStream] Processing tool call: ${call.function?.name}`);
               if (call.function?.name === 'propose_goal') {
+                this.logger.log(`[ConverseStream] → Sending PROPOSE_GOAL action to frontend`);
                 res.write(`${JSON.stringify({ type: 'action', sessionId: activeSessionId, action: 'PROPOSE_GOAL' })}\n`);
               }
             }
           } catch (e) {
-            this.logger.warn('Failed to parse tool call chunk');
+            this.logger.warn(`[ConverseStream] Failed to parse tool call chunk: ${chunk.substring(0, 100)}`);
           }
           continue;
         }
@@ -253,10 +262,16 @@ export class AiController {
       }
 
       // 5. Finalize and Persist
+      this.logger.log(`[ConverseStream] Stream ended. Total chunks: ${chunksReceived}, toolCalls: ${toolCallsDetected}`);
+      this.logger.log(`[ConverseStream] Finalizing conversation for sessionId=${activeSessionId}`);
+      this.logger.log(`[ConverseStream] Full reply length: ${fullReply.length} chars, first 100: "${fullReply.substring(0, 100)}..."`);
+      
       const result = await this.aiService.finalizeStreamConversation(userId, body.guestSessionId, activeSessionId, body.message, fullReply, body.history).catch(err => {
-        this.logger.error(`Failed to persist stream conversation sessionId=${activeSessionId}`, err);
+        this.logger.error(`[ConverseStream] Failed to persist stream conversation sessionId=${activeSessionId}: ${err.message}`);
         return { suggestedAction: undefined, strategicPlan: undefined };
       });
+
+      this.logger.log(`[ConverseStream] Finalize result: action=${result?.suggestedAction || 'NONE'}, hasPlan=${result?.strategicPlan ? 'YES' : 'NO'}`);
 
       res.write(`${JSON.stringify({ 
         type: 'done', 
@@ -266,6 +281,7 @@ export class AiController {
         suggestedAction: result?.suggestedAction,
         onboardingPlan: result?.strategicPlan
       })}\n`);
+      this.logger.log(`[ConverseStream] Sent 'done' message to frontend with action=${result?.suggestedAction || 'NONE'}`);
       res.end();
     } catch (err: any) {
       this.logger.error(`Conversation stream failed: ${err.message}`, err.stack);

@@ -329,29 +329,44 @@ final class GoalDiscoveryViewModel: ObservableObject {
                     case .action:
                         if let action = chunk.action, action == "PROPOSE_GOAL" || action == "PROPOSE_CAMPAIGN" {
                             debugTrace("GoalDiscovery", "🚀 PROACTIVE TRIGGER: \(action) detected in stream")
+                            debugTrace("GoalDiscovery", "[ActionHandler] Scheduling loadPlanAndShowModal() for \(action)")
                             Task {
+                                debugTrace("GoalDiscovery", "[ActionHandler] Executing loadPlanAndShowModal()...")
                                 await self.loadPlanAndShowModal()
+                                debugTrace("GoalDiscovery", "[ActionHandler] loadPlanAndShowModal() completed")
                             }
+                        } else if let action = chunk.action {
+                            debugTrace("GoalDiscovery", "[ActionHandler] Received action: \(action) - not handling")
                         }
                     case .done:
-                        debugTrace("GoalDiscovery", "stream done. silent=\(chunk.shouldBeSilent)")
+                        debugTrace("GoalDiscovery", "📥 [StreamDone] type=done, silent=\(chunk.shouldBeSilent), action=\(chunk.action ?? "none")")
+                        debugTrace("GoalDiscovery", "📥 [StreamDone] Full stream complete. Restarting listening...")
                         if chunk.shouldBeSilent {
+                            debugTrace("GoalDiscovery", "[StreamDone] Silent=true → switching to listening immediately")
                             self.voiceState = .listening
                             self.beginVoiceConversationTurn(isConcurrentWithSpeech: false)
                         } else {
                             #if targetEnvironment(simulator)
+                            debugTrace("GoalDiscovery", "[StreamDone] Simulator mode → immediate listening restart")
                             if self.voiceState == .speaking { self.voiceState = .listening }
                             self.beginVoiceConversationTurn(isConcurrentWithSpeech: false)
                             #else
+                            debugTrace("GoalDiscovery", "[StreamDone] Device mode → waiting for speech queue...")
                             self.beginVoiceConversationTurn(isConcurrentWithSpeech: true)
                             // Wait for audio queue to drain before listening again
                             if let hybridService = self.speechSynthesisService as? HybridSpeechSynthesisService {
+                                debugTrace("GoalDiscovery", "[StreamDone] Waiting for HybridSpeechSynthesisService queue...")
                                 await hybridService.waitForSpeechQueue()
+                                debugTrace("GoalDiscovery", "[StreamDone] Speech queue drained")
                             }
-                            debugTrace("GoalDiscovery", "finished speaking assistant stream")
-                            if self.voiceState == .speaking { self.voiceState = .listening }
+                            debugTrace("GoalDiscovery", "[StreamDone] finished speaking assistant stream")
+                            if self.voiceState == .speaking { 
+                                self.voiceState = .listening 
+                                debugTrace("GoalDiscovery", "[StreamDone] voiceState = listening")
+                            }
                             #endif
                         }
+                        debugTrace("GoalDiscovery", "✅ [StreamDone] Listening restart COMPLETE")
                     case .error:
                         self.errorMessage = chunk.errorMessage ?? "Unknown stream error"
                         self.appendAssistantMessage(id: messageId, delta: "\n[Error: \(self.errorMessage!)]")
@@ -389,6 +404,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
             
             #if !targetEnvironment(simulator)
             if voiceState == .speaking {
+                debugTrace("GoalDiscovery", "🔍 [PostResponse] Setting voiceState to listening")
                 voiceState = .listening
             }
             #endif
