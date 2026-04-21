@@ -20,6 +20,10 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
     private var transcript = ""
     private var utteranceContinuation: CheckedContinuation<String, Error>?
     private var speechDetected = false
+    
+    var isRecording: Bool {
+        audioEngine.isRunning
+    }
 
     // Workaround: Silence detection for when result.isFinal is never invoked
     private var silenceTimer: Timer?
@@ -242,6 +246,26 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
                 self.resetSilenceTimer()
             }
         }
+    }
+
+    @MainActor
+    func stopTranscription() {
+        debugTrace("SpeechRecognition", "⏹️ stopTranscription called: Hard resetting state")
+        
+        // 1. Cancel current task
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        
+        // 2. Stop audio engine
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
+        
+        // 3. Clear current buffer
+        self.transcript = ""
+        self.speechDetected = false
+        self.isFinishing = true
     }
 
     private var isFinishing = false

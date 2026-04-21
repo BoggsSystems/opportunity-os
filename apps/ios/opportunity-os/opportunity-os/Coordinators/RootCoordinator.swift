@@ -19,6 +19,10 @@ final class RootCoordinator: ObservableObject {
             emailService: container.emailService,
             authService: container.authService,
             onboardingService: container.onboardingService,
+            goalService: container.goalService,
+            campaignService: container.campaignService,
+            debugService: container.remoteDebugService,
+            voicePreferenceService: container.voicePreferenceService,
             sessionManager: container.sessionManager,
             apiClient: container.apiClient
         )

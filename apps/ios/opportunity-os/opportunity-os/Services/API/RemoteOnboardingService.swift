@@ -34,4 +34,28 @@ struct RemoteOnboardingService: OnboardingServiceProtocol {
             throw OnboardingError.serverError(error.localizedDescription)
         }
     }
+    
+    func previewOnboardingPlan(sessionId: String) async throws -> OnboardingResult {
+        let (accessToken, guestSessionId) = await MainActor.run {
+            (sessionManager.session?.accessToken, sessionManager.guestSessionId)
+        }
+        
+        struct RequestBody: Codable {
+            let sessionId: String
+            let guestSessionId: String?
+        }
+        
+        let body = RequestBody(sessionId: sessionId, guestSessionId: guestSessionId)
+        
+        do {
+            let response: OnboardingResult = try await apiClient.post(
+                "ai/extract-onboarding-plan",
+                body: body,
+                accessToken: accessToken
+            )
+            return response
+        } catch {
+            throw OnboardingError.serverError(error.localizedDescription)
+        }
+    }
 }

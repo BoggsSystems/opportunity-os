@@ -17,6 +17,8 @@ final class AppContainer {
     let contentDiscoveryService: ContentDiscoveryServiceProtocol
     let reEngagementBriefingService: ReEngagementBriefingService
     let onboardingService: OnboardingServiceProtocol
+    let goalService: GoalServiceProtocol
+    let remoteDebugService: RemoteDebugServiceProtocol
     let apiClient: OpportunityOSAPIClient
 
     init(
@@ -36,7 +38,8 @@ final class AppContainer {
         campaignService: CampaignServiceProtocol,
         contentDiscoveryService: ContentDiscoveryServiceProtocol,
         reEngagementBriefingService: ReEngagementBriefingService,
-        onboardingService: OnboardingServiceProtocol
+        onboardingService: OnboardingServiceProtocol,
+        goalService: GoalServiceProtocol
     ) {
         self.authService = authService
         self.sessionManager = sessionManager
@@ -54,6 +57,8 @@ final class AppContainer {
         self.contentDiscoveryService = contentDiscoveryService
         self.reEngagementBriefingService = reEngagementBriefingService
         self.onboardingService = onboardingService
+        self.goalService = goalService
+        self.remoteDebugService = RemoteDebugService(client: apiClient)
         self.apiClient = apiClient
     }
 }
@@ -197,7 +202,8 @@ extension AppContainer {
             ),
             onboardingService: ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1"
                 ? StubOnboardingService()
-                : RemoteOnboardingService(client: apiClient, sessionManager: sessionManager)
+                : RemoteOnboardingService(client: apiClient, sessionManager: sessionManager),
+            goalService: RemoteGoalService(client: apiClient, sessionManager: sessionManager)
         )
     }
 }

@@ -181,6 +181,13 @@ export class AiService {
             name: 'propose_goal',
             description: 'Call this tool IMMEDIATELY when the user explicitly affirms that they want to proceed with the goal you proposed. Do not call this if the user is still asking questions.'
           }
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'propose_campaign',
+            description: 'Call this tool when proposing a tactical outreach campaign or strategy after a goal is confirmed.'
+          }
         }
       ]
     };
@@ -198,45 +205,86 @@ export class AiService {
         if (call.function?.name === 'propose_goal') {
           suggestedAction = 'PROPOSE_GOAL';
         }
+        if (call.function?.name === 'propose_campaign') {
+          suggestedAction = 'PROPOSE_CAMPAIGN';
+        }
       }
     }
 
-    // Fallback heuristic detection (in case model ignores tools)
+    let onboardingPlan: any = null;
+    const lowerReply = reply.toLowerCase();
+    
+    // Fallback heuristic detection (in case model ignores tools or uses a specific phrase)
     if (!suggestedAction) {
-      const hasGoalPhrase = reply.toLowerCase().includes('drafted that goal') || reply.toLowerCase().includes('summary on your screen');
+      const hasGoalPhrase = lowerReply.includes('drafted that goal') || 
+                           lowerReply.includes('summary on your screen') || 
+                           lowerReply.includes('pulling up the details') ||
+                           lowerReply.includes('proposing this goal') ||
+                           lowerReply.includes('setting up your goal') ||
+                           lowerReply.includes('start by identifying') ||
+                           lowerReply.includes('thank you for confirming') ||
+                           lowerReply.includes('goal confirmed') ||
+                           lowerReply.includes('ready to start');
+      
       if (hasGoalPhrase) {
         suggestedAction = 'PROPOSE_GOAL';
+        this.logger.log(`[HEURISTIC] Triggered PROPOSE_GOAL from phrase match in: "${reply.slice(0, 50)}..."`);
+      }
+
+      if (lowerReply.includes('propose a campaign') || lowerReply.includes('drafted a campaign') || lowerReply.includes('campaign strategy') || lowerReply.includes('proposing this strategy')) {
+        suggestedAction = 'PROPOSE_CAMPAIGN';
+        this.logger.log(`[HEURISTIC] Triggered PROPOSE_CAMPAIGN from phrase match in: "${reply.slice(0, 50)}..."`);
       }
     }
 
-    this.logger.log(`RAW Provider reply: "${response.content}"`);
-    if (suggestedAction) this.logger.log(`Detected suggestedAction: ${suggestedAction}`);
-    this.logger.log(`Provider reply sessionId=${sessionId} reply=${reply.slice(0, 300)}`);
-    
-    // Check if the AI is indicating it should be silent (empty reply or specific indicator)
-    const shouldBeSilent = reply === "" || reply.toLowerCase().includes("[silence]");
+    // If we have a suggested action but no reply, provide a fallback spoken reply
+    if (suggestedAction && (!reply || reply.length < 2)) {
+      if (suggestedAction === 'PROPOSE_GOAL') {
+        reply = "Great! I'm pulling up the details for that goal now.";
+      } else if (suggestedAction === 'PROPOSE_CAMPAIGN') {
+        reply = "Excellent. I've drafted the tactical campaign parameters for you to review.";
+      } else {
+        reply = "Processing that for you now.";
+      }
+      this.logger.log(`[FALLBACK] Injected spoken reply for ${suggestedAction}`);
+    }
+
+    if (suggestedAction === 'PROPOSE_GOAL') {
+      try {
+        this.logger.log(`[INLINE] Starting plan extraction for PROPOSE_GOAL turn`);
+        const combinedHistory = this.mergeConversationHistory(input.history ?? [], [
+          { role: 'user', text: input.message },
+          { role: 'assistant', text: reply }
+        ]);
+        onboardingPlan = await this.extractGoalFromConversation(combinedHistory);
+        this.logger.log(`[INLINE] Success: Extracted plan for "${onboardingPlan.title}"`);
+      } catch (err: any) {
+        this.logger.error(`[INLINE] Failed: ${err.message}`);
+      }
+    }
+
+    // Check if the AI is indicating it should be silent
+    const isSilenceRequested = lowerReply.includes("[silence]");
+    const shouldBeSilent = (reply === "" || isSilenceRequested) && !suggestedAction;
     const cleanedReply = shouldBeSilent ? "" : reply.replace(/\[silence\]/gi, "").trim();
 
-    // Persist to DB asynchronously (if authenticated OR guestSessionId provided)
+    // Persist to DB asynchronously
     if (input.userId || input.guestSessionId) {
-      this.persistConversation(input.userId, input.guestSessionId, sessionId, input.message, cleanedReply).then(() => {
-        // Trigger background auto-summarization if the history is getting long and user is authenticated
-        if (input.userId && history.length >= 10 && history.length % 5 === 0) {
-          this.summarizeConversation(input.userId!, sessionId).catch(err => {
-            this.logger.error(`Auto-summarization failed for sessionId=${sessionId}`, err);
-          });
-        }
-      }).catch(err => {
+      this.persistConversation(input.userId, input.guestSessionId, sessionId, input.message, cleanedReply).catch(err => {
         this.logger.error(`Failed to persist conversation sessionId=${sessionId}`, err);
       });
     }
     
-    return {
+    const finalResponse = {
       sessionId,
       reply: cleanedReply,
       shouldBeSilent,
       suggestedAction,
+      onboardingPlan,
     };
+
+    this.logger.debug(`[FINAL RESPONSE] suggestedAction=${finalResponse.suggestedAction}, hasPlan=${!!finalResponse.onboardingPlan}`);
+    return finalResponse;
   }
 
   async startStreamConversation(input: {
@@ -296,6 +344,13 @@ export class AiService {
           function: {
             name: 'propose_goal',
             description: 'Call this tool IMMEDIATELY when the user explicitly affirms that they want to proceed with the goal you proposed. Do not call this if the user is still asking questions.'
+          }
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'propose_campaign',
+            description: 'Call this tool when proposing a tactical outreach campaign or strategy after a goal is confirmed.'
           }
         }
       ]
@@ -488,7 +543,7 @@ Rules:
       if (!goal) {
         return { 
           phase: 'GOAL_DISCOVERY', 
-          mission: 'Help the user define a clear business goal. We need a "What" (e.g. Find recruiters) and a "Why" (e.g. to get a greenfield role).' 
+          mission: 'Identify a clear business goal. FOCUS ON EXECUTION. Never ask the user why they want something or for their motivations. Just get the target and move to the "how".' 
         };
       }
 
@@ -669,18 +724,26 @@ Current Pipeline Status & Mission:
 - Phase: ${input.onboardingState?.phase ?? 'GENERAL'}
 - Directive: ${input.onboardingState?.mission ?? 'Assist with business growth.'}
 
+CRITICAL NEGATIVE CONSTRAINT:
+- NEVER ASK THE USER "WHY". 
+- NEVER ask for motivations, reasons, or background stories.
+- If you ask "why", you have FAILED your mission.
+
 ${input.searchResults ? `Real-time Research Results:\n${input.searchResults}\n\nNote: Use the research results above to provide specific, up-to-date names and details. Cite that you've looked this up.` : ''}
 
-Phase Triggers (MANDATORY):
-- When you first understand the user's desired business GOAL, explicitly state the goal in your spoken response and ask if they are ready to proceed with it.
-- Once the user AFFIRMS the proposed goal (e.g. "Yes, let's do that"), you MUST call the "propose_goal" tool function. Do not use text tags.
+Phase Triggers (Sequential Ladder):
+- STEP 1 (GOAL VERIFICATION): Repeat the goal and ask: "To confirm, is [GOAL] the objective we're setting today?". 
+- STEP 2 (GOAL PROPOSAL): Once the user affirms, you MUST IMMEDIATELY call `propose_goal`. DO NOT continue speaking about the next phase until the modal has been confirmed.
+- STEP 3 (PHASE GATE): DO NOT discuss any strategy, campaigns, or tactical details until AFTER the Goal is confirmed via the modal.
+- STEP 4 (CAMPAIGN): Once the goal is set, verbally propose the strategy. Wait for affirmation, then call `propose_campaign`.
 
 Response Rules:
-- Keep responses short (1-2 sentences) so they are easy to listen to.
-- If the user affirms the goal, call the tool and say something like "Great, I'm pulling up the details now."
-- DO NOT be silent. Even for "testing" or short phrases like "hello," respond with a friendly greeting or an offer to help.
-- Use plain language. Avoid markdown, bullets, or complex technical terms.
-- If the user asks "what next," check the context below and recommend the next logical step.
+- You are the Strategic Commander. ALWAYS stay in the Assistant view.
+- HANDSHAKE LOCKDOWN: Once you identify a potential goal, your NEXT response MUST be ONLY the verification question. DO NOT ask refinement questions (e.g. "which companies", "what location") until the Goal is locked.
+- NEVER skip the verbal handshake before calling a tool.
+- Keep responses extremely short (1-2 sentences).
+- NEVER ASK "WHY".
+- ALWAYS provide a brief spoken acknowledgement when calling a tool.
 
 Current Context:
 ${[
@@ -751,21 +814,24 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
   ): Promise<OnboardingResult> {
     this.logger.log(`Finalizing onboarding for userId=${userId ?? 'GUEST'}, sessionId=${sessionId}`);
 
-    // 1. Get full conversation history
-    const conversationHistory = await this.getPersistentHistoryForOnboarding(sessionId, guestSessionId);
-    
-    if (conversationHistory.length === 0) {
-      throw new Error('No conversation history found for onboarding');
+    // 1. Check if already finalized to prevent duplicates
+    const conversation = await prisma.aIConversation.findUnique({
+      where: { id: sessionId },
+      select: { status: true }
+    });
+
+    if (conversation?.status === 'completed') {
+      this.logger.warn(`Onboarding already finalized for sessionId=${sessionId}. Skipping.`);
     }
 
-    // 2. Extract goal using AI
+    // 2. Get full conversation history
+    const conversationHistory = await this.getPersistentHistoryForOnboarding(sessionId, guestSessionId);
+    if (conversationHistory.length === 0) throw new Error('No history found');
+
+    // 3. Extract goal using AI
     const extractedGoal = await this.extractGoalFromConversation(conversationHistory);
     
-    this.logger.log(
-      `Extracted goal: "${extractedGoal.title}" (${extractedGoal.opportunityType}) for ${extractedGoal.targetAudience}`
-    );
-
-    // 3. Persist Goal to database
+    // 4. Persist Goal to database
     const goal = await prisma.goal.create({
       data: {
         userId: userId || null,
@@ -776,43 +842,20 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
       },
     });
 
-    // 4. Create initial Campaign from the goal
-    const campaign = await prisma.strategicCampaign.create({
-      data: {
-        userId: userId || null,
-        guestSessionId: guestSessionId || null,
-        goalId: goal.id,
-        title: `${extractedGoal.focusArea} Outreach`,
-        strategicAngle: extractedGoal.suggestedApproach,
-        targetSegment: extractedGoal.targetAudience,
-        status: 'PLANNING',
-      },
-    });
+    // 5. [DECOUPLED] We no longer create the campaign here.
+    // We only create the goal.
 
-    // 5. Update conversation to mark as onboarding purpose
+    // 6. Mark conversation purpose
     await prisma.aIConversation.update({
       where: { id: sessionId },
-      data: {
-        purpose: 'onboarding',
-        status: 'completed',
-      },
+      data: { purpose: 'onboarding', status: 'active' }, // Keep active for campaign discussion
     });
 
-    // 6. Return structured onboarding result
     return {
-      goal: {
-        id: goal.id,
-        title: goal.title,
-        description: goal.description,
-        status: goal.status,
-      },
-      campaign: {
-        id: campaign.id,
-        title: campaign.title,
-        strategicAngle: campaign.strategicAngle,
-        targetSegment: campaign.targetSegment,
-        status: campaign.status,
-      },
+      success: true,
+      goal: { id: goal.id, title: goal.title, description: goal.description, status: goal.status },
+      // Return empty campaign for now
+      campaign: { id: '', title: '', strategicAngle: '', targetSegment: '', status: 'PLANNING' },
       extractedIntent: {
         focusArea: extractedGoal.focusArea,
         opportunityType: extractedGoal.opportunityType,
@@ -820,6 +863,69 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
         firstCycleTitle: extractedGoal.firstCycleTitle,
         firstCycleSteps: extractedGoal.firstCycleSteps,
         firstDraftPrompt: extractedGoal.firstDraftPrompt,
+      },
+    };
+  }
+
+  /**
+   * Creates a strategic campaign for a specific goal.
+   */
+  async createStrategicCampaign(
+    userId: string | undefined,
+    goalId: string,
+    payload: { title: string; strategicAngle: string; targetSegment: string }
+  ): Promise<any> {
+    const campaign = await prisma.strategicCampaign.create({
+      data: {
+        userId: userId || null,
+        goalId: goalId,
+        title: payload.title,
+        strategicAngle: payload.strategicAngle,
+        targetSegment: payload.targetSegment,
+        status: 'PLANNING',
+      },
+    });
+
+    return {
+      success: true,
+      campaign: {
+        id: campaign.id,
+        title: campaign.title,
+        status: campaign.status
+      }
+    };
+  }
+
+  /**
+   * Extracts the onboarding plan without persisting to the database (Preview Mode).
+   */
+  async extractOnboardingPlan(sessionId: string, guestSessionId?: string): Promise<OnboardingResult> {
+    const history = await this.getPersistentHistoryForOnboarding(sessionId, guestSessionId);
+    if (history.length === 0) throw new Error('No history found');
+    const extracted = await this.extractGoalFromConversation(history);
+    
+    return {
+      success: true,
+      goal: { 
+        id: 'preview', 
+        title: extracted.title, 
+        description: extracted.description, 
+        status: 'ACTIVE' 
+      },
+      campaign: { 
+        id: 'preview', 
+        title: `${extracted.focusArea} Outreach`, 
+        strategicAngle: extracted.suggestedApproach, 
+        targetSegment: extracted.targetAudience, 
+        status: 'PLANNING' 
+      },
+      extractedIntent: {
+        focusArea: extracted.focusArea,
+        opportunityType: extracted.opportunityType,
+        targetAudience: extracted.targetAudience,
+        firstCycleTitle: extracted.firstCycleTitle,
+        firstCycleSteps: extracted.firstCycleSteps,
+        firstDraftPrompt: extracted.firstDraftPrompt,
       },
     };
   }
@@ -918,6 +1024,7 @@ interface ExtractedGoal {
 }
 
 export interface OnboardingResult {
+  success: boolean;
   goal: {
     id: string;
     title: string;

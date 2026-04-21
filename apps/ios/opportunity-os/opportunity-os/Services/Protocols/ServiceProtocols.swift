@@ -90,10 +90,12 @@ final class SessionManager: ObservableObject {
 protocol SpeechRecognitionServiceProtocol {
     var onSpeechDetected: (() -> Void)? { get set }
     var activeSynthesizedText: String? { get set }
+    var isRecording: Bool { get }
     func startListening() async throws
     func stopListening() async
     func latestTranscript() async -> String
     func listenForUtterance() async throws -> String
+    func stopTranscription()
 }
 
 protocol SpeechSynthesisServiceProtocol {

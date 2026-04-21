@@ -31,4 +31,9 @@ struct StubOnboardingService: OnboardingServiceProtocol {
             timestamp: ISO8601DateFormatter().string(from: Date())
         )
     }
+    
+    func previewOnboardingPlan(sessionId: String) async throws -> OnboardingResult {
+        try await Task.sleep(nanoseconds: 500_000_000)
+        return try await finalizeOnboarding(sessionId: sessionId)
+    }
 }

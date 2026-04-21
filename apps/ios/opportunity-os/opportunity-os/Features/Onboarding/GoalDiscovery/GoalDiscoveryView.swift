@@ -85,9 +85,7 @@ struct GoalDiscoveryView: View {
                     OnboardingConfirmationModal(
                         plan: plan,
                         onConfirm: {
-                            Task {
-                                await viewModel.finalizeOnboardingFromBackend()
-                            }
+                            await viewModel.finalizeOnboardingFromBackend()
                         },
                         onDismiss: {
                             viewModel.showingConfirmationModal = false

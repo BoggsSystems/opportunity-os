@@ -88,12 +88,21 @@ final class StubSpeechRecognitionService: SpeechRecognitionServiceProtocol {
         transcript
     }
 
+    var isRecording: Bool = false
+
+    func stopTranscription() {
+        isRecording = false
+        transcript = ""
+    }
+
     func listenForUtterance() async throws -> String {
+        isRecording = true
         try await startListening()
         transcript = await turnStore.nextTurn()
         #if DEBUG
         print("[StubSpeechRecognitionService] returning scripted turn: \(transcript)")
         #endif
+        isRecording = false
         return transcript
     }
 }

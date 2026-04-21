@@ -2,15 +2,20 @@ import SwiftUI
 
 struct OnboardingConfirmationModal: View {
     let plan: OnboardingPlan
-    let onConfirm: () -> Void
+    var titleOverride: String? = nil
+    var confirmButtonLabel: String? = nil
+    let onConfirm: () async -> Void
     let onDismiss: () -> Void
     let onNavigateToDashboard: () -> Void
+
+    @State private var isConfirming = false
+    @State private var showSuccess = false
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
             HStack {
-                Text("🎯 New Goal Formed")
+                Text(titleOverride ?? "🎯 New Goal Formed")
                     .font(.headline)
                     .foregroundStyle(AppTheme.primaryText)
                 Spacer()
@@ -78,24 +83,40 @@ struct OnboardingConfirmationModal: View {
 
             // Footer / Actions
             VStack(spacing: 16) {
-                Button(action: onConfirm) {
-                    Text("Confirm & Continue")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 16))
-                        .foregroundStyle(.white)
-                }
-                
-                Button(action: onNavigateToDashboard) {
+                Button(action: handleConfirm) {
                     HStack {
-                        Text("View in your Dashboard")
-                        Image(systemName: "arrow.right")
+                        if showSuccess {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title3.weight(.bold))
+                                .transition(.scale.combined(with: .opacity))
+                        } else if isConfirming {
+                            ProgressView()
+                                .tint(.white)
+                                .scaleEffect(0.8)
+                        } else {
+                            Text(confirmButtonLabel ?? "Confirm & Continue")
+                                .font(.headline)
+                                .transition(.opacity)
+                        }
                     }
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(AppTheme.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(showSuccess ? Color.green : AppTheme.accent, in: RoundedRectangle(cornerRadius: 16))
+                    .foregroundStyle(.white)
                 }
-                .padding(.bottom, 8)
+                .disabled(isConfirming || showSuccess)
+                
+                if !showSuccess {
+                    Button(action: onNavigateToDashboard) {
+                        HStack {
+                            Text("View in your Dashboard")
+                            Image(systemName: "arrow.right")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(AppTheme.accent)
+                    }
+                    .padding(.bottom, 8)
+                }
             }
             .padding(24)
         }
@@ -107,6 +128,31 @@ struct OnboardingConfirmationModal: View {
         )
         .shadow(color: Color.black.opacity(0.2), radius: 40, y: 20)
         .padding(20)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: showSuccess)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isConfirming)
+    }
+
+    private func handleConfirm() {
+        let generator = UINotificationFeedbackGenerator()
+        generator.prepare()
+        
+        isConfirming = true
+        
+        Task {
+            // Actually wait for the backend to finish
+            await onConfirm()
+            
+            await MainActor.run {
+                generator.notificationOccurred(.success)
+                withAnimation {
+                    showSuccess = true
+                    isConfirming = false
+                }
+            }
+            
+            // Brief pause to let them see the green check before VM closes it
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
     }
 }
 

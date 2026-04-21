@@ -37,7 +37,8 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
             sessionId: response.sessionId,
             text: response.reply,
             shouldBeSilent: response.shouldBeSilent ?? false,
-            suggestedAction: response.suggestedAction
+            suggestedAction: response.suggestedAction,
+            onboardingPlan: response.onboardingPlan?.toOnboardingPlan()
         )
     }
 
@@ -162,6 +163,31 @@ private struct ConversationResponse: Decodable {
     let reply: String
     let shouldBeSilent: Bool?
     let suggestedAction: String?
+    let onboardingPlan: APIExtractedIntent?
+}
+
+private struct APIExtractedIntent: Decodable {
+    let focusArea: String
+    let opportunityType: String
+    let targetAudience: String
+    let firstCycleTitle: String
+    let firstCycleSteps: [String]
+    let firstDraftPrompt: String
+    let title: String?
+    let description: String?
+
+    func toOnboardingPlan() -> OnboardingPlan {
+        OnboardingPlan(
+            focusArea: focusArea,
+            opportunityType: opportunityType,
+            targetAudience: targetAudience,
+            firstCycleTitle: firstCycleTitle,
+            assistantSummary: "Goal: \(title ?? "")",
+            confirmationMessage: firstCycleSteps.first ?? "Let's get started",
+            firstCycleSteps: firstCycleSteps,
+            firstDraftPrompt: firstDraftPrompt
+        )
+    }
 }
 
 private struct ConversationStreamEvent: Decodable {

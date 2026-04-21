@@ -7,6 +7,9 @@ protocol OnboardingServiceProtocol {
     ///   - sessionId: The conversation session ID
     /// - Returns: The persisted onboarding result with goal and campaign
     func finalizeOnboarding(sessionId: String) async throws -> OnboardingResult
+    
+    /// Extracts the onboarding plan without persisting (Preview Mode)
+    func previewOnboardingPlan(sessionId: String) async throws -> OnboardingResult
 }
 
 /// Result from finalizing onboarding

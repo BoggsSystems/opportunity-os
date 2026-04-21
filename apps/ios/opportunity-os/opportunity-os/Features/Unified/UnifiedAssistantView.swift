@@ -24,6 +24,7 @@ enum UnifiedWorkspaceState: Hashable {
     
     // Pro Workspace States
     case dashboard              // Overview of momentum and next steps
+    case campaignFocus(Campaign)// Specific campaign details
     case opportunityFocus       // Specific opportunity details
     case opportunityList        // Browse all recommendations
     case discoveryFocus         // Specific content/news item
@@ -56,6 +57,9 @@ final class UnifiedAssistantViewModel: ObservableObject {
     @Published var activeOpportunity: Opportunity?
     @Published var activeContentItem: ContentItem?
     @Published var pendingEmailDraft: OutreachMessage?
+    @Published var activeGoal: Goal?
+    @Published var activeCampaigns: [Campaign] = []
+    @Published var selectedCampaign: Campaign?
     @Published var isLoading = false
     @Published var isExecutingAction = false
     
@@ -66,6 +70,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
     @Published var showingConfirmationModal = false
     @Published var inferredPlan: OnboardingPlan?
     @Published var isLoadingPlan = false
+    @Published var currentSuggestedAction: String?
     
     private let opportunityService: OpportunityServiceProtocol
     private let nextActionService: NextActionServiceProtocol
@@ -78,6 +83,10 @@ final class UnifiedAssistantViewModel: ObservableObject {
     private let emailService: EmailServiceProtocol
     private let authService: AuthServiceProtocol
     private let onboardingService: OnboardingServiceProtocol
+    private let goalService: GoalServiceProtocol
+    private let campaignService: CampaignServiceProtocol
+    private let debugService: RemoteDebugServiceProtocol
+    private let voicePreferenceService: VoicePreferenceServiceProtocol
     let sessionManager: SessionManager
     let apiClient: OpportunityOSAPIClient
     
@@ -96,6 +105,10 @@ final class UnifiedAssistantViewModel: ObservableObject {
         emailService: EmailServiceProtocol,
         authService: AuthServiceProtocol,
         onboardingService: OnboardingServiceProtocol,
+        goalService: GoalServiceProtocol,
+        campaignService: CampaignServiceProtocol,
+        debugService: RemoteDebugServiceProtocol,
+        voicePreferenceService: VoicePreferenceServiceProtocol,
         sessionManager: SessionManager,
         apiClient: OpportunityOSAPIClient
     ) {
@@ -110,6 +123,10 @@ final class UnifiedAssistantViewModel: ObservableObject {
         self.emailService = emailService
         self.authService = authService
         self.onboardingService = onboardingService
+        self.goalService = goalService
+        self.campaignService = campaignService
+        self.debugService = debugService
+        self.voicePreferenceService = voicePreferenceService
         self.sessionManager = sessionManager
         self.apiClient = apiClient
         
@@ -139,6 +156,8 @@ final class UnifiedAssistantViewModel: ObservableObject {
         opportunities = await opportunityService.fetchRecommendedOpportunities()
         nextAction = await nextActionService.fetchTopNextAction()
         contentItems = await contentDiscoveryService.fetchDiscoveredContent()
+        activeGoal = await goalService.fetchActiveGoal()
+        activeCampaigns = await campaignService.fetchCampaigns()
         
         if workspaceState == .onboardingIntro || workspaceState == .onboardingIdentity {
             workspaceState = .dashboard
@@ -250,8 +269,19 @@ final class UnifiedAssistantViewModel: ObservableObject {
                 assistantSessionId = reply.sessionId
                 updateAssistantMessage(id: messageId, text: reply.text)
                 
+                debugService.log("Assistant reply: \(reply.text)")
+                debugService.log("Suggested action: \(reply.suggestedAction ?? "none")")
+                
                 if reply.suggestedAction == "PROPOSE_GOAL" || reply.suggestedAction == "PROPOSE_CAMPAIGN" {
-                    await self.loadPlanAndShowModal()
+                    self.currentSuggestedAction = reply.suggestedAction
+                    if let inlinedPlan = reply.onboardingPlan {
+                        self.inferredPlan = inlinedPlan
+                        self.showingConfirmationModal = true
+                        debugService.log("Inlined plan found for \(reply.suggestedAction!), showing modal immediately")
+                    } else {
+                        debugService.log("Triggering fallback loadPlanAndShowModal()")
+                        await self.loadPlanAndShowModal()
+                    }
                 }
                 
                 if reply.shouldBeSilent {
@@ -303,40 +333,164 @@ final class UnifiedAssistantViewModel: ObservableObject {
         }
     }
     
+    func focusCampaign(_ campaign: Campaign) {
+        withAnimation {
+            selectedCampaign = campaign
+            workspaceState = .campaignFocus(campaign)
+        }
+    }
+
+    func startPrimaryAction() {
+        guard let action = nextAction else { return }
+        
+        if let opportunityId = action.opportunityId, 
+           let opportunity = opportunities.first(where: { $0.id == opportunityId }) {
+            if action.recommendedAction.lowercased().contains("draft") {
+                Task { await beginDrafting(for: opportunity) }
+            } else {
+                focusOpportunity(opportunity)
+            }
+        } else if let opportunity = opportunities.first {
+            if action.recommendedAction.lowercased().contains("draft") {
+                Task { await beginDrafting(for: opportunity) }
+            } else {
+                focusOpportunity(opportunity)
+            }
+        }
+    }
+
+    func beginDrafting(for opportunity: Opportunity) async {
+        isExecutingAction = true
+        defer { isExecutingAction = false }
+        
+        let draft = await messageDraftService.generateDraft(for: opportunity)
+        pendingEmailDraft = draft
+        withAnimation {
+            workspaceState = .outreachDrafting
+        }
+    }
+    
+    func sendDraft() {
+        guard let draft = pendingEmailDraft else { return }
+        isExecutingAction = true
+        Task {
+            do {
+                try await emailService.send(draft)
+                messages.append(SessionMessage(role: .assistant, text: "Email sent! I've updated the cycle status."))
+                withAnimation { workspaceState = .dashboard }
+                await loadProData()
+            } catch {
+                errorMessage = "Failed to send email: \(error.localizedDescription)"
+            }
+            isExecutingAction = false
+        }
+    }
+    
     func loadPlanAndShowModal() async {
+        guard !showingConfirmationModal else { return }
         guard let sessionId = assistantSessionId else { return }
         isLoadingPlan = true
+        debugService.log("previewOnboardingPlan starting for sessionId: \(sessionId)")
         do {
-            let result = try await onboardingService.finalizeOnboarding(sessionId: sessionId)
+            let result = try await onboardingService.previewOnboardingPlan(sessionId: sessionId)
+            debugService.log("previewOnboardingPlan result: \(result.success)")
             if result.success {
                 self.inferredPlan = result.toOnboardingPlan()
                 self.showingConfirmationModal = true
+                debugService.log("showingConfirmationModal set to true")
             }
         } catch {
-            print("Failed to load plan: \(error)")
+            debugService.log("finalizeOnboarding failed: \(error)")
         }
         isLoadingPlan = false
     }
     
     func finalizeOnboardingFromBackend() async {
         guard let sessionId = assistantSessionId else { return }
+        
+        // Hard stop transcription and clear any zombie audio buffer
+        speechRecognitionService.stopTranscription()
+        voiceTurnTask?.cancel()
+        voiceTurnTask = nil
+        
+        await MainActor.run {
+            self.voiceState = .ready // Neutralize before speaking
+        }
+        
         isLoadingPlan = true
         do {
             let result = try await onboardingService.finalizeOnboarding(sessionId: sessionId)
             if result.success {
                 self.inferredPlan = result.toOnboardingPlan()
-                self.showingConfirmationModal = false
+                self.activeGoal = await goalService.fetchActiveGoal()
                 
-                // Steer into campaign creation or dashboard
-                messages.append(SessionMessage(role: .assistant, text: "Goal saved! We're moving to your new campaign workspace now."))
+                // 1. Speak Confirmation
+                let confirmationText = "Excellent. Your goal is set! Now, let's discuss the tactical campaign strategy to achieve it. I've drafted some parameters—proposing them now."
+                let preference = await voicePreferenceService.loadPreference()
                 
-                withAnimation {
-                    workspaceState = .dashboard
+                await MainActor.run {
+                    self.voiceState = .speaking
+                    self.messages.append(SessionMessage(role: .assistant, text: confirmationText))
                 }
+                
+                await speechSynthesisService.speak(confirmationText, preference: preference)
+                
+                // 2. Refresh data
                 await loadProData()
+                
+                // 3. Close the modal IMMEDIATELY after refresh (Modal has its own brief delay)
+                await MainActor.run {
+                    self.voiceState = .ready
+                    self.showingConfirmationModal = false 
+                    withAnimation(.spring()) {
+                        self.sessionMode = .pro
+                    }
+                }
+                
+                // 4. Resume listening
+                if isContinuousVoiceModeEnabled {
+                    beginVoiceConversationTurn()
+                }
             }
         } catch {
-            print("Failed to finalize onboarding: \(error)")
+            errorMessage = "Failed to finalize: \(error.localizedDescription)"
+        }
+        isLoadingPlan = false
+    }
+
+    func confirmCampaignFromBackend() async {
+        guard let goalId = activeGoal?.id else {
+            errorMessage = "No active goal found to attach campaign to."
+            return
+        }
+        guard let plan = inferredPlan else { return }
+        
+        // Kill the ear before the mouth speaks
+        speechRecognitionService.stopTranscription()
+        voiceTurnTask?.cancel()
+        voiceTurnTask = nil
+        
+        isLoadingPlan = true
+        do {
+            // [Actual logic here later]
+            
+            await MainActor.run {
+                self.showingConfirmationModal = false
+                self.currentSuggestedAction = nil
+                
+                let successMsg = "Strategy confirmed! I'm now identifying the first set of opportunities based on this campaign."
+                self.messages.append(SessionMessage(role: .assistant, text: successMsg))
+                
+                Task {
+                    let pref = await voicePreferenceService.loadPreference()
+                    await speechSynthesisService.speak(successMsg, preference: pref)
+                    if isContinuousVoiceModeEnabled { beginVoiceConversationTurn() }
+                }
+            }
+            
+            await loadProData()
+        } catch {
+            errorMessage = "Failed to confirm campaign: \(error.localizedDescription)"
         }
         isLoadingPlan = false
     }
@@ -458,8 +612,12 @@ struct UnifiedAssistantView: View {
                     
                     OnboardingConfirmationModal(
                         plan: plan,
+                        titleOverride: viewModel.currentSuggestedAction == "PROPOSE_CAMPAIGN" ? "⚔️ Strategic Campaign" : nil,
+                        confirmButtonLabel: viewModel.currentSuggestedAction == "PROPOSE_CAMPAIGN" ? "Confirm Strategy" : "Confirm & Set Goal",
                         onConfirm: {
-                            Task {
+                            if viewModel.currentSuggestedAction == "PROPOSE_CAMPAIGN" {
+                                await viewModel.confirmCampaignFromBackend()
+                            } else {
                                 await viewModel.finalizeOnboardingFromBackend()
                             }
                         },
@@ -510,6 +668,9 @@ struct UnifiedAssistantView: View {
         case .dashboard:
             DashboardWorkspaceView(viewModel: viewModel)
             
+        case .campaignFocus(let campaign):
+            CampaignDetailWorkspaceView(viewModel: viewModel, campaign: campaign, onBack: { viewModel.workspaceState = .dashboard })
+            
         case .opportunityList:
             OpportunityListWorkspaceView(opportunities: viewModel.opportunities, onSelect: { viewModel.focusOpportunity($0) })
             
@@ -520,6 +681,11 @@ struct UnifiedAssistantView: View {
             
         case .discoveryInventory:
             ContentListWorkspaceView(items: viewModel.contentItems, onSelect: { viewModel.focusContent($0) })
+            
+        case .outreachDrafting:
+            if let draft = viewModel.pendingEmailDraft {
+                OutreachDraftingWorkspaceView(draft: draft, onSend: { viewModel.sendDraft() }, onCancel: { viewModel.workspaceState = .dashboard })
+            }
             
         case .settings:
             SettingsWorkspaceView(viewModel: viewModel)
@@ -736,26 +902,367 @@ struct IdentitySetupView: View {
 struct DashboardWorkspaceView: View {
     @ObservedObject var viewModel: UnifiedAssistantViewModel
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            if let action = viewModel.nextAction {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Next Best Move", systemImage: "bolt.fill")
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 28) {
+                // 1. Top Level: The North Star (Goal)
+                if let goal = viewModel.activeGoal {
+                    ActiveGoalCard(goal: goal)
+                } else {
+                    ActiveGoalCard(goal: Goal(id: UUID(), title: "Setting your first goal...", status: .active))
+                        .redacted(reason: .placeholder)
+                }
+                
+                // 2. Mid Level: Strategic Vehicles (Campaigns)
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        Text("Active Campaigns")
+                            .font(.headline)
+                        Spacer()
+                        Button("View All") {
+                            withAnimation { viewModel.workspaceState = .discoveryInventory }
+                        }
                         .font(.caption.weight(.bold))
                         .foregroundStyle(AppTheme.accent)
-                    Text(action.title)
-                        .font(.title3.weight(.bold))
-                    Text(action.reason)
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.mutedText)
+                    }
+                    .padding(.horizontal)
+                    
+                    if viewModel.activeCampaigns.isEmpty {
+                        Text("No active campaigns yet. Talk to me to start one.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+                            .padding(.horizontal)
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 16) {
+                                ForEach(viewModel.activeCampaigns) { campaign in
+                                    Button(action: { viewModel.focusCampaign(campaign) }) {
+                                        CampaignCard(campaign: campaign)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
                 }
-                .padding()
-                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+                
+                // 3. Tactical Execution (Action Level)
+                if let action = viewModel.nextAction {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Next Best Move")
+                            .font(.headline)
+                            .padding(.horizontal)
+                        
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .top, spacing: 12) {
+                                Circle()
+                                    .fill(AppTheme.accentSoft)
+                                    .frame(width: 32, height: 32)
+                                    .overlay(
+                                        Image(systemName: "bolt.fill")
+                                            .font(.system(size: 14, weight: .bold))
+                                            .foregroundStyle(AppTheme.accent)
+                                    )
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(action.title)
+                                        .font(.headline)
+                                    Text(action.reason)
+                                        .font(.subheadline)
+                                        .foregroundStyle(AppTheme.mutedText)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            
+                            Button(action: { viewModel.startPrimaryAction() }) {
+                                Text(action.recommendedAction)
+                                    .font(.subheadline.weight(.bold))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 12))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .padding()
+                        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24)
+                                .stroke(AppTheme.border.opacity(0.5), lineWidth: 1)
+                        )
+                        .padding(.horizontal)
+                    }
+                }
+                
+                // 4. Bottom Level: The Pipeline (Counts)
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Your Pipeline")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    HStack(spacing: 16) {
+                        MetricCard(title: "Opportunities", value: "\(viewModel.opportunities.count)", icon: "target")
+                        MetricCard(title: "Discovery", value: "\(viewModel.contentItems.count)", icon: "doc.text.magnifyingglass")
+                    }
+                    .padding(.horizontal)
+                }
+                
+                Spacer(minLength: 40)
+            }
+            .padding(.vertical)
+        }
+    }
+}
+
+struct ActiveGoalCard: View {
+    let goal: Goal
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("CURRENT GOAL")
+                    .font(.system(size: 10, weight: .black))
+                    .tracking(1.5)
+                    .foregroundStyle(AppTheme.accent)
+                Spacer()
+                Image(systemName: "star.fill")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.accent)
             }
             
-            HStack(spacing: 16) {
-                MetricCard(title: "Active", value: "\(viewModel.opportunities.count)", icon: "target")
-                MetricCard(title: "Discovery", value: "\(viewModel.contentItems.count)", icon: "doc.text.magnifyingglass")
+            Text(goal.title)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(AppTheme.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            
+            if let desc = goal.description {
+                Text(desc)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(2)
             }
+            
+            HStack {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 8, height: 8)
+                Text("Active Strategy")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.mutedText)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            ZStack {
+                AppTheme.surface
+                LinearGradient(colors: [AppTheme.accent.opacity(0.12), .clear], startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 28))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28)
+                .stroke(AppTheme.border, lineWidth: 1)
+        )
+        .padding(.horizontal)
+    }
+}
+
+struct CampaignCard: View {
+    let campaign: Campaign
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: "chart.bar.fill")
+                .font(.title3)
+                .foregroundStyle(AppTheme.accent)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(campaign.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(campaign.strategicAngle ?? "No angle defined")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.mutedText)
+                    .lineLimit(2)
+            }
+            
+            Spacer()
+            
+            HStack {
+                Text("ACTIVE")
+                    .font(.system(size: 8, weight: .black))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(AppTheme.accentSoft, in: Capsule())
+                    .foregroundStyle(AppTheme.accent)
+                Spacer()
+            }
+        }
+        .padding()
+        .frame(width: 160, height: 180, alignment: .leading)
+        .background(AppTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22)
+                .stroke(AppTheme.border.opacity(0.5), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Campaign Detail View
+
+struct CampaignDetailWorkspaceView: View {
+    @ObservedObject var viewModel: UnifiedAssistantViewModel
+    let campaign: Campaign
+    let onBack: () -> Void
+    
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 24) {
+                Button(action: onBack) {
+                    Label("Back to Dashboard", systemImage: "chevron.left")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.accent)
+                }
+                .padding(.horizontal)
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Campaign")
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundStyle(AppTheme.accent)
+                    
+                    Text(campaign.title)
+                        .font(.title.weight(.bold))
+                    
+                    HStack {
+                        Text(campaign.status.rawValue.uppercased())
+                            .font(.system(size: 10, weight: .black))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(AppTheme.accentSoft, in: Capsule())
+                            .foregroundStyle(AppTheme.accent)
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal)
+                
+                VStack(alignment: .leading, spacing: 16) {
+                    DetailSection(title: "Strategic Angle", content: campaign.strategicAngle ?? "No angle defined.")
+                    DetailSection(title: "Target Segment", content: campaign.targetSegment ?? "No target segment defined.")
+                }
+                .padding()
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
+                .padding(.horizontal)
+                
+                // Add Opportunities list for this campaign
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Opportunities in this Campaign")
+                        .font(.headline)
+                        .padding(.horizontal)
+                    
+                    let campaignOpportunities = viewModel.opportunities.filter { $0.campaignId == campaign.id }
+                    
+                    if campaignOpportunities.isEmpty {
+                        Text("No opportunities linked to this campaign yet.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.mutedText)
+                            .padding()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+                            .padding(.horizontal)
+                    } else {
+                        VStack(spacing: 12) {
+                            ForEach(campaignOpportunities) { opp in
+                                Button(action: { viewModel.focusOpportunity(opp) }) {
+                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            Text(opp.title).font(.subheadline.weight(.bold))
+                                            Text(opp.companyName).font(.caption).foregroundStyle(AppTheme.mutedText)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(AppTheme.mutedText)
+                                    }
+                                    .padding()
+                                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 15))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                
+                Spacer(minLength: 40)
+            }
+            .padding(.vertical)
+        }
+    }
+}
+
+struct OutreachDraftingWorkspaceView: View {
+    let draft: OutreachMessage
+    let onSend: () -> Void
+    let onCancel: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Review Draft")
+                .font(.headline)
+            
+            VStack(alignment: .leading, spacing: 12) {
+                Text(draft.subject)
+                    .font(.subheadline.weight(.bold))
+                    .padding(.bottom, 4)
+                
+                Text(draft.body)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.primaryText)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(AppTheme.border.opacity(0.5), lineWidth: 1)
+            )
+            
+            HStack(spacing: 16) {
+                Button(action: onSend) {
+                    Text("Send Now")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 12))
+                        .foregroundStyle(.white)
+                }
+                
+                Button(action: onCancel) {
+                    Text("Cancel")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(AppTheme.border, lineWidth: 1))
+                }
+            }
+        }
+        .padding()
+    }
+}
+
+struct DetailSection: View {
+    let title: String
+    let content: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(AppTheme.mutedText)
+            Text(content)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.primaryText)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -776,7 +1283,12 @@ struct MetricCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(AppTheme.border.opacity(0.5), lineWidth: 1)
+        )
+        .shadow(color: AppTheme.shadow.opacity(0.05), radius: 10, y: 5)
     }
 }
 

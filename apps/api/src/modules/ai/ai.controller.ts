@@ -141,6 +141,8 @@ export class AiController {
         sessionId: reply.sessionId,
         reply: reply.reply,
         shouldBeSilent: reply.shouldBeSilent,
+        suggestedAction: reply.suggestedAction,
+        onboardingPlan: (reply as any).onboardingPlan,
         timestamp: new Date().toISOString(),
       };
     } catch (err: any) {
@@ -210,7 +212,6 @@ export class AiController {
             const parsed = JSON.parse(chunk);
             for (const call of parsed._tool_calls) {
               if (call.function?.name === 'propose_goal') {
-                suggestedAction = 'PROPOSE_GOAL';
                 res.write(`${JSON.stringify({ type: 'action', sessionId: activeSessionId, action: 'PROPOSE_GOAL' })}\n`);
               }
             }
@@ -304,6 +305,16 @@ export class AiController {
    * Finalizes onboarding by extracting goal from conversation and persisting to database.
    * Called when user completes the goal discovery conversation.
    */
+  @Post('extract-onboarding-plan')
+  async extractOnboardingPlan(@Body() body: { sessionId: string; guestSessionId?: string }) {
+    try {
+      return await this.aiService.extractOnboardingPlan(body.sessionId, body.guestSessionId);
+    } catch (err: any) {
+      this.logger.error(`Extraction failed: ${err.message}`);
+      throw new HttpException({ success: false, error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   @Post('finalize-onboarding')
   async finalizeOnboarding(
     @Body() body: { sessionId: string; guestSessionId?: string },
@@ -348,5 +359,15 @@ export class AiController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  /**
+   * Receives debug logs from the frontend and prints them to the server console.
+   */
+  @Post('debug-logs')
+  async receiveDebugLogs(@Body() body: { message: string; level?: string }) {
+    const level = body.level || 'INFO';
+    this.logger.log(`📱 FRONTEND_DEBUG [${level}]: ${body.message}`);
+    return { success: true };
   }
 }

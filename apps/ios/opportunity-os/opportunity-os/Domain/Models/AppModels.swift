@@ -259,6 +259,7 @@ struct AssistantConversationReply: Hashable {
     var text: String
     var shouldBeSilent: Bool = false
     var suggestedAction: String?
+    var onboardingPlan: OnboardingPlan?
 }
 
 struct AssistantConversationStreamChunk: Hashable {
@@ -278,6 +279,7 @@ struct AssistantConversationStreamChunk: Hashable {
     var audioData: String?
     var action: String?
     var shouldBeSilent: Bool = false
+    var onboardingPlan: OnboardingPlan?
     var errorMessage: String?
 }
 
