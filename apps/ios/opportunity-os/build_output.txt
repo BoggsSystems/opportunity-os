@@ -36,8 +36,8 @@ ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeD
 
 ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
 
-Build description signature: 239b62eec5f79d41dc0d5100fd59966e
-Build description path: /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/XCBuildData/239b62eec5f79d41dc0d5100fd59966e.xcbuilddata
+Build description signature: ca8fdf0ba7b6468bcc2fa980c893ee83
+Build description path: /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/XCBuildData/ca8fdf0ba7b6468bcc2fa980c893ee83.xcbuilddata
 ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk /Users/jeffboggs/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/iphonesimulator18.5-22F76-d5fc8ad4295d2ef488fb7d0f804ce0c4.sdkstatcache
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os.xcodeproj
     /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -o /Users/jeffboggs/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/iphonesimulator18.5-22F76-d5fc8ad4295d2ef488fb7d0f804ce0c4.sdkstatcache
@@ -54,6 +54,34 @@ WriteAuxiliaryFile /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportun
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
     write-file /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os.LinkFileList
 
+ProcessProductPackaging "" /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os.app-Simulated.xcent (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    
+    Entitlements:
+    
+    {
+    "application-identifier" = "GUH5J356NA.BoggsSystems.opportunity-os";
+}
+    
+    builtin-productPackagingUtility -entitlements -format xml -o /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os.app-Simulated.xcent
+
+ProcessProductPackagingDER /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os.app-Simulated.xcent /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os.app-Simulated.xcent.der (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    /usr/bin/derq query -f xml -i /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os.app-Simulated.xcent -o /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os.app-Simulated.xcent.der --raw
+
+GenerateAssetSymbols /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Assets.xcassets (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    /Applications/Xcode.app/Contents/Developer/usr/bin/actool /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Assets.xcassets --compile /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app --output-format human-readable-text --notices --warnings --export-dependency-info /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_dependencies --output-partial-info-plist /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_generated_info.plist --app-icon AppIcon --accent-color AccentColor --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --target-device ipad --minimum-deployment-target 18.5 --platform iphonesimulator --bundle-identifier BoggsSystems.opportunity-os --generate-swift-asset-symbols /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/GeneratedAssetSymbols.swift --generate-objc-asset-symbols /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/GeneratedAssetSymbols.h --generate-asset-symbol-index /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/* com.apple.actool.compilation-results */
+/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/GeneratedAssetSymbols.h
+/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/GeneratedAssetSymbols.swift
+
+
+LinkAssetCatalog /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Assets.xcassets (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    builtin-linkAssetCatalog --thinned /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_output/thinned --thinned-dependencies /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_dependencies_thinned --thinned-info-plist-content /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_generated_info.plist_thinned --unthinned /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_output/unthinned --unthinned-dependencies /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_dependencies_unthinned --unthinned-info-plist-content /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_generated_info.plist_unthinned --output /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app --plist-output /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_generated_info.plist
+
 ProcessInfoPlistFile /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app/Info.plist /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/empty-opportunity-os.plist (in target 'opportunity-os' from project 'opportunity-os')
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
     builtin-infoPlistUtility /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/empty-opportunity-os.plist -producttype com.apple.product-type.application -genpkginfo /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app/PkgInfo -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/assetcatalog_generated_info.plist -o /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app/Info.plist
@@ -62,36 +90,36 @@ SwiftDriver opportunity-os normal arm64 com.apple.xcode.tools.swift.compiler (in
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
     builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name opportunity_os -Onone -enforce-exclusivity\=checked @/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -target arm64-apple-ios18.5-simulator -g -module-cache-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Index.noindex/DataStore -swift-version 5 -I /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator -F /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator -emit-localized-strings -emit-localized-strings-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64 -c -j8 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/jeffboggs/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/iphonesimulator18.5-22F76-d5fc8ad4295d2ef488fb7d0f804ce0c4.sdkstatcache -output-file-map /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/jeffboggs/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os_const_extract_protocols.json -Xcc -iquote -Xcc /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os-generated-files.hmap -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os-own-target-headers.hmap -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os-all-target-headers.hmap -Xcc -iquote -Xcc /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os-project-headers.hmap -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources-normal/arm64 -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/arm64 -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os-Swift.h -working-directory /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os -experimental-emit-module-separately -disable-cmo
 
-SwiftCompile normal arm64 Compiling\ RemoteStrategyService.swift /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/API/RemoteStrategyService.swift (in target 'opportunity-os' from project 'opportunity-os')
-
-SwiftCompile normal arm64 /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/API/RemoteStrategyService.swift (in target 'opportunity-os' from project 'opportunity-os')
-    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
-    
-
-SwiftCompile normal arm64 Compiling\ UnifiedAssistantView.swift /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Features/Unified/UnifiedAssistantView.swift (in target 'opportunity-os' from project 'opportunity-os')
-SwiftCompile normal arm64 /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Features/Unified/UnifiedAssistantView.swift (in target 'opportunity-os' from project 'opportunity-os')
-    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
-    
-/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Features/Unified/UnifiedAssistantView.swift:463:19: warning: value 'goalId' was defined but never used; consider replacing with boolean test
-        guard let goalId = activeGoal?.id else {
-              ~~~~^~~~~~~~~
-              (                          ) != nil
-/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Features/Unified/UnifiedAssistantView.swift:467:19: warning: value 'plan' was defined but never used; consider replacing with boolean test
-        guard let plan = inferredPlan else { return }
-              ~~~~^~~~~~~
-                                      != nil
-/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Features/Unified/UnifiedAssistantView.swift:493:11: warning: 'catch' block is unreachable because no errors are thrown in 'do' block
-        } catch {
-          ^
-/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Features/Unified/UnifiedAssistantView.swift:774:18: warning: 'onChange(of:perform:)' was deprecated in iOS 17.0: Use `onChange` with a two or zero parameter action closure instead.
-                .onChange(of: messages) { _ in
-                 ^
-
 SwiftEmitModule normal arm64 Emitting\ module\ for\ opportunity_os (in target 'opportunity-os' from project 'opportunity-os')
 
 EmitSwiftModule normal arm64 (in target 'opportunity-os' from project 'opportunity-os')
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
     
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Native/NativeSpeechSynthesisService.swift:70:10: warning: main actor-isolated instance method 'playRawAudio' cannot be used to satisfy nonisolated requirement from protocol 'SpeechSynthesisServiceProtocol'; this is an error in the Swift 6 language mode
+    func playRawAudio(_ data: Data) {
+         ^
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Native/NativeSpeechSynthesisService.swift:70:10: note: add 'nonisolated' to 'playRawAudio' to make this instance method not isolated to the actor
+    func playRawAudio(_ data: Data) {
+         ^
+    nonisolated 
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Native/NativeSpeechSynthesisService.swift:5:53: note: add '@preconcurrency' to the 'SpeechSynthesisServiceProtocol' conformance to defer isolation checking to run time
+final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtocol, AVSpeechSynthesizerDelegate {
+                                                    ^
+                                                    @preconcurrency 
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Protocols/ServiceProtocols.swift:106:10: note: mark the protocol requirement 'playRawAudio' 'async' to allow actor-isolated conformances
+    func playRawAudio(_ data: Data)
+         ^
+                                    async
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Native/NativeSpeechSynthesisService.swift:16:9: warning: main actor-isolated property 'isSpeaking' cannot be used to satisfy nonisolated requirement from protocol 'SpeechSynthesisServiceProtocol'; this is an error in the Swift 6 language mode
+    var isSpeaking: Bool {
+        ^
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Protocols/ServiceProtocols.swift:107:9: note: requirement 'isSpeaking' declared here
+    var isSpeaking: Bool { get }
+        ^
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/API/AssistantSocketService.swift:80:13: warning: immutable value 'payload' was never used; consider replacing with '_' or removing it
+        let payload: [String: Any] = [
+            ^~~~~~~
+            _
 /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Native/NativeSpeechRecognitionService.swift:7:9: warning: main actor-isolated property 'onSpeechDetected' cannot be used to satisfy nonisolated requirement from protocol 'SpeechRecognitionServiceProtocol'; this is an error in the Swift 6 language mode
     var onSpeechDetected: (() -> Void)? = nil
         ^
@@ -132,21 +160,77 @@ final class NativeSpeechRecognitionService: NSObject, SpeechRecognitionServicePr
 struct RemoteAssistantConversationService: AssistantConversationServiceProtocol {
                                            ^
                                            @preconcurrency 
-/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Protocols/ServiceProtocols.swift:122:10: note: mark the protocol requirement 'streamResponse(to:sessionId:history:context:)' 'async' to allow actor-isolated conformances
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Protocols/ServiceProtocols.swift:124:10: note: mark the protocol requirement 'streamResponse(to:sessionId:history:context:)' 'async' to allow actor-isolated conformances
     func streamResponse(
          ^
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Native/HybridSpeechSynthesisService.swift:54:10: warning: main actor-isolated instance method 'playRawAudio' cannot be used to satisfy nonisolated requirement from protocol 'SpeechSynthesisServiceProtocol'; this is an error in the Swift 6 language mode
+    func playRawAudio(_ data: Data) {
+         ^
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Native/HybridSpeechSynthesisService.swift:54:10: note: add 'nonisolated' to 'playRawAudio' to make this instance method not isolated to the actor
+    func playRawAudio(_ data: Data) {
+         ^
+    nonisolated 
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Native/HybridSpeechSynthesisService.swift:5:53: note: add '@preconcurrency' to the 'SpeechSynthesisServiceProtocol' conformance to defer isolation checking to run time
+final class HybridSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtocol, AVSpeechSynthesizerDelegate {
+                                                    ^
+                                                    @preconcurrency 
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Protocols/ServiceProtocols.swift:106:10: note: mark the protocol requirement 'playRawAudio' 'async' to allow actor-isolated conformances
+    func playRawAudio(_ data: Data)
+         ^
+                                    async
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Native/HybridSpeechSynthesisService.swift:24:9: warning: main actor-isolated property 'isSpeaking' cannot be used to satisfy nonisolated requirement from protocol 'SpeechSynthesisServiceProtocol'; this is an error in the Swift 6 language mode
+    var isSpeaking: Bool {
+        ^
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/Protocols/ServiceProtocols.swift:107:9: note: requirement 'isSpeaking' declared here
+    var isSpeaking: Bool { get }
+        ^
 
-SwiftDriverJobDiscovery normal arm64 Compiling RemoteStrategyService.swift (in target 'opportunity-os' from project 'opportunity-os')
+SwiftCompile normal arm64 Compiling\ GeneratedAssetSymbols.swift /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'opportunity-os' from project 'opportunity-os')
+
+SwiftCompile normal arm64 /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    
+
+SwiftCompile normal arm64 Compiling\ AppContainer.swift /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/App/AppContainer.swift (in target 'opportunity-os' from project 'opportunity-os')
+
+SwiftCompile normal arm64 /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/App/AppContainer.swift (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    
+
+SwiftCompile normal arm64 Compiling\ AssistantSocketService.swift /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/API/AssistantSocketService.swift (in target 'opportunity-os' from project 'opportunity-os')
+
+SwiftCompile normal arm64 /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/API/AssistantSocketService.swift (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    
+/Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/API/AssistantSocketService.swift:80:13: warning: immutable value 'payload' was never used; consider replacing with '_' or removing it
+        let payload: [String: Any] = [
+            ^~~~~~~
+            _
+
+SwiftCompile normal arm64 Compiling\ RemoteAuthService.swift /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/API/RemoteAuthService.swift (in target 'opportunity-os' from project 'opportunity-os')
+
+SwiftCompile normal arm64 /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Services/API/RemoteAuthService.swift (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling GeneratedAssetSymbols.swift (in target 'opportunity-os' from project 'opportunity-os')
+
+SwiftDriverJobDiscovery normal arm64 Compiling AppContainer.swift (in target 'opportunity-os' from project 'opportunity-os')
+
+SwiftDriverJobDiscovery normal arm64 Compiling RemoteAuthService.swift (in target 'opportunity-os' from project 'opportunity-os')
+
+SwiftCompile normal arm64 Compiling\ PasswordEntryView.swift /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Features/Onboarding/Auth/PasswordEntryView.swift (in target 'opportunity-os' from project 'opportunity-os')
+SwiftCompile normal arm64 /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os/opportunity-os/Features/Onboarding/Auth/PasswordEntryView.swift (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling AssistantSocketService.swift (in target 'opportunity-os' from project 'opportunity-os')
 
 SwiftDriverJobDiscovery normal arm64 Emitting module for opportunity_os (in target 'opportunity-os' from project 'opportunity-os')
 
 SwiftDriver\ Compilation\ Requirements opportunity-os normal arm64 com.apple.xcode.tools.swift.compiler (in target 'opportunity-os' from project 'opportunity-os')
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
     builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name opportunity_os -Onone -enforce-exclusivity\=checked @/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -target arm64-apple-ios18.5-simulator -g -module-cache-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Index.noindex/DataStore -swift-version 5 -I /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator -F /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator -emit-localized-strings -emit-localized-strings-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64 -c -j8 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/jeffboggs/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/iphonesimulator18.5-22F76-d5fc8ad4295d2ef488fb7d0f804ce0c4.sdkstatcache -output-file-map /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/jeffboggs/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os_const_extract_protocols.json -Xcc -iquote -Xcc /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os-generated-files.hmap -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os-own-target-headers.hmap -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os-all-target-headers.hmap -Xcc -iquote -Xcc /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os-project-headers.hmap -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources-normal/arm64 -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources/arm64 -Xcc -I/Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os-Swift.h -working-directory /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os -experimental-emit-module-separately -disable-cmo
-
-Copy /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity_os.swiftmodule/arm64-apple-ios-simulator.swiftmodule /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.swiftmodule (in target 'opportunity-os' from project 'opportunity-os')
-    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
-    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.swiftmodule /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity_os.swiftmodule/arm64-apple-ios-simulator.swiftmodule
 
 Copy /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity_os.swiftmodule/arm64-apple-ios-simulator.swiftdoc /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.swiftdoc (in target 'opportunity-os' from project 'opportunity-os')
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
@@ -156,11 +240,15 @@ Copy /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlw
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
     builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.abi.json /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity_os.swiftmodule/arm64-apple-ios-simulator.abi.json
 
+Copy /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity_os.swiftmodule/arm64-apple-ios-simulator.swiftmodule /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.swiftmodule (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.swiftmodule /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity_os.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
 Copy /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity_os.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.swiftsourceinfo (in target 'opportunity-os' from project 'opportunity-os')
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
     builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity_os.swiftsourceinfo /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity_os.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
 
-SwiftDriverJobDiscovery normal arm64 Compiling UnifiedAssistantView.swift (in target 'opportunity-os' from project 'opportunity-os')
+SwiftDriverJobDiscovery normal arm64 Compiling PasswordEntryView.swift (in target 'opportunity-os' from project 'opportunity-os')
 
 SwiftDriver\ Compilation opportunity-os normal arm64 com.apple.xcode.tools.swift.compiler (in target 'opportunity-os' from project 'opportunity-os')
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
@@ -186,8 +274,14 @@ CopySwiftLibs /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-o
 ExtractAppIntentsMetadata (in target 'opportunity-os' from project 'opportunity-os')
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
     /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name opportunity_os --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk --xcode-version 16F6 --platform-family iOS --deployment-target 18.5 --bundle-identifier BoggsSystems.opportunity-os --output /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app --target-triple arm64-apple-ios18.5-simulator --binary-file /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app/opportunity-os --dependency-file /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os_dependency_info.dat --stringsdata-file /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os.SwiftFileList --metadata-file-list /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os.DependencyMetadataFileList --static-metadata-file-list /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os.DependencyStaticMetadataFileList --swift-const-vals-list /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/Objects-normal/arm64/opportunity-os.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
-2026-04-21 07:14:22.820 appintentsmetadataprocessor[31143:5204829] Starting appintentsmetadataprocessor export
-2026-04-21 07:14:22.825 appintentsmetadataprocessor[31143:5204829] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+2026-04-21 09:20:18.855 appintentsmetadataprocessor[41273:5404267] Starting appintentsmetadataprocessor export
+2026-04-21 09:20:18.859 appintentsmetadataprocessor[41273:5404267] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+AppIntentsSSUTraining (in target 'opportunity-os' from project 'opportunity-os')
+    cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app/Info.plist --temp-dir-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/ssu --bundle-id BoggsSystems.opportunity-os --product-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app --extracted-metadata-path /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app/Metadata.appintents --metadata-file-list /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Intermediates.noindex/opportunity-os.build/Debug-iphonesimulator/opportunity-os.build/opportunity-os.DependencyMetadataFileList --archive-ssu-assets
+2026-04-21 09:20:18.882 appintentsnltrainingprocessor[41274:5404270] Parsing options for appintentsnltrainingprocessor
+2026-04-21 09:20:18.883 appintentsnltrainingprocessor[41274:5404270] No AppShortcuts found - Skipping.
 
 CodeSign /Users/jeffboggs/Library/Developer/Xcode/DerivedData/opportunity-os-bienzlwsnijwqreppkaeerhevxjs/Build/Products/Debug-iphonesimulator/opportunity-os.app/opportunity-os.debug.dylib (in target 'opportunity-os' from project 'opportunity-os')
     cd /Users/jeffboggs/opportunity-os/apps/ios/opportunity-os

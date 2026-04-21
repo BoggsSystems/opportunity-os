@@ -120,6 +120,12 @@ struct StubSpeechSynthesisService: SpeechSynthesisServiceProtocol {
     func waitForSpeechQueue() async {}
 
     func stopSpeaking() async {}
+    
+    func playRawAudio(_ data: Data) {
+        print("Stub playing \(data.count) bytes of raw audio")
+    }
+    
+    var isSpeaking: Bool { false }
 }
 
 actor StubVoicePreferenceStore {

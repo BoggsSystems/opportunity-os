@@ -2,7 +2,7 @@ import Foundation
 
 enum APIConfiguration {
     private static let simulatorBaseURL = "http://127.0.0.1:3001"
-    private static let deviceBaseURL = "http://Jeffs-MacBook-Air.local:3001"
+    private static let deviceBaseURL = "https://d29b-2607-fea8-290f-7900-350a-67a9-2854-fb14.ngrok-free.app"
 
     static let baseURL: URL = {
         if let override = ProcessInfo.processInfo.environment["OPPORTUNITY_OS_API_BASE_URL"],

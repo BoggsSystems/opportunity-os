@@ -6,10 +6,15 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
     private let synthesizer = AVSpeechSynthesizer()
     private var queueDrainedContinuation: CheckedContinuation<Void, Never>?
     private var queuedUtteranceCount = 0
+    private var audioPlayer: AVAudioPlayer?
 
     override init() {
         super.init()
         synthesizer.delegate = self
+    }
+    
+    var isSpeaking: Bool {
+        synthesizer.isSpeaking || (audioPlayer?.isPlaying ?? false)
     }
 
     func speak(_ text: String, preference: VoicePreference) async {
@@ -53,10 +58,23 @@ final class NativeSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
             debugTrace("SpeechSynthesis", "stopSpeaking invoked while synthesizer active")
             synthesizer.stopSpeaking(at: .immediate)
         }
+        
+        audioPlayer?.stop()
+        audioPlayer = nil
 
         queuedUtteranceCount = 0
         queueDrainedContinuation?.resume()
         queueDrainedContinuation = nil
+    }
+    
+    func playRawAudio(_ data: Data) {
+        configurePlaybackAudioSession()
+        do {
+            audioPlayer = try AVAudioPlayer(data: data)
+            audioPlayer?.play()
+        } catch {
+            debugTrace("SpeechSynthesis", "Failed to play raw audio: \(error.localizedDescription)")
+        }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {

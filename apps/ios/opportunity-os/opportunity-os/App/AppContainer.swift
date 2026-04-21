@@ -20,6 +20,7 @@ final class AppContainer {
     let goalService: GoalServiceProtocol
     let remoteDebugService: RemoteDebugServiceProtocol
     let apiClient: OpportunityOSAPIClient
+    let assistantSocketService: AssistantSocketService
 
     init(
         authService: AuthServiceProtocol,
@@ -60,6 +61,12 @@ final class AppContainer {
         self.goalService = goalService
         self.remoteDebugService = RemoteDebugService(client: apiClient)
         self.apiClient = apiClient
+        
+        let socketHost = APIConfiguration.baseURL.host ?? "localhost"
+        let socketScheme = APIConfiguration.baseURL.scheme == "https" ? "wss" : "ws"
+        let socketPortString = APIConfiguration.baseURL.port.map { ":\($0)" } ?? ""
+        let socketUrl = URL(string: "\(socketScheme)://\(socketHost)\(socketPortString)/assistant")!
+        self.assistantSocketService = AssistantSocketService(url: socketUrl)
     }
 }
 

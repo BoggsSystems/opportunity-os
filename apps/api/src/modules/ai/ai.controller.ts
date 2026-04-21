@@ -253,11 +253,19 @@ export class AiController {
       }
 
       // 5. Finalize and Persist
-      this.aiService.finalizeStreamConversation(userId, body.guestSessionId, activeSessionId, body.message, fullReply).catch(err => {
+      const result = await this.aiService.finalizeStreamConversation(userId, body.guestSessionId, activeSessionId, body.message, fullReply, body.history).catch(err => {
         this.logger.error(`Failed to persist stream conversation sessionId=${activeSessionId}`, err);
+        return { suggestedAction: undefined, strategicPlan: undefined };
       });
 
-      res.write(`${JSON.stringify({ type: 'done', sessionId: activeSessionId, reply: fullReply, shouldBeSilent: false })}\n`);
+      res.write(`${JSON.stringify({ 
+        type: 'done', 
+        sessionId: activeSessionId, 
+        reply: fullReply, 
+        shouldBeSilent: false,
+        suggestedAction: result?.suggestedAction,
+        onboardingPlan: result?.strategicPlan
+      })}\n`);
       res.end();
     } catch (err: any) {
       this.logger.error(`Conversation stream failed: ${err.message}`, err.stack);

@@ -7,10 +7,12 @@ import { SearchService } from './search.service';
 import { AiProviderFactory } from './ai-provider.factory';
 import { OpenRouterAiProvider } from './providers/openrouter.provider';
 
+import { AssistantGateway } from './assistant.gateway';
+
 @Module({
   imports: [ConfigModule],
   controllers: [AiController],
-  providers: [AiService, TtsService, SearchService, AiProviderFactory, OpenRouterAiProvider],
+  providers: [AiService, TtsService, SearchService, AiProviderFactory, OpenRouterAiProvider, AssistantGateway],
   exports: [AiService, SearchService],
 })
 export class AiModule {}

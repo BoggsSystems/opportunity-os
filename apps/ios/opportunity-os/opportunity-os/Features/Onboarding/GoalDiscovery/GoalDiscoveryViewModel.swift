@@ -322,7 +322,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
                             #else
                             // Requires updated SpeechSynthesisService
                             if let hybridService = self.speechSynthesisService as? HybridSpeechSynthesisService {
-                                await hybridService.enqueueAudioData(audioData)
+                                hybridService.playRawAudio(audioData)
                             }
                             #endif
                         }
@@ -348,7 +348,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
                             if let hybridService = self.speechSynthesisService as? HybridSpeechSynthesisService {
                                 await hybridService.waitForSpeechQueue()
                             }
-                            self.debugTrace("GoalDiscovery", "finished speaking assistant stream")
+                            debugTrace("GoalDiscovery", "finished speaking assistant stream")
                             if self.voiceState == .speaking { self.voiceState = .listening }
                             #endif
                         }

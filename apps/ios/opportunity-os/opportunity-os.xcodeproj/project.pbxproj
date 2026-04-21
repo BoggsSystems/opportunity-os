@@ -398,6 +398,8 @@
 				DEVELOPMENT_TEAM = GUH5J356NA;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent = YES;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Opportunity OS uses your local network during development to connect to the Opportunity OS backend running on your Mac.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Opportunity OS uses the microphone to capture voice requests and spoken workflow input.";
@@ -430,6 +432,8 @@
 				DEVELOPMENT_TEAM = GUH5J356NA;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoadsInWebContent = YES;
 				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Opportunity OS uses your local network during development to connect to the Opportunity OS backend running on your Mac.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Opportunity OS uses the microphone to capture voice requests and spoken workflow input.";

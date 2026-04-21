@@ -103,6 +103,8 @@ protocol SpeechSynthesisServiceProtocol {
     func enqueueSpeech(_ text: String, preference: VoicePreference) async
     func waitForSpeechQueue() async
     func stopSpeaking() async
+    func playRawAudio(_ data: Data)
+    var isSpeaking: Bool { get }
 }
 
 protocol VoicePreferenceServiceProtocol {

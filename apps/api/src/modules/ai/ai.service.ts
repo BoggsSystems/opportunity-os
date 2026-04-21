@@ -199,43 +199,9 @@ export class AiService {
     let reply = response.content.trim();
     let suggestedAction: string | undefined;
 
-    // Check for tool calls first
-    if (response.tool_calls && response.tool_calls.length > 0) {
-      for (const call of response.tool_calls) {
-        if (call.function?.name === 'propose_goal') {
-          suggestedAction = 'PROPOSE_GOAL';
-        }
-        if (call.function?.name === 'propose_campaign') {
-          suggestedAction = 'PROPOSE_CAMPAIGN';
-        }
-      }
-    }
-
-    let onboardingPlan: any = null;
-    const lowerReply = reply.toLowerCase();
-    
-    // Fallback heuristic detection (in case model ignores tools or uses a specific phrase)
-    if (!suggestedAction) {
-      const hasGoalPhrase = lowerReply.includes('drafted that goal') || 
-                           lowerReply.includes('summary on your screen') || 
-                           lowerReply.includes('pulling up the details') ||
-                           lowerReply.includes('proposing this goal') ||
-                           lowerReply.includes('setting up your goal') ||
-                           lowerReply.includes('start by identifying') ||
-                           lowerReply.includes('thank you for confirming') ||
-                           lowerReply.includes('goal confirmed') ||
-                           lowerReply.includes('ready to start');
-      
-      if (hasGoalPhrase) {
-        suggestedAction = 'PROPOSE_GOAL';
-        this.logger.log(`[HEURISTIC] Triggered PROPOSE_GOAL from phrase match in: "${reply.slice(0, 50)}..."`);
-      }
-
-      if (lowerReply.includes('propose a campaign') || lowerReply.includes('drafted a campaign') || lowerReply.includes('campaign strategy') || lowerReply.includes('proposing this strategy')) {
-        suggestedAction = 'PROPOSE_CAMPAIGN';
-        this.logger.log(`[HEURISTIC] Triggered PROPOSE_CAMPAIGN from phrase match in: "${reply.slice(0, 50)}..."`);
-      }
-    }
+    const { action, plan } = await this.detectStrategicIntent(sessionId, input.message, reply, input.history);
+    suggestedAction = action;
+    let onboardingPlan = plan;
 
     // If we have a suggested action but no reply, provide a fallback spoken reply
     if (suggestedAction && (!reply || reply.length < 2)) {
@@ -249,21 +215,8 @@ export class AiService {
       this.logger.log(`[FALLBACK] Injected spoken reply for ${suggestedAction}`);
     }
 
-    if (suggestedAction === 'PROPOSE_GOAL') {
-      try {
-        this.logger.log(`[INLINE] Starting plan extraction for PROPOSE_GOAL turn`);
-        const combinedHistory = this.mergeConversationHistory(input.history ?? [], [
-          { role: 'user', text: input.message },
-          { role: 'assistant', text: reply }
-        ]);
-        onboardingPlan = await this.extractGoalFromConversation(combinedHistory);
-        this.logger.log(`[INLINE] Success: Extracted plan for "${onboardingPlan.title}"`);
-      } catch (err: any) {
-        this.logger.error(`[INLINE] Failed: ${err.message}`);
-      }
-    }
-
     // Check if the AI is indicating it should be silent
+    const lowerReply = reply.toLowerCase();
     const isSilenceRequested = lowerReply.includes("[silence]");
     const shouldBeSilent = (reply === "" || isSilenceRequested) && !suggestedAction;
     const cleanedReply = shouldBeSilent ? "" : reply.replace(/\[silence\]/gi, "").trim();
@@ -296,6 +249,9 @@ export class AiService {
     history?: ConversationTurn[];
     context?: ConversationContext;
   }): Promise<{ sessionId: string; stream: AsyncGenerator<string, void, unknown> }> {
+    this.logger.log(`🌀 AI SERVICE: startStreamConversation for message="${input.message.substring(0, 50)}"`);
+    this.logger.log(`🌀 SESSION: id=${input.sessionId}, guest=${input.guestSessionId}, user=${input.userId}`);
+    
     let sessionId = input.sessionId;
     
     // If no sessionId is provided, try to resume the most recent active conversation
@@ -373,8 +329,11 @@ export class AiService {
     guestSessionId: string | undefined,
     sessionId: string,
     message: string,
-    fullReply: string
-  ): Promise<void> {
+    fullReply: string,
+    history?: ConversationTurn[],
+    overrideAction?: string
+  ): Promise<{ suggestedAction?: string, strategicPlan?: any }> {
+    this.logger.log(`🏁 AI SERVICE: finalizeStreamConversation session=${sessionId}`);
     const cleanedReply = fullReply.replace(/\[PROPOSE_GOAL\]/gi, '').replace(/\[PROPOSE_CAMPAIGN\]/gi, '').trim();
     
     if (userId || guestSessionId) {
@@ -389,6 +348,61 @@ export class AiService {
         }
       }
     }
+
+    // Detect if this stream should have triggered an action
+    const { action, plan } = await this.detectStrategicIntent(sessionId, message, fullReply, history, overrideAction);
+    return { suggestedAction: action, strategicPlan: plan };
+  }
+
+  /**
+   * Helper to detect strategic intent and extract plans from any reply (streamed or one-shot)
+   */
+  private async detectStrategicIntent(
+    sessionId: string,
+    message: string,
+    reply: string,
+    history?: ConversationTurn[],
+    overrideAction?: string
+  ): Promise<{ action?: string, plan?: any }> {
+    const lowerReply = reply.toLowerCase();
+    let suggestedAction: string | undefined;
+    let strategicPlan: any = null;
+
+    // 1. Heuristic Detection
+    if (overrideAction) {
+      suggestedAction = overrideAction;
+    } else {
+      const hasGoalPhrase = lowerReply.includes('drafted that goal') || 
+                           lowerReply.includes('summary on your screen') || 
+                           lowerReply.includes('pulling up the details') ||
+                           lowerReply.includes('proposing this goal') ||
+                           lowerReply.includes('setting up your goal') ||
+                           lowerReply.includes('start by identifying') ||
+                           lowerReply.includes('thank you for confirming') ||
+                           lowerReply.includes('goal confirmed') ||
+                           lowerReply.includes('ready to start');
+      
+      if (hasGoalPhrase) {
+        suggestedAction = 'PROPOSE_GOAL';
+      } else if (lowerReply.includes('propose a campaign') || lowerReply.includes('drafted a campaign') || lowerReply.includes('campaign strategy') || lowerReply.includes('proposing this strategy')) {
+        suggestedAction = 'PROPOSE_CAMPAIGN';
+      }
+    }
+
+    // 2. Plan Extraction if needed
+    if (suggestedAction === 'PROPOSE_GOAL') {
+      try {
+        const combinedHistory = this.mergeConversationHistory(history ?? [], [
+          { role: 'user', text: message },
+          { role: 'assistant', text: reply }
+        ]);
+        strategicPlan = await this.extractGoalFromConversation(combinedHistory);
+      } catch (err: any) {
+        this.logger.error(`Plan extraction failed for sessionId=${sessionId}: ${err.message}`);
+      }
+    }
+
+    return { action: suggestedAction, plan: strategicPlan };
   }
 
   private async getLongTermSummaries(userId: string): Promise<string[]> {
@@ -733,9 +747,9 @@ ${input.searchResults ? `Real-time Research Results:\n${input.searchResults}\n\n
 
 Phase Triggers (Sequential Ladder):
 - STEP 1 (GOAL VERIFICATION): Repeat the goal and ask: "To confirm, is [GOAL] the objective we're setting today?". 
-- STEP 2 (GOAL PROPOSAL): Once the user affirms, you MUST IMMEDIATELY call `propose_goal`. DO NOT continue speaking about the next phase until the modal has been confirmed.
+- STEP 2 (GOAL PROPOSAL): Once the user affirms, you MUST IMMEDIATELY call \`propose_goal\`. DO NOT continue speaking about the next phase until the modal has been confirmed.
 - STEP 3 (PHASE GATE): DO NOT discuss any strategy, campaigns, or tactical details until AFTER the Goal is confirmed via the modal.
-- STEP 4 (CAMPAIGN): Once the goal is set, verbally propose the strategy. Wait for affirmation, then call `propose_campaign`.
+- STEP 4 (CAMPAIGN): Once the goal is set, verbally propose the strategy. Wait for affirmation, then call \`propose_campaign\`.
 
 Response Rules:
 - You are the Strategic Commander. ALWAYS stay in the Assistant view.
@@ -977,7 +991,8 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
       const extracted = JSON.parse(response.content) as ExtractedGoal;
       
       // Validate required fields
-      if (!extracted.title || !extracted.opportunityType) {
+      // Validate required fields
+      if (!extracted.assistantSummary || !extracted.opportunityType) {
         throw new Error('AI response missing required fields');
       }
 
@@ -993,18 +1008,17 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
         targetAudience: 'relevant professionals',
         suggestedApproach: 'Direct outreach with value-first messaging',
         firstCycleTitle: 'Initial Outreach',
+        assistantSummary: 'Build meaningful professional connections and opportunities',
+        confirmationMessage: 'Excellent. Your goal is set! Now, let\'s discuss the tactical campaign strategy to achieve it.',
         firstCycleSteps: ['Identify targets', 'Draft messages', 'Send outreach'],
         firstDraftPrompt: 'Introduce yourself and suggest a conversation',
       };
     }
   }
 
-  /**
-   * Generates a few initial high-value leads to jumpstart the operational phase.
-   */
   private async generateInitialOpportunities(
     userId: string | null,
-    goalId: string,
+    _goalId: string,
     campaignId: string,
     extracted: ExtractedGoal
   ) {
@@ -1063,13 +1077,15 @@ ${conversationText}
 
 Based on this conversation, extract the following information as JSON:
 {
-  "title": "A clear, concise goal title (e.g., 'CTO Outreach for AI Consulting', 'Job Search at Tech Startups')",
+  "title": "A clear, concise goal title (e.g., 'CTO Outreach for AI Consulting')",
   "description": "A one-sentence description of what the user wants to accomplish",
   "opportunityType": "The type of opportunity they're seeking: job, contract, consulting, partnership, or outreach",
-  "focusArea": "The main focus area (e.g., 'AI-focused', 'leadership roles', 'consulting engagements')",
-  "targetAudience": "Who they want to reach (e.g., 'CTOs at mid-market tech companies', 'recruiters in fintech')",
+  "focusArea": "The main focus area (e.g., 'AI-focused', 'leadership roles')",
+  "targetAudience": "Who they want to reach (e.g., 'CTOs at mid-market tech companies')",
   "suggestedApproach": "A strategic angle or approach suggested by the conversation",
   "firstCycleTitle": "Title for the first outreach cycle (e.g., 'Initial CTO Outreach')",
+  "assistantSummary": "A concise, high-impact summary of the goal for the UI modal",
+  "confirmationMessage": "A professional, encouraging confirmation message for the UI modal",
   "firstCycleSteps": ["Array of 3-5 specific steps to get started"],
   "firstDraftPrompt": "A prompt that could be used to generate the first outreach message"
 }
@@ -1091,6 +1107,8 @@ interface ExtractedGoal {
   targetAudience: string;
   suggestedApproach: string;
   firstCycleTitle: string;
+  assistantSummary: string;
+  confirmationMessage: string;
   firstCycleSteps: string[];
   firstDraftPrompt: string;
 }

@@ -23,6 +23,7 @@ final class RootCoordinator: ObservableObject {
             campaignService: container.campaignService,
             debugService: container.remoteDebugService,
             voicePreferenceService: container.voicePreferenceService,
+            assistantSocketService: container.assistantSocketService,
             sessionManager: container.sessionManager,
             apiClient: container.apiClient
         )

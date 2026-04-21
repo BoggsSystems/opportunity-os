@@ -69,7 +69,7 @@ struct VoicePreference: Hashable {
     var prefersVoiceInput: Bool
 }
 
-struct Opportunity: Identifiable, Hashable {
+struct Opportunity: Identifiable, Hashable, Codable {
     let id: UUID
     var title: String
     var companyName: String
@@ -96,7 +96,7 @@ enum OpportunitySource: String, CaseIterable, Codable, Hashable {
     case manual
 }
 
-struct ContentItem: Identifiable, Hashable {
+struct ContentItem: Identifiable, Hashable, Codable {
     let id: UUID
     var title: String
     var source: String
@@ -173,7 +173,7 @@ struct OutreachMessage: Identifiable, Hashable {
     var approvalRequired: Bool
 }
 
-struct Recipient: Identifiable, Hashable {
+struct Recipient: Identifiable, Hashable, Codable {
     let id: UUID
     var name: String
     var organization: String
@@ -229,15 +229,15 @@ struct ScanResult: Identifiable, Hashable {
   var suggestedAction: String
 }
 
-struct NextAction: Hashable {
+struct NextAction: Hashable, Codable {
     var title: String
     var reason: String
     var recommendedAction: String
     var opportunityId: UUID?
 }
 
-struct AssistantConversationMessage: Hashable {
-    enum Role: String, Hashable {
+struct AssistantConversationMessage: Hashable, Codable {
+    enum Role: String, Hashable, Codable {
         case system
         case user
         case assistant
@@ -247,7 +247,7 @@ struct AssistantConversationMessage: Hashable {
     var text: String
 }
 
-struct AssistantConversationContext: Hashable {
+struct AssistantConversationContext: Hashable, Codable {
     var workspaceState: String
     var nextAction: NextAction?
     var opportunity: Opportunity?
@@ -288,7 +288,7 @@ enum AppRouteState: Hashable {
     case main
 }
 
-struct StrategicPlan: Hashable {
+struct StrategicPlan: Hashable, Codable {
     var focusArea: String
     var opportunityType: String
     var targetAudience: String

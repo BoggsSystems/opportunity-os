@@ -21,6 +21,10 @@ final class HybridSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
         setupQueuePlayerObserver()
     }
 
+    var isSpeaking: Bool {
+        nativeSynthesizer.isSpeaking || (queuePlayer.rate != 0 && queuePlayer.error == nil)
+    }
+
     private func setupQueuePlayerObserver() {
         let token = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] notification in
             guard let self = self else { return }
@@ -47,19 +51,21 @@ final class HybridSpeechSynthesisService: NSObject, SpeechSynthesisServiceProtoc
         debugTrace("SpeechSynthesis", "🎤 HYBRID: speak completed")
     }
 
-    func enqueueAudioData(_ data: Data) async {
-        isRemoteActive = true
-        configurePlaybackAudioSession()
-        
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp3")
-        do {
-            try data.write(to: tempURL)
-            tempFiles.append(tempURL)
-            let item = AVPlayerItem(url: tempURL)
-            queuePlayer.insert(item, after: nil)
-            queuePlayer.play()
-        } catch {
-            debugTrace("SpeechSynthesis", "failed to write audio chunk: \(error)")
+    func playRawAudio(_ data: Data) {
+        Task {
+            isRemoteActive = true
+            configurePlaybackAudioSession()
+            
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp3")
+            do {
+                try data.write(to: tempURL)
+                tempFiles.append(tempURL)
+                let item = AVPlayerItem(url: tempURL)
+                queuePlayer.insert(item, after: nil)
+                queuePlayer.play()
+            } catch {
+                debugTrace("SpeechSynthesis", "failed to write audio chunk: \(error)")
+            }
         }
     }
 

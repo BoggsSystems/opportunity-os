@@ -4,8 +4,11 @@ import { ConfigService } from '@nestjs/config';
 import { ValidationPipe } from '@nestjs/common';
 import { createLogger } from '@opportunity-os/logger';
 
+import { WsAdapter } from '@nestjs/platform-ws';
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.useWebSocketAdapter(new WsAdapter(app));
   
   const configService = app.get(ConfigService);
   const logger = createLogger('bootstrap');

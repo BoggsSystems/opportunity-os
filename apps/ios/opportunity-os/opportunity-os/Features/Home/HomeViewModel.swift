@@ -595,7 +595,7 @@ final class HomeViewModel: ObservableObject {
             case .audioChunk:
                 if let audioBase64 = chunk.audioData, let audioData = Data(base64Encoded: audioBase64) {
                     if let hybridService = self.speechSynthesisService as? HybridSpeechSynthesisService {
-                        await hybridService.enqueueAudioData(audioData)
+                        hybridService.playRawAudio(audioData)
                     }
                 }
             case .action:
