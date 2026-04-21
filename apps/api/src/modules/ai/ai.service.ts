@@ -148,8 +148,8 @@ export class AiService {
       `Conversation state prepared sessionId=${sessionId} mergedHistoryCount=${history.length} dbHistoryCount=${dbHistory.length} summaryCount=${summaries.length}`,
     );
 
-    const onboardingState = await this.determineOnboardingState(input.userId, input.guestSessionId);
-    this.logger.log(`Determined onboarding state: ${onboardingState.phase}`);
+    const strategicContext = await this.determineStrategicContext(input.userId, input.guestSessionId);
+    this.logger.log(`Determined strategic context: ${strategicContext.phase}`);
 
     // Detect Search Intent & Perform Research
     let searchResults: string | undefined;
@@ -166,7 +166,7 @@ export class AiService {
       ...input,
       history,
       summaries,
-      onboardingState,
+      strategicContext,
       searchResults,
     });
 
@@ -323,7 +323,7 @@ export class AiService {
       input.history ?? [],
     );
 
-    const onboardingState = await this.determineOnboardingState(input.userId, input.guestSessionId);
+    const strategicContext = await this.determineStrategicContext(input.userId, input.guestSessionId);
     
     // Note: We skip search intent here for speed, or we could run it concurrently
     // For pure streaming speed, we skip the blocking search call
@@ -331,7 +331,7 @@ export class AiService {
       ...input,
       history,
       summaries,
-      onboardingState,
+      strategicContext,
     });
 
     const request: AiRequest = {
@@ -527,9 +527,9 @@ Rules:
     }
   }
 
-  private async determineOnboardingState(userId?: string, guestSessionId?: string) {
+  private async determineStrategicContext(userId?: string, guestSessionId?: string) {
     if (!userId && !guestSessionId) {
-      return { phase: 'INITIAL_INTRO', mission: 'Welcome the user and ask what they want to make happen.' };
+      return { phase: 'INITIAL_INTRO', mission: 'Welcome the user to Opportunity OS and help them identify their first business objective.' };
     }
 
     const where: any = userId ? { userId } : { guestSessionId };
@@ -542,8 +542,8 @@ Rules:
 
       if (!goal) {
         return { 
-          phase: 'GOAL_DISCOVERY', 
-          mission: 'Identify a clear business goal. FOCUS ON EXECUTION. Never ask the user why they want something or for their motivations. Just get the target and move to the "how".' 
+          phase: 'DISCOVERY', 
+          mission: 'Help the user identify a clear business objective. Focus on the target and move quickly to the "how".' 
         };
       }
 
@@ -554,14 +554,14 @@ Rules:
 
       if (!campaign) {
         return { 
-          phase: 'CAMPAIGN_SETUP', 
-          mission: `Goal established: "${goal.title}". Now, help the user define a campaign strategy—specifically who they want to target and what the hook is.` 
+          phase: 'STRATEGY', 
+          mission: `Goal established: "${goal.title}". Now, help the user define a tactical campaign—specifically who they want to target and what the hook is.` 
         };
       }
 
       return { 
-        phase: 'EXECUTION', 
-        mission: `Goal and Campaign are set. Now help the user move to execution, like drafting the first message or picking specific targets.` 
+        phase: 'OPERATIONS', 
+        mission: `Goal and Campaign are active. Help the user with execution—identifying leads, drafting messages, and closing opportunities.` 
       };
     } catch (error) {
       this.logger.error('Failed to determine onboarding state', error);
@@ -708,7 +708,7 @@ Please provide a JSON response with this structure:
     history?: ConversationTurn[];
     context?: ConversationContext;
     summaries?: string[];
-    onboardingState?: { phase: string; mission: string };
+    strategicContext?: { phase: string; mission: string };
     searchResults?: string;
   }): AiMessage[] {
     const systemPrompt = `
@@ -721,8 +721,8 @@ Your Core Mission:
 - Help the user turn high-level goals into tactical business outreach.
 
 Current Pipeline Status & Mission:
-- Phase: ${input.onboardingState?.phase ?? 'GENERAL'}
-- Directive: ${input.onboardingState?.mission ?? 'Assist with business growth.'}
+- Phase: ${input.strategicContext?.phase ?? 'DISCOVERY'}
+- Directive: ${input.strategicContext?.mission ?? 'Identify the user\'s next strategic objective.'}
 
 CRITICAL NEGATIVE CONSTRAINT:
 - NEVER ASK THE USER "WHY". 
@@ -807,12 +807,12 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
    * Finalizes onboarding by extracting goal from conversation and persisting to database.
    * Called when user completes the onboarding conversation.
    */
-  async finalizeOnboarding(
+  async finalizeStrategicGoal(
     userId: string | undefined,
     sessionId: string,
     guestSessionId?: string,
-  ): Promise<OnboardingResult> {
-    this.logger.log(`Finalizing onboarding for userId=${userId ?? 'GUEST'}, sessionId=${sessionId}`);
+  ): Promise<StrategicResult> {
+    this.logger.log(`Finalizing strategic goal for userId=${userId ?? 'GUEST'}, sessionId=${sessionId}`);
 
     // 1. Check if already finalized to prevent duplicates
     const conversation = await prisma.aIConversation.findUnique({
@@ -821,7 +821,7 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     });
 
     if (conversation?.status === 'completed') {
-      this.logger.warn(`Onboarding already finalized for sessionId=${sessionId}. Skipping.`);
+      this.logger.warn(`Strategy already finalized for sessionId=${sessionId}. Skipping.`);
     }
 
     // 2. Get full conversation history
@@ -831,31 +831,56 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     // 3. Extract goal using AI
     const extractedGoal = await this.extractGoalFromConversation(conversationHistory);
     
-    // 4. Persist Goal to database
-    const goal = await prisma.goal.create({
-      data: {
-        userId: userId || null,
-        guestSessionId: guestSessionId || null,
-        title: extractedGoal.title,
-        description: extractedGoal.description,
-        status: 'ACTIVE',
-      },
+    // 4. Create the Atomic Bundle (Goal + Campaign)
+    const result = await prisma.$transaction(async (tx) => {
+      const goal = await tx.goal.create({
+        data: {
+          userId: userId || null,
+          guestSessionId: guestSessionId || null,
+          title: extractedGoal.title,
+          description: extractedGoal.description,
+          status: 'ACTIVE',
+        },
+      });
+
+      const campaign = await tx.strategicCampaign.create({
+        data: {
+          userId: userId || null,
+          goalId: goal.id,
+          title: `${extractedGoal.focusArea} Outreach`,
+          strategicAngle: extractedGoal.suggestedApproach,
+          targetSegment: extractedGoal.targetAudience,
+          status: 'PLANNING',
+        },
+      });
+
+      return { goal, campaign };
     });
 
-    // 5. [DECOUPLED] We no longer create the campaign here.
-    // We only create the goal.
+    // 5. Generate Initial "Hottest Leads"
+    await this.generateInitialOpportunities(userId || null, result.goal.id, result.campaign.id, extractedGoal);
 
-    // 6. Mark conversation purpose
+    // 6. Mark conversation
     await prisma.aIConversation.update({
       where: { id: sessionId },
-      data: { purpose: 'onboarding', status: 'active' }, // Keep active for campaign discussion
+      data: { purpose: 'onboarding', status: 'active' },
     });
 
     return {
       success: true,
-      goal: { id: goal.id, title: goal.title, description: goal.description, status: goal.status },
-      // Return empty campaign for now
-      campaign: { id: '', title: '', strategicAngle: '', targetSegment: '', status: 'PLANNING' },
+      goal: { 
+        id: result.goal.id, 
+        title: result.goal.title, 
+        description: result.goal.description, 
+        status: result.goal.status 
+      },
+      campaign: { 
+        id: result.campaign.id, 
+        title: result.campaign.title, 
+        strategicAngle: result.campaign.strategicAngle, 
+        targetSegment: result.campaign.targetSegment, 
+        status: result.campaign.status 
+      },
       extractedIntent: {
         focusArea: extractedGoal.focusArea,
         opportunityType: extractedGoal.opportunityType,
@@ -899,7 +924,7 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
   /**
    * Extracts the onboarding plan without persisting to the database (Preview Mode).
    */
-  async extractOnboardingPlan(sessionId: string, guestSessionId?: string): Promise<OnboardingResult> {
+  async previewStrategicPlan(sessionId: string, guestSessionId?: string): Promise<StrategicResult> {
     const history = await this.getPersistentHistoryForOnboarding(sessionId, guestSessionId);
     if (history.length === 0) throw new Error('No history found');
     const extracted = await this.extractGoalFromConversation(history);
@@ -975,6 +1000,53 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
   }
 
   /**
+   * Generates a few initial high-value leads to jumpstart the operational phase.
+   */
+  private async generateInitialOpportunities(
+    userId: string | null,
+    goalId: string,
+    campaignId: string,
+    extracted: ExtractedGoal
+  ) {
+    this.logger.log(`Generating initial leads for campaign=${campaignId}`);
+    
+    // We'll create 3 "Seed" leads based on the target audience
+    const seedCompanies = [
+      { name: "Apex Financial Search", domain: "apex-fs.com", industry: "Executive Search" },
+      { name: "QuantTalent boutique", domain: "quanttalent.io", industry: "HFT Recruitment" },
+      { name: "BridgeTower Partners", domain: "bridgetower.com", industry: "FinTech Placement" }
+    ];
+
+    for (const seed of seedCompanies) {
+      await prisma.$transaction(async (tx) => {
+        const company = await tx.company.create({
+          data: {
+            userId: userId as any,
+            name: seed.name,
+            domain: seed.domain,
+            industry: seed.industry,
+            companyType: 'recruiter_agency'
+          }
+        });
+
+        await tx.opportunity.create({
+          data: {
+            userId: userId as any,
+            companyId: company.id,
+            campaignId: campaignId,
+            title: `Recruiter Outreach: ${seed.name}`,
+            opportunityType: 'networking',
+            stage: 'new',
+            summary: `Targeted recruiter outreach for ${extracted.focusArea} role. Identified as high-value lead for the ${extracted.targetAudience} segment.`,
+            priority: 'high',
+            fitScore: 85
+          }
+        });
+      });
+    }
+  }
+
+  /**
    * Builds the prompt for goal extraction.
    */
   private buildGoalExtractionPrompt(history: ConversationTurn[]): string {
@@ -1023,7 +1095,7 @@ interface ExtractedGoal {
   firstDraftPrompt: string;
 }
 
-export interface OnboardingResult {
+export interface StrategicResult {
   success: boolean;
   goal: {
     id: string;

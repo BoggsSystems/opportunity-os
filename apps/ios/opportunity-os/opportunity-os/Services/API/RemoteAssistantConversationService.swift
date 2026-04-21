@@ -38,7 +38,7 @@ struct RemoteAssistantConversationService: AssistantConversationServiceProtocol 
             text: response.reply,
             shouldBeSilent: response.shouldBeSilent ?? false,
             suggestedAction: response.suggestedAction,
-            onboardingPlan: response.onboardingPlan?.toOnboardingPlan()
+            strategicPlan: response.strategicPlan?.toStrategicPlan()
         )
     }
 
@@ -163,7 +163,7 @@ private struct ConversationResponse: Decodable {
     let reply: String
     let shouldBeSilent: Bool?
     let suggestedAction: String?
-    let onboardingPlan: APIExtractedIntent?
+    let strategicPlan: APIExtractedIntent?
 }
 
 private struct APIExtractedIntent: Decodable {
@@ -176,8 +176,8 @@ private struct APIExtractedIntent: Decodable {
     let title: String?
     let description: String?
 
-    func toOnboardingPlan() -> OnboardingPlan {
-        OnboardingPlan(
+    func toStrategicPlan() -> StrategicPlan {
+        StrategicPlan(
             focusArea: focusArea,
             opportunityType: opportunityType,
             targetAudience: targetAudience,

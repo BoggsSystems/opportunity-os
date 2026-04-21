@@ -5,22 +5,17 @@ import MessageUI
 
 // MARK: - Global Assistant Shell Models
 
-enum AssistantSessionMode: Hashable {
-    case onboarding(OnboardingPhase)
-    case pro
-}
-
-enum OnboardingPhase: Hashable {
-    case introduction
+enum StrategicLifecycle: Hashable {
     case discovery
-    case identityRequest
+    case strategy
+    case operations
 }
 
 enum UnifiedWorkspaceState: Hashable {
     // Onboarding States
-    case onboardingIntro
-    case onboardingDiscovery
-    case onboardingIdentity
+    case discoveryIntro
+    case discoveryActive
+    case identityRequest
     
     // Pro Workspace States
     case dashboard              // Overview of momentum and next steps
@@ -38,8 +33,8 @@ enum UnifiedWorkspaceState: Hashable {
 
 @MainActor
 final class UnifiedAssistantViewModel: ObservableObject {
-    @Published var sessionMode: AssistantSessionMode = .onboarding(.introduction)
-    @Published var workspaceState: UnifiedWorkspaceState = .onboardingIntro
+    @Published var lifecycle: StrategicLifecycle = .discovery
+    @Published var workspaceState: UnifiedWorkspaceState = .discoveryIntro
     
     // Voice & Chat State
     @Published var messages: [SessionMessage] = []
@@ -64,11 +59,11 @@ final class UnifiedAssistantViewModel: ObservableObject {
     @Published var isExecutingAction = false
     
     // Onboarding specific
-    @Published var onboardingPlan: OnboardingPlan?
+    @Published var strategicPlan: StrategicPlan?
     @Published var onboardingEmail = ""
     @Published var onboardingPassword = ""
     @Published var showingConfirmationModal = false
-    @Published var inferredPlan: OnboardingPlan?
+    @Published var inferredPlan: StrategicPlan?
     @Published var isLoadingPlan = false
     @Published var currentSuggestedAction: String?
     
@@ -82,7 +77,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
     private let messageDraftService: MessageDraftServiceProtocol
     private let emailService: EmailServiceProtocol
     private let authService: AuthServiceProtocol
-    private let onboardingService: OnboardingServiceProtocol
+    private let strategyService: StrategyServiceProtocol
     private let goalService: GoalServiceProtocol
     private let campaignService: CampaignServiceProtocol
     private let debugService: RemoteDebugServiceProtocol
@@ -104,7 +99,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
         messageDraftService: MessageDraftServiceProtocol,
         emailService: EmailServiceProtocol,
         authService: AuthServiceProtocol,
-        onboardingService: OnboardingServiceProtocol,
+        strategyService: StrategyServiceProtocol,
         goalService: GoalServiceProtocol,
         campaignService: CampaignServiceProtocol,
         debugService: RemoteDebugServiceProtocol,
@@ -122,7 +117,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
         self.messageDraftService = messageDraftService
         self.emailService = emailService
         self.authService = authService
-        self.onboardingService = onboardingService
+        self.strategyService = strategyService
         self.goalService = goalService
         self.campaignService = campaignService
         self.debugService = debugService
@@ -135,12 +130,12 @@ final class UnifiedAssistantViewModel: ObservableObject {
     
     private func setupInitialState() {
         if sessionManager.isAuthenticated {
-            sessionMode = .pro
+            lifecycle = .operations
             workspaceState = .dashboard
             Task { await loadProData() }
         } else {
-            sessionMode = .onboarding(.introduction)
-            workspaceState = .onboardingIntro
+            lifecycle = .discovery
+            workspaceState = .discoveryIntro
             messages = [
                 SessionMessage(role: .assistant, text: "Welcome to Opportunity OS. I’m your voice assistant, here to help you turn strategy into action. Let’s start by figuring out what kind of opportunities you want to create.")
             ]
@@ -159,7 +154,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
         activeGoal = await goalService.fetchActiveGoal()
         activeCampaigns = await campaignService.fetchCampaigns()
         
-        if workspaceState == .onboardingIntro || workspaceState == .onboardingIdentity {
+        if workspaceState == .discoveryIntro || workspaceState == .identityRequest {
             workspaceState = .dashboard
         }
     }
@@ -167,9 +162,9 @@ final class UnifiedAssistantViewModel: ObservableObject {
     // MARK: - Voice Interaction Logic
     
     func toggleListening() {
-        if workspaceState == .onboardingIntro {
+        if workspaceState == .discoveryIntro {
             withAnimation {
-                workspaceState = .onboardingDiscovery
+                workspaceState = .discoveryActive
             }
         }
         
@@ -274,7 +269,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
                 
                 if reply.suggestedAction == "PROPOSE_GOAL" || reply.suggestedAction == "PROPOSE_CAMPAIGN" {
                     self.currentSuggestedAction = reply.suggestedAction
-                    if let inlinedPlan = reply.onboardingPlan {
+                    if let inlinedPlan = reply.strategicPlan {
                         self.inferredPlan = inlinedPlan
                         self.showingConfirmationModal = true
                         debugService.log("Inlined plan found for \(reply.suggestedAction!), showing modal immediately")
@@ -312,7 +307,7 @@ final class UnifiedAssistantViewModel: ObservableObject {
                 let session = try await authService.signUp(email: onboardingEmail, password: onboardingPassword, guestSessionId: sessionManager.guestSessionId)
                 sessionManager.start(session: session)
                 withAnimation {
-                    sessionMode = .pro
+                    lifecycle = .operations
                     workspaceState = .dashboard
                 }
                 await loadProData()
@@ -390,22 +385,22 @@ final class UnifiedAssistantViewModel: ObservableObject {
         guard !showingConfirmationModal else { return }
         guard let sessionId = assistantSessionId else { return }
         isLoadingPlan = true
-        debugService.log("previewOnboardingPlan starting for sessionId: \(sessionId)")
+        debugService.log("previewStrategicPlan starting for sessionId: \(sessionId)")
         do {
-            let result = try await onboardingService.previewOnboardingPlan(sessionId: sessionId)
-            debugService.log("previewOnboardingPlan result: \(result.success)")
+            let result = try await strategyService.previewStrategicPlan(sessionId: sessionId)
+            debugService.log("previewStrategicPlan result: \(result.success)")
             if result.success {
-                self.inferredPlan = result.toOnboardingPlan()
+                self.inferredPlan = result.toStrategicPlan()
                 self.showingConfirmationModal = true
                 debugService.log("showingConfirmationModal set to true")
             }
         } catch {
-            debugService.log("finalizeOnboarding failed: \(error)")
+            debugService.log("finalizeStrategicGoal failed: \(error)")
         }
         isLoadingPlan = false
     }
     
-    func finalizeOnboardingFromBackend() async {
+    func finalizeStrategicGoalFromBackend() async {
         guard let sessionId = assistantSessionId else { return }
         
         // Hard stop transcription and clear any zombie audio buffer
@@ -419,9 +414,9 @@ final class UnifiedAssistantViewModel: ObservableObject {
         
         isLoadingPlan = true
         do {
-            let result = try await onboardingService.finalizeOnboarding(sessionId: sessionId)
+            let result = try await strategyService.finalizeStrategicGoal(sessionId: sessionId)
             if result.success {
-                self.inferredPlan = result.toOnboardingPlan()
+                self.inferredPlan = result.toStrategicPlan()
                 self.activeGoal = await goalService.fetchActiveGoal()
                 
                 // 1. Speak Confirmation
@@ -438,12 +433,18 @@ final class UnifiedAssistantViewModel: ObservableObject {
                 // 2. Refresh data
                 await loadProData()
                 
-                // 3. Close the modal IMMEDIATELY after refresh (Modal has its own brief delay)
+                // 3. Auto-focus on first opportunity for immediate action
+                if let firstOpp = opportunities.first {
+                    self.activeOpportunity = firstOpp
+                    self.workspaceState = .opportunityFocus
+                }
+                
+                // 4. Transition lifecycle and CLOSE the modal
                 await MainActor.run {
                     self.voiceState = .ready
                     self.showingConfirmationModal = false 
                     withAnimation(.spring()) {
-                        self.sessionMode = .pro
+                        self.lifecycle = .operations
                     }
                 }
                 
@@ -610,7 +611,7 @@ struct UnifiedAssistantView: View {
                             viewModel.showingConfirmationModal = false
                         }
                     
-                    OnboardingConfirmationModal(
+                    StrategicProposalModal(
                         plan: plan,
                         titleOverride: viewModel.currentSuggestedAction == "PROPOSE_CAMPAIGN" ? "⚔️ Strategic Campaign" : nil,
                         confirmButtonLabel: viewModel.currentSuggestedAction == "PROPOSE_CAMPAIGN" ? "Confirm Strategy" : "Confirm & Set Goal",
@@ -618,7 +619,7 @@ struct UnifiedAssistantView: View {
                             if viewModel.currentSuggestedAction == "PROPOSE_CAMPAIGN" {
                                 await viewModel.confirmCampaignFromBackend()
                             } else {
-                                await viewModel.finalizeOnboardingFromBackend()
+                                await viewModel.finalizeStrategicGoalFromBackend()
                             }
                         },
                         onDismiss: {
@@ -656,13 +657,13 @@ struct UnifiedAssistantView: View {
     @ViewBuilder
     private var workspaceContent: some View {
         switch viewModel.workspaceState {
-        case .onboardingIntro:
+        case .discoveryIntro:
             OnboardingIntroView(onStart: { viewModel.toggleListening() })
             
-        case .onboardingDiscovery:
+        case .discoveryActive:
             DiscoveryOnboardingWorkspaceView(viewModel: viewModel)
             
-        case .onboardingIdentity:
+        case .identityRequest:
             IdentitySetupView(email: $viewModel.onboardingEmail, password: $viewModel.onboardingPassword, onSignUp: { viewModel.signUp() })
             
         case .dashboard:
@@ -840,17 +841,18 @@ struct UnifiedAssistantView: View {
     }
     
     private var modeSubtitle: String {
-        switch viewModel.sessionMode {
-        case .onboarding: return "Setup Mode"
-        case .pro: return "Pro Mode"
+        switch viewModel.lifecycle {
+        case .discovery: return "Discovery Mode"
+        case .strategy: return "Strategy Lab"
+        case .operations: return "Pro Mode"
         }
     }
     
     private var workspaceTitle: String {
         switch viewModel.workspaceState {
-        case .onboardingIntro: return "Welcome"
-        case .onboardingDiscovery: return "Discovery"
-        case .onboardingIdentity: return "Identity"
+        case .discoveryIntro: return "Welcome"
+        case .discoveryActive: return "Discovery"
+        case .identityRequest: return "Identity"
         case .dashboard: return "Strategy Dashboard"
         case .opportunityList: return "Recommendations"
         case .opportunityFocus: return "Opportunity Focus"

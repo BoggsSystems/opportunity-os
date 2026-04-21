@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct FirstCycleLaunchView: View {
-    let plan: OnboardingPlan
+    let plan: StrategicPlan
     let onEnterApp: () -> Void
 
     var body: some View {

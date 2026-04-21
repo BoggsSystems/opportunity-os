@@ -2,7 +2,7 @@ import SwiftUI
 
 struct VoiceModeSetupView: View {
     @StateObject var viewModel: VoiceModeSetupViewModel
-    let onboardingPlan: OnboardingPlan?
+    let onboardingPlan: StrategicPlan?
     let onContinue: () -> Void
 
     var body: some View {
@@ -112,7 +112,7 @@ struct VoiceModeSetupView: View {
         .shadow(color: AppTheme.shadow, radius: 24, y: 12)
     }
 
-    private func carryForwardCard(_ onboardingPlan: OnboardingPlan) -> some View {
+    private func carryForwardCard(_ onboardingPlan: StrategicPlan) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Carrying your first goal forward")
                 .font(.headline)

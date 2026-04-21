@@ -1,11 +1,11 @@
 import Foundation
 
-struct StubOnboardingService: OnboardingServiceProtocol {
-    func finalizeOnboarding(sessionId: String) async throws -> OnboardingResult {
+struct StubStrategyService: StrategyServiceProtocol {
+    func finalizeStrategicGoal(sessionId: String) async throws -> StrategicResult {
         // Simulate network delay
         try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
         
-        return OnboardingResult(
+        return StrategicResult(
             success: true,
             goal: PersistedGoal(
                 id: UUID().uuidString,
@@ -32,8 +32,8 @@ struct StubOnboardingService: OnboardingServiceProtocol {
         )
     }
     
-    func previewOnboardingPlan(sessionId: String) async throws -> OnboardingResult {
+    func previewStrategicPlan(sessionId: String) async throws -> StrategicResult {
         try await Task.sleep(nanoseconds: 500_000_000)
-        return try await finalizeOnboarding(sessionId: sessionId)
+        return try await finalizeStrategicGoal(sessionId: sessionId)
     }
 }

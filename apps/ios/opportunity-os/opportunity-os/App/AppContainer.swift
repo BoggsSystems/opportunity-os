@@ -16,7 +16,7 @@ final class AppContainer {
     let campaignService: CampaignServiceProtocol
     let contentDiscoveryService: ContentDiscoveryServiceProtocol
     let reEngagementBriefingService: ReEngagementBriefingService
-    let onboardingService: OnboardingServiceProtocol
+    let onboardingService: StrategyServiceProtocol
     let goalService: GoalServiceProtocol
     let remoteDebugService: RemoteDebugServiceProtocol
     let apiClient: OpportunityOSAPIClient
@@ -38,7 +38,7 @@ final class AppContainer {
         campaignService: CampaignServiceProtocol,
         contentDiscoveryService: ContentDiscoveryServiceProtocol,
         reEngagementBriefingService: ReEngagementBriefingService,
-        onboardingService: OnboardingServiceProtocol,
+        onboardingService: StrategyServiceProtocol,
         goalService: GoalServiceProtocol
     ) {
         self.authService = authService
@@ -201,8 +201,8 @@ extension AppContainer {
                     : RemoteCampaignService(client: apiClient, sessionManager: sessionManager)
             ),
             onboardingService: ProcessInfo.processInfo.environment[UITestEnvironment.mode] == "1"
-                ? StubOnboardingService()
-                : RemoteOnboardingService(client: apiClient, sessionManager: sessionManager),
+                ? StubStrategyService()
+                : RemoteStrategyService(client: apiClient, sessionManager: sessionManager),
             goalService: RemoteGoalService(client: apiClient, sessionManager: sessionManager)
         )
     }

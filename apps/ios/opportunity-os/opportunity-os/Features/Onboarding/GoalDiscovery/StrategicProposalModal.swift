@@ -1,7 +1,7 @@
 import SwiftUI
 
-struct OnboardingConfirmationModal: View {
-    let plan: OnboardingPlan
+struct StrategicProposalModal: View {
+    let plan: StrategicPlan
     var titleOverride: String? = nil
     var confirmButtonLabel: String? = nil
     let onConfirm: () async -> Void
@@ -160,8 +160,8 @@ struct OnboardingConfirmationModal: View {
     ZStack {
         Color.gray.opacity(0.3).ignoresSafeArea()
         
-        OnboardingConfirmationModal(
-            plan: OnboardingPlan(
+        StrategicProposalModal(
+            plan: StrategicPlan(
                 focusArea: "General",
                 opportunityType: "outreach",
                 targetAudience: "Trading Recruiters",

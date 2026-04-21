@@ -1,6 +1,6 @@
 import Foundation
 
-struct RemoteOnboardingService: OnboardingServiceProtocol {
+struct RemoteStrategyService: StrategyServiceProtocol {
     private let apiClient: OpportunityOSAPIClient
     private let sessionManager: SessionManager
     
@@ -9,7 +9,7 @@ struct RemoteOnboardingService: OnboardingServiceProtocol {
         self.sessionManager = sessionManager
     }
     
-    func finalizeOnboarding(sessionId: String) async throws -> OnboardingResult {
+    func finalizeStrategicGoal(sessionId: String) async throws -> StrategicResult {
         let (accessToken, guestSessionId) = await MainActor.run {
             (sessionManager.session?.accessToken, sessionManager.guestSessionId)
         }
@@ -22,8 +22,8 @@ struct RemoteOnboardingService: OnboardingServiceProtocol {
         let body = RequestBody(sessionId: sessionId, guestSessionId: guestSessionId)
         
         do {
-            let response: OnboardingResult = try await apiClient.post(
-                "ai/finalize-onboarding",
+            let response: StrategicResult = try await apiClient.post(
+                "ai/finalize-strategic-goal",
                 body: body,
                 accessToken: accessToken
             )
@@ -35,7 +35,7 @@ struct RemoteOnboardingService: OnboardingServiceProtocol {
         }
     }
     
-    func previewOnboardingPlan(sessionId: String) async throws -> OnboardingResult {
+    func previewStrategicPlan(sessionId: String) async throws -> StrategicResult {
         let (accessToken, guestSessionId) = await MainActor.run {
             (sessionManager.session?.accessToken, sessionManager.guestSessionId)
         }
@@ -48,8 +48,8 @@ struct RemoteOnboardingService: OnboardingServiceProtocol {
         let body = RequestBody(sessionId: sessionId, guestSessionId: guestSessionId)
         
         do {
-            let response: OnboardingResult = try await apiClient.post(
-                "ai/extract-onboarding-plan",
+            let response: StrategicResult = try await apiClient.post(
+                "ai/preview-strategic-plan",
                 body: body,
                 accessToken: accessToken
             )

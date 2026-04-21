@@ -305,23 +305,23 @@ export class AiController {
    * Finalizes onboarding by extracting goal from conversation and persisting to database.
    * Called when user completes the goal discovery conversation.
    */
-  @Post('extract-onboarding-plan')
-  async extractOnboardingPlan(@Body() body: { sessionId: string; guestSessionId?: string }) {
+  @Post('preview-strategic-plan')
+  async previewStrategicPlan(@Body() body: { sessionId: string; guestSessionId?: string }) {
     try {
-      return await this.aiService.extractOnboardingPlan(body.sessionId, body.guestSessionId);
+      return await this.aiService.previewStrategicPlan(body.sessionId, body.guestSessionId);
     } catch (err: any) {
-      this.logger.error(`Extraction failed: ${err.message}`);
+      this.logger.error(`Preview failed: ${err.message}`);
       throw new HttpException({ success: false, error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  @Post('finalize-onboarding')
-  async finalizeOnboarding(
+  @Post('finalize-strategic-goal')
+  async finalizeStrategicGoal(
     @Body() body: { sessionId: string; guestSessionId?: string },
     @Req() req: any,
   ) {
     const userId = req.user?.id;
-    // We allow guests to finalize onboarding to establish their goals before signup
+    // We allow guests to finalize goals to establish intent before signup
     
     if (!body.sessionId?.trim()) {
       throw new HttpException(
@@ -332,13 +332,13 @@ export class AiController {
 
     try {
       this.logger.log(
-        `🎯 ONBOARDING: Finalizing for userId=${userId ?? 'GUEST'}, sessionId=${body.sessionId}`
+        `🎯 STRATEGY: Finalizing for userId=${userId ?? 'GUEST'}, sessionId=${body.sessionId}`
       );
 
-      const result = await this.aiService.finalizeOnboarding(userId, body.sessionId, body.guestSessionId || body.sessionId);
+      const result = await this.aiService.finalizeStrategicGoal(userId, body.sessionId, body.guestSessionId || body.sessionId);
 
       this.logger.log(
-        `🎯 ONBOARDING: Completed - Goal "${result.goal.title}" created with campaign "${result.campaign.title}"`
+        `🎯 STRATEGY: Completed - Goal "${result.goal.title}" created with campaign "${result.campaign.title}"`
       );
 
       return {
@@ -349,11 +349,11 @@ export class AiController {
         timestamp: new Date().toISOString(),
       };
     } catch (err: any) {
-      this.logger.error(`Onboarding finalization failed: ${err.message}`, err.stack);
+      this.logger.error(`Strategy finalization failed: ${err.message}`, err.stack);
       throw new HttpException(
         {
           success: false,
-          message: 'Failed to finalize onboarding',
+          message: 'Failed to finalize strategic goal',
           error: err instanceof Error ? err.message : 'Unknown error',
         },
         HttpStatus.INTERNAL_SERVER_ERROR,

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct PasswordEntryView: View {
     @StateObject var viewModel: PasswordEntryViewModel
-    let onboardingPlan: OnboardingPlan?
+    let onboardingPlan: StrategicPlan?
     let onAuthenticated: () -> Void
 
     var body: some View {

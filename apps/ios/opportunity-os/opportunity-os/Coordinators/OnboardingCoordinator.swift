@@ -3,10 +3,10 @@ import SwiftUI
 enum OnboardingRoute: Hashable {
     case welcome
     case goalDiscovery
-    case emailEntry(mode: AuthEntryMode, plan: OnboardingPlan?)
-    case passwordEntry(email: String, mode: AuthEntryMode, plan: OnboardingPlan?)
-    case voiceModeSetup(plan: OnboardingPlan?)
-    case firstCycleLaunch(plan: OnboardingPlan)
+    case emailEntry(mode: AuthEntryMode, plan: StrategicPlan?)
+    case passwordEntry(email: String, mode: AuthEntryMode, plan: StrategicPlan?)
+    case voiceModeSetup(plan: StrategicPlan?)
+    case firstCycleLaunch(plan: StrategicPlan)
 }
 
 private enum DebugAuthDefaults {

@@ -1,28 +1,28 @@
 import Foundation
 
 /// Protocol for onboarding finalization service
-protocol OnboardingServiceProtocol {
+protocol StrategyServiceProtocol {
     /// Finalizes onboarding by extracting goal from conversation via backend AI
     /// - Parameters:
     ///   - sessionId: The conversation session ID
     /// - Returns: The persisted onboarding result with goal and campaign
-    func finalizeOnboarding(sessionId: String) async throws -> OnboardingResult
+    func finalizeStrategicGoal(sessionId: String) async throws -> StrategicResult
     
     /// Extracts the onboarding plan without persisting (Preview Mode)
-    func previewOnboardingPlan(sessionId: String) async throws -> OnboardingResult
+    func previewStrategicPlan(sessionId: String) async throws -> StrategicResult
 }
 
 /// Result from finalizing onboarding
-struct OnboardingResult: Codable {
+struct StrategicResult: Codable {
     let success: Bool
     let goal: PersistedGoal
     let campaign: PersistedCampaign
     let extractedIntent: ExtractedIntent
     let timestamp: String
     
-    /// Converts to OnboardingPlan for UI consumption
-    func toOnboardingPlan() -> OnboardingPlan {
-        OnboardingPlan(
+    /// Converts to StrategicPlan for UI consumption
+    func toStrategicPlan() -> StrategicPlan {
+        StrategicPlan(
             focusArea: extractedIntent.focusArea,
             opportunityType: extractedIntent.opportunityType,
             targetAudience: extractedIntent.targetAudience,

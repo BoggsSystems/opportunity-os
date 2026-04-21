@@ -6,20 +6,20 @@ final class GoalDiscoveryViewModel: ObservableObject {
     @Published var messages: [AssistantConversationMessage]
     @Published var transcript = ""
     @Published var errorMessage: String?
-    @Published var inferredPlan: OnboardingPlan?
+    @Published var inferredPlan: StrategicPlan?
     @Published var voiceState: VoiceConversationState = .ready
     @Published var pendingEmailDraft: OutreachMessage?
     @Published var isLoading = false
     @Published var showingConfirmationModal = false
     
-    var onFinishRequest: ((OnboardingPlan) -> Void)?
+    var onFinishRequest: ((StrategicPlan) -> Void)?
 
     private let assistantConversationService: AssistantConversationServiceProtocol
     private var speechRecognitionService: SpeechRecognitionServiceProtocol
     private let speechSynthesisService: SpeechSynthesisServiceProtocol
     private let emailService: EmailServiceProtocol
     private let sessionManager: SessionManager
-    private let onboardingService: OnboardingServiceProtocol
+    private let onboardingService: StrategyServiceProtocol
 
     private var assistantSessionId: String?
     private var hasPlayedIntroduction = false
@@ -42,7 +42,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
         speechSynthesisService: SpeechSynthesisServiceProtocol,
         emailService: EmailServiceProtocol,
         sessionManager: SessionManager,
-        onboardingService: OnboardingServiceProtocol
+        onboardingService: StrategyServiceProtocol
     ) {
         self.assistantConversationService = assistantConversationService
         self.speechRecognitionService = speechRecognitionService
@@ -433,7 +433,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
     }
 
     /// Finalizes onboarding by calling the backend to extract goal from conversation
-    func finalizeOnboardingFromBackend() async {
+    func finalizeStrategicGoalFromBackend() async {
         guard let sessionId = assistantSessionId else {
             debugTrace("GoalDiscovery", "❌ Cannot finalize onboarding: no sessionId")
             errorMessage = "Session error. Please try again."
@@ -445,13 +445,13 @@ final class GoalDiscoveryViewModel: ObservableObject {
         
         do {
             debugTrace("GoalDiscovery", "🎯 Calling backend to finalize onboarding with sessionId=\(sessionId)")
-            let result = try await onboardingService.finalizeOnboarding(sessionId: sessionId)
+            let result = try await onboardingService.finalizeStrategicGoal(sessionId: sessionId)
             
             guard result.success else {
                 throw OnboardingError.serverError("Backend returned unsuccessful response")
             }
             
-            let plan = result.toOnboardingPlan()
+            let plan = result.toStrategicPlan()
             self.inferredPlan = plan
             self.showingConfirmationModal = false
             
@@ -478,9 +478,9 @@ final class GoalDiscoveryViewModel: ObservableObject {
         isLoading = true
         do {
             debugTrace("GoalDiscovery", "🎯 Proactively loading plan for sessionId=\(sessionId)")
-            let result = try await onboardingService.finalizeOnboarding(sessionId: sessionId)
+            let result = try await onboardingService.finalizeStrategicGoal(sessionId: sessionId)
             if result.success {
-                self.inferredPlan = result.toOnboardingPlan()
+                self.inferredPlan = result.toStrategicPlan()
                 self.showingConfirmationModal = true
                 debugTrace("GoalDiscovery", "✨ Proactive modal triggered for goal: \(result.goal.title)")
             }
@@ -490,12 +490,12 @@ final class GoalDiscoveryViewModel: ObservableObject {
         isLoading = false
     }
 
-    private func buildPlan(from userMessages: [String]) -> OnboardingPlan? {
+    private func buildPlan(from userMessages: [String]) -> StrategicPlan? {
         return buildPlanFallback(from: userMessages)
     }
     
     /// Fallback local goal inference (simplified version for resilience)
-    private func buildPlanFallback(from userMessages: [String]) -> OnboardingPlan? {
+    private func buildPlanFallback(from userMessages: [String]) -> StrategicPlan? {
         let combined = userMessages.joined(separator: " ").lowercased()
         guard !combined.isEmpty else { return nil }
 
@@ -525,7 +525,7 @@ final class GoalDiscoveryViewModel: ObservableObject {
             targetAudience = "people who can say yes to the next conversation"
         }
 
-        return OnboardingPlan(
+        return StrategicPlan(
             focusArea: "general",
             opportunityType: opportunityType,
             targetAudience: targetAudience,

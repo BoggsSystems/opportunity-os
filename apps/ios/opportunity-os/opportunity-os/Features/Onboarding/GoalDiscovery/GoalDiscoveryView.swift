@@ -3,7 +3,7 @@ import MessageUI
 
 struct GoalDiscoveryView: View {
     @StateObject var viewModel: GoalDiscoveryViewModel
-    let onContinue: (OnboardingPlan) -> Void
+    let onContinue: (StrategicPlan) -> Void
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -82,10 +82,10 @@ struct GoalDiscoveryView: View {
                             viewModel.showingConfirmationModal = false
                         }
                     
-                    OnboardingConfirmationModal(
+                    StrategicProposalModal(
                         plan: plan,
                         onConfirm: {
-                            await viewModel.finalizeOnboardingFromBackend()
+                            await viewModel.finalizeStrategicGoalFromBackend()
                         },
                         onDismiss: {
                             viewModel.showingConfirmationModal = false
@@ -166,7 +166,7 @@ struct GoalDiscoveryView: View {
         .shadow(color: AppTheme.shadow, radius: 24, y: 12)
     }
 
-    private func planPreview(_ plan: OnboardingPlan) -> some View {
+    private func planPreview(_ plan: StrategicPlan) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("What I’m hearing")
                 .font(.headline)

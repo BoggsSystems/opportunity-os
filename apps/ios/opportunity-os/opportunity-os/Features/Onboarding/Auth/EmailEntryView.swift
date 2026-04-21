@@ -2,7 +2,7 @@ import SwiftUI
 
 struct EmailEntryView: View {
     @StateObject var viewModel: EmailEntryViewModel
-    let onboardingPlan: OnboardingPlan?
+    let onboardingPlan: StrategicPlan?
     let onContinue: (String) -> Void
 
     var body: some View {
