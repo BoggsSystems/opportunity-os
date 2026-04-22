@@ -144,19 +144,7 @@ export class WorkspaceService {
 
     const cycle =
       existingCycle ??
-      (await prisma.opportunityCycle.create({
-        data: {
-          userId,
-          workspaceSignalId: signal.id,
-          title: signal.title,
-          whyItMatters: signal.reason ?? signal.summary,
-          recommendedAction: signal.recommendedAction,
-          priorityScore: signal.priorityScore,
-          workspaceMode: signal.recommendedWorkspaceMode,
-          allowedActionsJson: this.toJson(this.allowedActionsForMode(signal.recommendedWorkspaceMode as WorkspaceMode)),
-          ...this.refsFromSignal(signal),
-        },
-      }));
+      (await this.createCycleFromSignal(userId, signal));
 
     await prisma.workspaceSignal.update({
       where: { id: signal.id },
@@ -167,6 +155,24 @@ export class WorkspaceService {
     });
 
     return { cycle: this.toCycleSummary(cycle) };
+  }
+
+  private async createCycleFromSignal(userId: string, signal: any) {
+    const refs = await this.refsFromSignal(userId, signal);
+
+    return prisma.opportunityCycle.create({
+      data: {
+        userId,
+        workspaceSignalId: signal.id,
+        title: signal.title,
+        whyItMatters: signal.reason ?? signal.summary,
+        recommendedAction: signal.recommendedAction,
+        priorityScore: signal.priorityScore,
+        workspaceMode: signal.recommendedWorkspaceMode,
+        allowedActionsJson: this.toJson(this.allowedActionsForMode(signal.recommendedWorkspaceMode as WorkspaceMode)),
+        ...refs,
+      },
+    });
   }
 
   private async dismissSignal(userId: string, signalId?: string) {
@@ -501,6 +507,7 @@ export class WorkspaceService {
       allowedActions: this.arrayFromJson(cycle.allowedActionsJson) ?? this.allowedActionsForMode(cycle.workspaceMode),
       refs: {
         signalId: cycle.workspaceSignalId ?? undefined,
+        offeringId: cycle.offeringId ?? undefined,
         goalId: cycle.goalId ?? undefined,
         campaignId: cycle.strategicCampaignId ?? undefined,
         opportunityId: cycle.opportunityId ?? undefined,
@@ -547,14 +554,72 @@ export class WorkspaceService {
     return { sourceType: action.type, sourceId: null };
   }
 
-  private refsFromSignal(signal: any) {
+  private async refsFromSignal(userId: string, signal: any) {
     if (!signal.sourceId) return {};
-    if (signal.sourceType === 'task') return { taskId: signal.sourceId };
-    if (signal.sourceType === 'opportunity') return { opportunityId: signal.sourceId };
+    if (signal.sourceType === 'task') return this.refsFromTask(userId, signal.sourceId);
+    if (signal.sourceType === 'opportunity') return this.refsFromOpportunity(userId, signal.sourceId);
     if (signal.sourceType === 'discovered_opportunity' || signal.sourceType === 'content_opportunity') {
       return { discoveredOpportunityId: signal.sourceId };
     }
     return {};
+  }
+
+  private async refsFromTask(userId: string, taskId: string) {
+    const task = await prisma.task.findFirst({
+      where: { id: taskId, userId },
+      select: {
+        id: true,
+        opportunityId: true,
+        opportunity: {
+          select: {
+            campaignId: true,
+            campaign: {
+              select: {
+                goalId: true,
+                offeringId: true,
+                goal: { select: { offeringId: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!task) return { taskId };
+
+    return {
+      taskId: task.id,
+      opportunityId: task.opportunityId ?? undefined,
+      strategicCampaignId: task.opportunity?.campaignId ?? undefined,
+      goalId: task.opportunity?.campaign?.goalId ?? undefined,
+      offeringId: task.opportunity?.campaign?.offeringId ?? task.opportunity?.campaign?.goal?.offeringId ?? undefined,
+    };
+  }
+
+  private async refsFromOpportunity(userId: string, opportunityId: string) {
+    const opportunity = await prisma.opportunity.findFirst({
+      where: { id: opportunityId, userId },
+      select: {
+        id: true,
+        campaignId: true,
+        campaign: {
+          select: {
+            goalId: true,
+            offeringId: true,
+            goal: { select: { offeringId: true } },
+          },
+        },
+      },
+    });
+
+    if (!opportunity) return { opportunityId };
+
+    return {
+      opportunityId: opportunity.id,
+      strategicCampaignId: opportunity.campaignId ?? undefined,
+      goalId: opportunity.campaign?.goalId ?? undefined,
+      offeringId: opportunity.campaign?.offeringId ?? opportunity.campaign?.goal?.offeringId ?? undefined,
+    };
   }
 
   private workspaceModeFromRecommendation(action: NextActionItem | null): WorkspaceMode {

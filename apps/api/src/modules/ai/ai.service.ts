@@ -151,194 +151,11 @@ export class AiService {
     if (capabilityResponse) {
       return {
         sessionId,
-        reply: capabilityResponse,
+        reply: capabilityResponse.reply,
         shouldBeSilent: false,
         suggestedAction: capabilityResponse.suggestedAction
       };
     }
-
-    this.logger.log(
-      `Conversation history merged: sessionId=${sessionId} dbHistory=${dbHistory.length} providedHistory=${input.history?.length ?? 0} totalHistory=${history.length}`,
-    );
-
-    // Generate AI response
-    const request: AiRequest = {
-      prompt: `Please provide a helpful response to the user's message. User message: "${input.message}". 
-      
-      Previous conversation history:
-      ${history.map((turn, index) => `${index + 1}. ${turn.role}: ${turn.text}`).join('\n')}
-      
-      User context: ${JSON.stringify(input.context || {})}
-      
-      Available capabilities: ${JSON.stringify(summaries.map(s => s.content))}`,
-      temperature: 0.3,
-      maxTokens: 500,
-    };
-
-    const response = await this.aiProviderFactory.getProvider().generateText(request);
-    return {
-      sessionId,
-      reply: response.content,
-      shouldBeSilent: false,
-    };
-  }
-
-  private async handleCapabilityRequests(message: string, userId?: string): Promise<{ reply: string; suggestedAction?: string } | null> {
-    // Check for email-related requests
-    if (message.toLowerCase().includes('send email') || message.toLowerCase().includes('email')) {
-      const emailMatch = message.match(/send email to (.+?)(?:\s+(.+))?/i);
-      if (emailMatch && userId) {
-        try {
-          // Get user's default email connector
-          const connector = await this.capabilityIntegrationService.getUserConnector(userId, 'email');
-          if (!connector) {
-            return {
-              reply: 'No email connector configured. Please set up your email provider first.',
-              suggestedAction: 'setup_email_connector'
-            };
-          }
-
-          // Use user's default provider, but allow override if explicitly mentioned
-          let providerName = connector.capabilityProvider?.providerName;
-          if (message.toLowerCase().includes('gmail') || message.toLowerCase().includes('google')) {
-            providerName = 'gmail';
-          } else if (message.toLowerCase().includes('outlook') || message.toLowerCase().includes('hotmail') || message.toLowerCase().includes('microsoft')) {
-            providerName = 'outlook';
-          }
-
-          await this.capabilityIntegrationService.sendEmail(userId, {
-            to: [emailMatch[1]],
-            subject: emailMatch[2] || 'No subject',
-            body: emailMatch[3] || '',
-            opportunityId: this.extractOpportunityId(message),
-            provider: providerName // Only override if explicitly mentioned
-          });
-          
-          const providerDisplayName = providerName === 'gmail' ? 'Gmail' : 'Outlook';
-          return {
-            reply: `Email sent successfully via ${providerDisplayName}`,
-            suggestedAction: 'check_sent_folder'
-          };
-        } catch (error) {
-          return {
-            reply: `Failed to send email: ${error.message}`,
-            suggestedAction: 'check_email_connector'
-          };
-        }
-      }
-    }
-
-    
-    // Check for calendar-related requests
-    if (message.toLowerCase().includes('calendar') || message.toLowerCase().includes('schedule') || message.toLowerCase().includes('meeting')) {
-      const calendarMatch = message.match(/(?:schedule|create|set up)(?:\s+(.+))?/i);
-      if (calendarMatch && userId) {
-        try {
-          const eventDetails = {
-            title: calendarMatch[1] || 'New Event',
-            start: new Date(),
-            description: calendarMatch[2] || ''
-          };
-          
-          await this.capabilityIntegrationService.createCalendarEvent(userId, eventDetails);
-          
-          return {
-            reply: 'Calendar event created successfully',
-            suggestedAction: 'check_calendar'
-          };
-        } catch (error) {
-          return {
-            reply: `Failed to create calendar event: ${error.message}`,
-            suggestedAction: 'check_calendar_connector'
-          };
-        }
-      }
-    }
-
-    // Check for messaging-related requests
-    if (message.toLowerCase().includes('send message') || message.toLowerCase().includes('text') || message.toLowerCase().includes('sms')) {
-      const messageMatch = message.match(/(?:send|text)(?:\s+(.+))?/i);
-      if (messageMatch && userId) {
-        try {
-          await this.capabilityIntegrationService.sendMessage(userId, {
-            message: messageMatch[1] || '',
-            opportunityId: this.extractOpportunityId(message)
-          });
-          
-          return {
-            reply: 'Message sent successfully',
-            suggestedAction: 'check_messaging_connector'
-          };
-        } catch (error) {
-          return {
-            reply: `Failed to send message: ${error.message}`,
-            suggestedAction: 'check_messaging_connector'
-          };
-        }
-      }
-    }
-
-    // Check for discovery-related requests
-    if (message.toLowerCase().includes('discover') || message.toLowerCase().includes('research') || message.toLowerCase().includes('find')) {
-      const urlMatch = message.match(/(?:discover|research|find)(?:\s+(.+))?/i);
-      if (urlMatch && userId) {
-        try {
-          await this.capabilityIntegrationService.discoverContent(userId, urlMatch[1]);
-          
-          return {
-            reply: 'Content discovery started',
-            suggestedAction: 'check_discovery_results'
-          };
-        } catch (error) {
-          return {
-            reply: `Failed to discover content: ${error.message}`,
-            suggestedAction: 'check_discovery_connector'
-          };
-        }
-      }
-    }
-
-    return null;
-  }
-
-  private extractOpportunityId(message: string): string | undefined {
-    const match = message.match(/opportunity[-\s]?id[:\s]+([a-f0-9]{8}-[a-f0-9]{4})/i);
-    return match ? match[1] : undefined;
-  }
-    this.logger.log(
-      `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} guestSessionId=${input.guestSessionId ?? 'none'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
-    );
-
-    let sessionId = input.sessionId;
-    
-    // If no sessionId is provided, try to resume the most recent active conversation
-    if (!sessionId && input.userId) {
-      const lastConversation = await prisma.aIConversation.findFirst({
-        where: { userId: input.userId, status: 'active' },
-        orderBy: { updatedAt: 'desc' },
-        select: { id: true }
-      });
-      sessionId = lastConversation?.id;
-    }
-
-    if (!sessionId) {
-      sessionId = crypto.randomUUID();
-      this.logger.log(`No sessionId provided, generated new sessionId=${sessionId}`);
-    }
-    
-    // Memory Retrieval: Load long-term summaries for this user (if authenticated)
-    const summaries = input.userId ? await this.getLongTermSummaries(input.userId) : [];
-    
-    // Load persistent history from DB (authenticated or guest with sessionId)
-    const dbHistory = (input.userId || input.sessionId) 
-      ? await this.getPersistentHistoryForSession(sessionId, input.userId, input.guestSessionId) 
-      : [];
-    
-    // Merge provided history with DB history
-    const history = this.mergeConversationHistory(
-      dbHistory,
-      input.history ?? [],
-    );
 
     this.logger.log(
       `Conversation state prepared sessionId=${sessionId} mergedHistoryCount=${history.length} dbHistoryCount=${dbHistory.length} summaryCount=${summaries.length}`,
@@ -347,7 +164,6 @@ export class AiService {
     const strategicContext = await this.determineStrategicContext(input.userId, input.guestSessionId);
     this.logger.log(`Determined strategic context: ${strategicContext.phase}`);
 
-    // Detect Search Intent & Perform Research
     let searchResults: string | undefined;
     if (this.detectSearchIntent(input.message)) {
       this.logger.log(`Search intent detected for message: "${input.message}"`);
@@ -388,19 +204,15 @@ export class AiService {
       ]
     };
 
-    // Deep Trace: Log the exact messages being sent to the AI
     this.logger.debug(`[DEEP TRACE] Final messages sent to provider: ${JSON.stringify(messages, null, 2)}`);
 
     const response = await this.aiProviderFactory.getProvider().generateText(request);
     let reply = response.content.trim();
-    let suggestedAction: string | undefined;
     const toolAction = this.actionFromToolCalls(response.tool_calls);
-
     const { action, plan } = await this.detectStrategicIntent(sessionId, input.message, reply, input.history, toolAction);
-    suggestedAction = action;
-    let onboardingPlan = plan;
+    const suggestedAction = action;
+    const onboardingPlan = plan;
 
-    // If we have a suggested action but no reply, provide a fallback spoken reply
     if (suggestedAction && (!reply || reply.length < 2)) {
       if (suggestedAction === 'PROPOSE_GOAL') {
         reply = "Great! I'm pulling up the details for that goal now.";
@@ -412,19 +224,17 @@ export class AiService {
       this.logger.log(`[FALLBACK] Injected spoken reply for ${suggestedAction}`);
     }
 
-    // Check if the AI is indicating it should be silent
     const lowerReply = reply.toLowerCase();
-    const isSilenceRequested = lowerReply.includes("[silence]");
-    const shouldBeSilent = (reply === "" || isSilenceRequested) && !suggestedAction;
-    const cleanedReply = shouldBeSilent ? "" : reply.replace(/\[silence\]/gi, "").trim();
+    const isSilenceRequested = lowerReply.includes('[silence]');
+    const shouldBeSilent = (reply === '' || isSilenceRequested) && !suggestedAction;
+    const cleanedReply = shouldBeSilent ? '' : reply.replace(/\[silence\]/gi, '').trim();
 
-    // Persist to DB asynchronously
     if (input.userId || input.guestSessionId) {
       this.persistConversation(input.userId, input.guestSessionId, sessionId, input.message, cleanedReply).catch(err => {
         this.logger.error(`Failed to persist conversation sessionId=${sessionId}`, err);
       });
     }
-    
+
     const finalResponse = {
       sessionId,
       reply: cleanedReply,
@@ -435,6 +245,139 @@ export class AiService {
 
     this.logger.debug(`[FINAL RESPONSE] suggestedAction=${finalResponse.suggestedAction}, hasPlan=${!!finalResponse.onboardingPlan}`);
     return finalResponse;
+  }
+
+  private async handleCapabilityRequests(message: string, userId?: string): Promise<{ reply: string; suggestedAction?: string } | null> {
+    const normalizedMessage = message.trim();
+    const lowerMessage = normalizedMessage.toLowerCase();
+
+    const emailMatch = normalizedMessage.match(/^(?:please\s+)?(?:send|deliver)\s+(?:an?\s+)?email\s+to\s+(.+?)(?:\s+(?:about|with subject|subject)\s+(.+))?$/i);
+    if (emailMatch && userId) {
+        try {
+          // Get user's default email connector
+          const connector = await this.capabilityIntegrationService.getUserConnector(userId, 'email');
+          if (!connector) {
+            return {
+              reply: 'No email connector configured. Please set up your email provider first.',
+              suggestedAction: 'setup_email_connector'
+            };
+          }
+
+          // Use user's default provider, but allow override if explicitly mentioned
+          let providerName = connector.capabilityProvider?.providerName;
+          if (message.toLowerCase().includes('gmail') || message.toLowerCase().includes('google')) {
+            providerName = 'gmail';
+          } else if (message.toLowerCase().includes('outlook') || message.toLowerCase().includes('hotmail') || message.toLowerCase().includes('microsoft')) {
+            providerName = 'outlook';
+          }
+
+          await this.capabilityIntegrationService.sendEmail(userId, {
+            to: [emailMatch[1]],
+            subject: emailMatch[2] || 'No subject',
+            body: emailMatch[3] || '',
+            opportunityId: this.extractOpportunityId(message),
+            provider: providerName // Only override if explicitly mentioned
+          });
+          
+          const providerDisplayName = providerName === 'gmail' ? 'Gmail' : 'Outlook';
+          return {
+            reply: `Email sent successfully via ${providerDisplayName}`,
+            suggestedAction: 'check_sent_folder'
+          };
+        } catch (error) {
+          return {
+            reply: `Failed to send email: ${this.errorMessage(error)}`,
+            suggestedAction: 'check_email_connector'
+          };
+        }
+      }
+
+    
+    const calendarMatch = normalizedMessage.match(/^(?:please\s+)?(?:schedule|create|set up|book)\s+(?:a\s+)?(?:calendar\s+)?(?:meeting|event|call)\b(?:\s+(.+))?$/i);
+    if (calendarMatch && userId) {
+        try {
+          const eventDetails = {
+            title: calendarMatch[1] || 'New Event',
+            start: new Date(),
+            description: calendarMatch[2] || ''
+          };
+          
+          await this.capabilityIntegrationService.createCalendarEvent(userId, eventDetails);
+          
+          return {
+            reply: 'Calendar event created successfully',
+            suggestedAction: 'check_calendar'
+          };
+        } catch (error) {
+          return {
+            reply: `Failed to create calendar event: ${this.errorMessage(error)}`,
+            suggestedAction: 'check_calendar_connector'
+          };
+        }
+      }
+
+    const messageMatch = normalizedMessage.match(/^(?:please\s+)?(?:(?:send\s+(?:a\s+)?)?(?:text|sms|message)\s+to|send\s+message\s+to)\s+(.+?)(?:\s*:\s*|\s+saying\s+|\s+that\s+)(.+)$/i);
+    if (messageMatch && userId) {
+        try {
+          await this.capabilityIntegrationService.sendMessage(userId, {
+            message: messageMatch[2] || '',
+            opportunityId: this.extractOpportunityId(message)
+          });
+          
+          return {
+            reply: 'Message sent successfully',
+            suggestedAction: 'check_messaging_connector'
+          };
+        } catch (error) {
+          return {
+            reply: `Failed to send message: ${this.errorMessage(error)}`,
+            suggestedAction: 'check_messaging_connector'
+          };
+        }
+      }
+
+    const discoveryMatch = normalizedMessage.match(/^(?:please\s+)?(?:discover|research|find|look up)\s+(?:this\s+)?(?:url|page|site|company|person|profile|lead|prospect)s?\s*[:\-]?\s+(.+)$/i);
+    const discoveryTarget = discoveryMatch?.[1]?.trim();
+    const hasExplicitDiscoveryTarget = Boolean(
+      discoveryTarget &&
+        (discoveryTarget.startsWith('http://') ||
+          discoveryTarget.startsWith('https://') ||
+          lowerMessage.includes(' url ') ||
+          lowerMessage.includes(' site ') ||
+          lowerMessage.includes(' page ') ||
+          lowerMessage.includes(' company ') ||
+          lowerMessage.includes(' person ') ||
+          lowerMessage.includes(' profile ') ||
+          lowerMessage.includes(' lead ') ||
+          lowerMessage.includes(' prospect ')),
+    );
+
+    if (discoveryMatch && hasExplicitDiscoveryTarget && userId) {
+        try {
+          await this.capabilityIntegrationService.discoverContent(userId, discoveryTarget!);
+          
+          return {
+            reply: 'Content discovery started',
+            suggestedAction: 'check_discovery_results'
+          };
+        } catch (error) {
+          return {
+            reply: `Failed to discover content: ${this.errorMessage(error)}`,
+            suggestedAction: 'check_discovery_connector'
+          };
+        }
+      }
+
+    return null;
+  }
+
+  private extractOpportunityId(message: string): string | undefined {
+    const match = message.match(/opportunity[-\s]?id[:\s]+([a-f0-9]{8}-[a-f0-9]{4})/i);
+    return match ? match[1] : undefined;
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown error';
   }
 
   async startStreamConversation(input: {
@@ -1066,7 +1009,7 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     // 1. Check if already finalized to prevent duplicates
     const conversation = await prisma.aIConversation.findUnique({
       where: { id: sessionId },
-      select: { status: true }
+      select: { status: true, offeringId: true }
     });
 
     if (conversation?.status === 'completed') {
@@ -1079,6 +1022,7 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
 
     // 3. Extract goal using AI
     const extractedGoal = await this.extractGoalFromConversation(conversationHistory);
+    const offeringId = await this.resolveOfferingIdForStrategy(userId, conversation?.offeringId);
     
     // 4. Create the Atomic Bundle (Goal + Campaign)
     const result = await prisma.$transaction(async (tx) => {
@@ -1086,6 +1030,7 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
         data: {
           userId: userId || null,
           guestSessionId: guestSessionId || null,
+          offeringId,
           title: extractedGoal.title,
           description: extractedGoal.description,
           status: 'ACTIVE',
@@ -1096,6 +1041,7 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
         data: {
           userId: userId || null,
           goalId: goal.id,
+          offeringId,
           title: `${extractedGoal.focusArea} Outreach`,
           strategicAngle: extractedGoal.suggestedApproach,
           targetSegment: extractedGoal.targetAudience,
@@ -1107,12 +1053,12 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     });
 
     // 5. Generate Initial "Hottest Leads"
-    await this.generateInitialOpportunities(userId || null, result.goal.id, result.campaign.id, extractedGoal);
+    await this.generateInitialOpportunities(userId || null, result.goal.id, result.campaign.id, offeringId, extractedGoal);
 
     // 6. Mark conversation
     await prisma.aIConversation.update({
       where: { id: sessionId },
-      data: { purpose: 'onboarding', status: 'active' },
+      data: { purpose: 'onboarding', status: 'active', offeringId },
     });
 
     return {
@@ -1121,14 +1067,16 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
         id: result.goal.id, 
         title: result.goal.title, 
         description: result.goal.description, 
-        status: result.goal.status 
+        status: result.goal.status,
+        offeringId: result.goal.offeringId,
       },
       campaign: { 
         id: result.campaign.id, 
         title: result.campaign.title, 
         strategicAngle: result.campaign.strategicAngle, 
         targetSegment: result.campaign.targetSegment, 
-        status: result.campaign.status 
+        status: result.campaign.status,
+        offeringId: result.campaign.offeringId,
       },
       extractedIntent: {
         focusArea: extractedGoal.focusArea,
@@ -1149,10 +1097,19 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     goalId: string,
     payload: { title: string; strategicAngle: string; targetSegment: string }
   ): Promise<any> {
+    const goal = await prisma.goal.findFirst({
+      where: {
+        id: goalId,
+        ...(userId ? { userId } : {}),
+      },
+      select: { offeringId: true },
+    });
+
     const campaign = await prisma.strategicCampaign.create({
       data: {
         userId: userId || null,
         goalId: goalId,
+        offeringId: goal?.offeringId ?? null,
         title: payload.title,
         strategicAngle: payload.strategicAngle,
         targetSegment: payload.targetSegment,
@@ -1165,9 +1122,30 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
       campaign: {
         id: campaign.id,
         title: campaign.title,
-        status: campaign.status
+        status: campaign.status,
+        offeringId: campaign.offeringId,
       }
     };
+  }
+
+  private async resolveOfferingIdForStrategy(userId: string | undefined, conversationOfferingId?: string | null) {
+    if (conversationOfferingId) {
+      return conversationOfferingId;
+    }
+    if (!userId) {
+      return null;
+    }
+
+    const activeOffering = await prisma.offering.findFirst({
+      where: {
+        userId,
+        status: 'active',
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+
+    return activeOffering?.id ?? null;
   }
 
   /**
@@ -1283,20 +1261,23 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     userId: string | null,
     _goalId: string,
     campaignId: string,
+    offeringId: string | null,
     extracted: ExtractedGoal
   ) {
     if (!userId) {
       this.logger.warn(`Skipping initial lead generation for campaign=${campaignId} (no userId)`);
       return;
     }
-    this.logger.log(`Generating initial leads for campaign=${campaignId}`);
-    
-    // We'll create 3 "Seed" leads based on the target audience
-    const seedCompanies = [
-      { name: "Apex Financial Search", domain: "apex-fs.com", industry: "Executive Search" },
-      { name: "QuantTalent boutique", domain: "quanttalent.io", industry: "HFT Recruitment" },
-      { name: "BridgeTower Partners", domain: "bridgetower.com", industry: "FinTech Placement" }
-    ];
+    this.logger.log(`Generating offering-aware initial leads for campaign=${campaignId}`);
+
+    const offering = offeringId
+      ? await prisma.offering.findFirst({
+          where: { id: offeringId, userId },
+          select: { title: true, description: true, offeringType: true },
+        })
+      : null;
+
+    const seedCompanies = this.buildInitialTargetCompanies(extracted, offering);
 
     for (const seed of seedCompanies) {
       await prisma.$transaction(async (tx) => {
@@ -1306,7 +1287,8 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
             name: seed.name,
             domain: seed.domain,
             industry: seed.industry,
-            companyType: 'recruiter_agency'
+            companyType: seed.companyType,
+            description: seed.description,
           }
         });
 
@@ -1315,16 +1297,163 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
             userId: userId as any,
             companyId: company.id,
             campaignId: campaignId,
-            title: `Recruiter Outreach: ${seed.name}`,
-            opportunityType: 'networking',
+            title: `${seed.motionLabel}: ${seed.name}`,
+            opportunityType: seed.opportunityType,
             stage: 'new',
-            summary: `Targeted recruiter outreach for ${extracted.focusArea} role. Identified as high-value lead for the ${extracted.targetAudience} segment.`,
+            summary: seed.summary,
+            nextAction: seed.nextAction,
             priority: 'high',
-            fitScore: 85
+            fitScore: seed.fitScore,
           }
         });
       });
     }
+  }
+
+  private buildInitialTargetCompanies(
+    extracted: ExtractedGoal,
+    offering: { title: string; description: string | null; offeringType: string } | null,
+  ) {
+    const audience = extracted.targetAudience || 'relevant decision makers';
+    const focusArea = extracted.focusArea || 'strategic outreach';
+    const offeringTitle = offering?.title ?? focusArea;
+    const description = `${offeringTitle} target account for ${audience}.`;
+    const lowerText = `${audience} ${focusArea} ${offeringTitle} ${offering?.description ?? ''}`.toLowerCase();
+    const isAcademicAudience =
+      lowerText.includes('professor') ||
+      lowerText.includes('faculty') ||
+      lowerText.includes('university') ||
+      lowerText.includes('department chair') ||
+      lowerText.includes('course adoption') ||
+      lowerText.includes('guest lecture') ||
+      lowerText.includes('seminar');
+    const isEngineeringLeadership =
+      lowerText.includes('cto') ||
+      lowerText.includes('engineering') ||
+      lowerText.includes('sdlc') ||
+      lowerText.includes('software delivery');
+    const isConsulting = offering?.offeringType === 'consulting' || extracted.opportunityType === 'consulting';
+
+    if (isAcademicAudience) {
+      return [
+        {
+          name: 'Northeastern Software Engineering Faculty',
+          domain: 'northeastern.example',
+          industry: 'Higher Education',
+          companyType: 'prospect' as const,
+          motionLabel: 'University Faculty Book Outreach',
+          opportunityType: 'networking' as const,
+          description,
+          summary: `Target software engineering faculty for a book-led conversation about course adoption, seminars, guest lectures, and AI-native software engineering curriculum updates.`,
+          nextAction: `Draft a faculty outreach email introducing ${offeringTitle} and proposing a course adoption or seminar conversation.`,
+          fitScore: 90,
+        },
+        {
+          name: 'Carnegie Mellon Software Engineering Program',
+          domain: 'cmu.example',
+          industry: 'Higher Education',
+          companyType: 'prospect' as const,
+          motionLabel: 'University Faculty Book Outreach',
+          opportunityType: 'networking' as const,
+          description,
+          summary: `Target program directors and faculty who teach software architecture, developer productivity, and AI for software engineering. Position ${offeringTitle} as a practical teaching and discussion asset.`,
+          nextAction: 'Create a concise email for a software engineering program director.',
+          fitScore: 88,
+        },
+        {
+          name: 'University of Waterloo Software Engineering Department',
+          domain: 'waterloo.example',
+          industry: 'Higher Education',
+          companyType: 'prospect' as const,
+          motionLabel: 'University Faculty Book Outreach',
+          opportunityType: 'networking' as const,
+          description,
+          summary: `Target faculty and department leadership for possible guest lecture, curriculum discussion, research collaboration, or platform pilot conversations around AI-native software engineering.`,
+          nextAction: 'Draft a professor-facing invitation to review the book and discuss collaboration.',
+          fitScore: 86,
+        },
+      ];
+    }
+
+    if (isEngineeringLeadership) {
+      return [
+        {
+          name: 'Northstar Digital Platforms',
+          domain: 'northstardigital.example',
+          industry: 'B2B SaaS',
+          companyType: 'consulting_target' as const,
+          motionLabel: 'Engineering Leadership Advisory Outreach',
+          opportunityType: isConsulting ? 'consulting' as const : 'networking' as const,
+          description,
+          summary: `Target CTO and engineering leadership team likely to care about AI-native SDLC redesign, delivery velocity, and operating-model change. Use ${offeringTitle} as the credibility anchor.`,
+          nextAction: `Draft a concise advisory outreach message for the CTO referencing ${offeringTitle}.`,
+          fitScore: 90,
+        },
+        {
+          name: 'Meridian Software Group',
+          domain: 'meridiansoftware.example',
+          industry: 'Enterprise Software',
+          companyType: 'consulting_target' as const,
+          motionLabel: 'Engineering Leadership Advisory Outreach',
+          opportunityType: isConsulting ? 'consulting' as const : 'networking' as const,
+          description,
+          summary: `Target engineering executives at a scaled software organization where AI adoption may be fragmented across teams. Position ${offeringTitle} around practical workflow redesign.`,
+          nextAction: 'Create a discovery note and outreach draft for the Head of Engineering.',
+          fitScore: 88,
+        },
+        {
+          name: 'Pinnacle Engineering Systems',
+          domain: 'pinnacleengineering.example',
+          industry: 'Software Engineering Tools',
+          companyType: 'consulting_target' as const,
+          motionLabel: 'Engineering Leadership Advisory Outreach',
+          opportunityType: isConsulting ? 'consulting' as const : 'networking' as const,
+          description,
+          summary: `Target technical product and engineering leaders with a book-led conversation about turning AI-native engineering from experiments into an operating system.`,
+          nextAction: 'Draft a book-led invitation to a strategic advisory conversation.',
+          fitScore: 86,
+        },
+      ];
+    }
+
+    return [
+      {
+        name: 'Keystone Growth Partners',
+        domain: 'keystonegrowth.example',
+        industry: 'Professional Services',
+        companyType: 'prospect' as const,
+        motionLabel: 'Strategic Outreach',
+        opportunityType: isConsulting ? 'consulting' as const : 'networking' as const,
+        description,
+        summary: `Target account aligned with ${audience}. Lead with ${offeringTitle} and validate strategic fit through a short advisory conversation.`,
+        nextAction: `Draft an outreach message tied to ${offeringTitle}.`,
+        fitScore: 84,
+      },
+      {
+        name: 'Summit Operating Group',
+        domain: 'summitoperating.example',
+        industry: 'Operating Company',
+        companyType: 'prospect' as const,
+        motionLabel: 'Strategic Outreach',
+        opportunityType: isConsulting ? 'consulting' as const : 'networking' as const,
+        description,
+        summary: `Target account for the ${focusArea} campaign, selected because the audience and offering suggest an executive-level conversation.`,
+        nextAction: 'Create a first-touch outreach draft.',
+        fitScore: 82,
+      },
+      {
+        name: 'Catalyst Market Systems',
+        domain: 'catalystmarkets.example',
+        industry: 'Technology',
+        companyType: 'prospect' as const,
+        motionLabel: 'Strategic Outreach',
+        opportunityType: isConsulting ? 'consulting' as const : 'networking' as const,
+        description,
+        summary: `Target account that can be used to test messaging for ${offeringTitle} before broader campaign expansion.`,
+        nextAction: 'Prepare a personalized outreach angle.',
+        fitScore: 80,
+      },
+    ];
   }
 
   /**
@@ -1387,6 +1516,7 @@ export interface StrategicResult {
     title: string;
     description: string | null;
     status: string;
+    offeringId?: string | null;
   };
   campaign: {
     id: string;
@@ -1394,6 +1524,7 @@ export interface StrategicResult {
     strategicAngle: string | null;
     targetSegment: string | null;
     status: string;
+    offeringId?: string | null;
   };
   extractedIntent: {
     focusArea: string;

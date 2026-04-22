@@ -860,6 +860,9 @@ model Offering {
   user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   positionings  OfferingPositioning[]
   assets        OfferingAsset[]
+  goals         Goal[]
+  campaigns     StrategicCampaign[]
+  cycles        OpportunityCycle[]
   conversations AIConversation[]
   summaries     AIContextSummary[]    @relation("AIContextSummaryOffering")
   aiTasks       AITask[]              @relation("AITaskOffering")
@@ -1097,6 +1100,7 @@ model Goal {
   id             String     @id @default(uuid()) @db.Uuid
   userId         String?    @db.Uuid
   guestSessionId String?    @db.VarChar(255)
+  offeringId     String?    @db.Uuid
   title          String
   description    String?
   targetDate     DateTime?
@@ -1105,11 +1109,13 @@ model Goal {
   updatedAt      DateTime   @updatedAt
 
   user              User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering          Offering?           @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   campaigns         StrategicCampaign[]
   opportunityCycles OpportunityCycle[]
 
   @@index([userId])
   @@index([guestSessionId])
+  @@index([offeringId])
   @@map("goals")
 }
 
@@ -1118,6 +1124,7 @@ model StrategicCampaign {
   userId         String?        @db.Uuid
   guestSessionId String?        @db.VarChar(255)
   goalId         String         @db.Uuid
+  offeringId     String?        @db.Uuid
   title          String
   strategicAngle String?
   targetSegment  String?
@@ -1127,6 +1134,7 @@ model StrategicCampaign {
 
   user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
   goal              Goal               @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  offering          Offering?          @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   opportunities     Opportunity[]
   assets            CampaignAsset[]
   interactions      AssetInteraction[]
@@ -1134,6 +1142,7 @@ model StrategicCampaign {
 
   @@index([userId])
   @@index([goalId])
+  @@index([offeringId])
   @@index([guestSessionId])
   @@map("strategic_campaigns")
 }
@@ -1186,6 +1195,7 @@ model OpportunityCycle {
   id                      String                 @id @default(uuid()) @db.Uuid
   userId                  String                 @db.Uuid
   workspaceSignalId       String?                @db.Uuid
+  offeringId              String?                @db.Uuid
   goalId                  String?                @db.Uuid
   strategicCampaignId     String?                @db.Uuid
   opportunityId           String?                @db.Uuid
@@ -1211,6 +1221,7 @@ model OpportunityCycle {
 
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspaceSignal       WorkspaceSignal?       @relation(fields: [workspaceSignalId], references: [id], onDelete: SetNull)
+  offering              Offering?              @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   goal                  Goal?                  @relation(fields: [goalId], references: [id], onDelete: SetNull)
   strategicCampaign     StrategicCampaign?     @relation(fields: [strategicCampaignId], references: [id], onDelete: SetNull)
   opportunity           Opportunity?           @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
@@ -1221,6 +1232,7 @@ model OpportunityCycle {
 
   @@index([userId])
   @@index([workspaceSignalId])
+  @@index([offeringId])
   @@index([goalId])
   @@index([strategicCampaignId])
   @@index([opportunityId])

@@ -159,6 +159,77 @@ Values:
 * `people`
 * `mixed`
 
+### `offering_type`
+
+Values:
+
+* `product`
+* `service`
+* `consulting`
+* `job_profile`
+* `other`
+
+### `offering_status`
+
+Values:
+
+* `draft`
+* `active`
+* `inactive`
+* `archived`
+
+### `offering_asset_type`
+
+Values:
+
+* `portfolio`
+* `case_study`
+* `testimonial`
+* `document`
+* `image`
+* `video`
+* `other`
+
+### `offering_positioning_status`
+
+Values:
+
+* `draft`
+* `active`
+* `inactive`
+* `archived`
+
+### `campaign_status`
+
+Values:
+
+* `PLANNING`
+* `ACTIVE`
+* `PAUSED`
+* `COMPLETED`
+* `ARCHIVED`
+
+### `ai_conversation_purpose`
+
+Values:
+
+* `onboarding`
+* `offering_strategy`
+* `opportunity_analysis`
+* `resume_tailoring`
+* `outreach_planning`
+* `general_chat`
+* `other`
+
+### `ai_conversation_status`
+
+Values:
+
+* `active`
+* `paused`
+* `completed`
+* `archived`
+
 ### `opportunity_cycle_phase`
 
 Values:
@@ -985,6 +1056,296 @@ Purpose: scanned opportunities before promotion into CRM.
 
 ---
 
+### `offerings`
+
+Purpose: structured packages of value that users can take to market.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `title` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `offering_type` `offering_type` NOT NULL
+* `status` `offering_status` NOT NULL DEFAULT `draft`
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on (`offering_type`, `status`)
+* index on `created_at`
+
+#### Notes
+
+* An active offering is the commercial context the Conductor should use when ranking next actions.
+* Offerings may be advanced by goals, strategic campaigns, opportunities, and opportunity cycles.
+
+---
+
+### `offering_positionings`
+
+Purpose: alternative framing for the same offering by audience, angle, or context.
+
+#### Columns
+
+* `id` UUID PK
+* `offering_id` UUID NOT NULL FK -> `offerings.id`
+* `title` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `status` `offering_positioning_status` NOT NULL DEFAULT `draft`
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `offering_id`
+* index on (`status`, `created_at`)
+
+#### Notes
+
+* Positioning can be expanded later with structured target audience, value proposition, and messaging-angle columns if the product needs more queryability.
+
+---
+
+### `offering_assets`
+
+Purpose: proof, packaging, or supporting material attached to an offering.
+
+#### Columns
+
+* `id` UUID PK
+* `offering_id` UUID NOT NULL FK -> `offerings.id`
+* `offering_positioning_id` UUID NULL FK -> `offering_positionings.id`
+* `title` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `asset_type` `offering_asset_type` NOT NULL
+* `content_url` VARCHAR NULL
+* `content_text` TEXT NULL
+* `is_public` BOOLEAN NOT NULL DEFAULT false
+* `status` `offering_status` NOT NULL DEFAULT `draft`
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `offering_id`
+* index on `offering_positioning_id`
+* index on (`asset_type`, `status`)
+* index on `is_public`
+
+#### Notes
+
+* Large files should live in object storage or file storage; this table should store metadata, URLs, and text excerpts useful to AI.
+
+---
+
+### `goals`
+
+Purpose: desired business or professional outcomes owned by the user.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NULL FK -> `users.id`
+* `guest_session_id` VARCHAR NULL
+* `offering_id` UUID NULL FK -> `offerings.id`
+* `title` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `status` VARCHAR NOT NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `guest_session_id`
+* index on `offering_id`
+* index on (`user_id`, `status`)
+
+#### Notes
+
+* `offering_id` should be populated whenever the goal is intended to advance a known offering.
+* Guest-owned goals can be claimed by a user during signup.
+
+---
+
+### `strategic_campaigns`
+
+Purpose: tactical motions designed to advance a goal, usually for a specific audience, channel, or positioning angle.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NULL FK -> `users.id`
+* `guest_session_id` VARCHAR NULL
+* `goal_id` UUID NOT NULL FK -> `goals.id`
+* `offering_id` UUID NULL FK -> `offerings.id`
+* `title` VARCHAR NOT NULL
+* `strategic_angle` TEXT NULL
+* `target_segment` TEXT NULL
+* `status` `campaign_status` NOT NULL DEFAULT `PLANNING`
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `goal_id`
+* index on `offering_id`
+* index on `guest_session_id`
+* index on (`user_id`, `status`)
+
+#### Notes
+
+* `offering_id` intentionally duplicates the offering context available through `goal_id` so campaign/workspace queries do not need to join through goals.
+* This is distinct from later sequence/outreach campaign tables.
+
+---
+
+### `ai_conversations`
+
+Purpose: bounded AI discussion threads with persistent context.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NULL FK -> `users.id`
+* `guest_session_id` VARCHAR NULL
+* `title` VARCHAR NULL
+* `purpose` `ai_conversation_purpose` NOT NULL
+* `offering_id` UUID NULL FK -> `offerings.id`
+* `opportunity_id` UUID NULL FK -> `opportunities.id`
+* `status` `ai_conversation_status` NOT NULL DEFAULT `active`
+* `message_count` INTEGER NOT NULL DEFAULT 0
+* `last_message_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `guest_session_id`
+* index on `offering_id`
+* index on `opportunity_id`
+* index on (`status`, `updated_at`)
+* index on `last_message_at`
+
+#### Notes
+
+* Conversations can start before signup using `guest_session_id`, then be claimed by a user.
+
+---
+
+### `ai_conversation_messages`
+
+Purpose: individual turns in an AI conversation.
+
+#### Columns
+
+* `id` UUID PK
+* `conversation_id` UUID NOT NULL FK -> `ai_conversations.id`
+* `role` VARCHAR NOT NULL
+* `content` TEXT NOT NULL
+* `metadata_json` JSONB NULL
+* `token_count` INTEGER NULL
+* `model_used` VARCHAR NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `conversation_id`
+* index on (`role`, `created_at`)
+* index on `created_at`
+
+#### Notes
+
+* `role` examples: `user`, `assistant`, `system`, `tool`.
+
+---
+
+### `ai_context_summaries`
+
+Purpose: reusable condensed summaries of conversations or domain entities.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `title` VARCHAR NOT NULL
+* `summary_type` VARCHAR NOT NULL
+* `content` TEXT NOT NULL
+* `source_type` VARCHAR NOT NULL
+* `source_id` UUID NULL
+* `ai_conversation_id` UUID NULL FK -> `ai_conversations.id`
+* `offering_id` UUID NULL FK -> `offerings.id`
+* `opportunity_id` UUID NULL FK -> `opportunities.id`
+* `expires_at` TIMESTAMP NULL
+* `usage_count` INTEGER NOT NULL DEFAULT 0
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on (`source_type`, `source_id`)
+* index on `ai_conversation_id`
+* index on `offering_id`
+* index on `opportunity_id`
+* index on `expires_at`
+* index on `usage_count`
+
+#### Notes
+
+* Summaries should preserve enough offering and campaign context to make later AI turns useful without replaying full transcripts.
+
+---
+
+### `ai_tasks`
+
+Purpose: durable records of AI jobs performed by the platform.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `task_type` VARCHAR NOT NULL
+* `title` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `ai_conversation_id` UUID NULL FK -> `ai_conversations.id`
+* `ai_context_summary_id` UUID NULL FK -> `ai_context_summaries.id`
+* `offering_id` UUID NULL FK -> `offerings.id`
+* `opportunity_id` UUID NULL FK -> `opportunities.id`
+* `input_data_json` JSONB NULL
+* `output_data_json` JSONB NULL
+* `status` VARCHAR NOT NULL
+* `error_message` TEXT NULL
+* `token_count` INTEGER NULL
+* `processing_time_ms` INTEGER NULL
+* `model_used` VARCHAR NULL
+* `started_at` TIMESTAMP NULL
+* `completed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on (`task_type`, `status`)
+* index on `ai_conversation_id`
+* index on `ai_context_summary_id`
+* index on `offering_id`
+* index on `opportunity_id`
+* index on `created_at`
+* index on `completed_at`
+
+#### Notes
+
+* AI tasks are useful for auditability and for async work such as draft generation, summaries, and offering interpretation.
+
+---
+
 ### `workspace_signals`
 
 Purpose: meaningful items promoted for user attention. Signals are not raw events; they are ranked and explainable items that may deserve action.
@@ -1038,6 +1399,7 @@ Purpose: the active unit of web workflow momentum. A cycle connects a signal or 
 * `id` UUID PK
 * `user_id` UUID NOT NULL FK -> `users.id`
 * `workspace_signal_id` UUID NULL FK -> `workspace_signals.id`
+* `offering_id` UUID NULL FK -> `offerings.id`
 * `goal_id` UUID NULL FK -> `goals.id`
 * `strategic_campaign_id` UUID NULL FK -> `strategic_campaigns.id`
 * `opportunity_id` UUID NULL FK -> `opportunities.id`
@@ -1065,6 +1427,7 @@ Purpose: the active unit of web workflow momentum. A cycle connects a signal or 
 
 * index on `user_id`
 * index on `workspace_signal_id`
+* index on `offering_id`
 * index on `goal_id`
 * index on `strategic_campaign_id`
 * index on `opportunity_id`
@@ -1078,7 +1441,8 @@ Purpose: the active unit of web workflow momentum. A cycle connects a signal or 
 
 #### Notes
 
-* At least one contextual reference should usually be present: signal, goal, campaign, opportunity, task, discovered opportunity, or conversation.
+* At least one contextual reference should usually be present: signal, offering, goal, campaign, opportunity, task, discovered opportunity, or conversation.
+* `offering_id` should be set whenever the cycle advances a known offering, even if the offering can be inferred through goal or campaign.
 * `allowed_actions_json` is intentionally flexible for V1 because the action vocabulary will evolve with the web UX.
 * `state_json` can store workspace-specific draft state, selected asset ids, temporary recommendation payloads, or UI hints.
 * Only one active cycle may be foregrounded in the UI, but the database can allow multiple active cycles and let application logic choose the foreground cycle.
@@ -1360,6 +1724,12 @@ Purpose: schema and configuration data for capability providers.
   * companies
   * people
   * opportunities
+  * offerings
+  * goals
+  * strategic_campaigns
+  * ai_conversations
+  * ai_context_summaries
+  * ai_tasks
   * tags
   * notes
   * search_profiles
@@ -1405,6 +1775,30 @@ Purpose: schema and configuration data for capability providers.
 * `discovered_opportunities` -> optional `companies`
 * `discovered_opportunities` -> optional promoted `opportunities`
 
+### Offerings, Goals, and Campaigns
+
+* `users` -> many `offerings`
+* `offerings` -> many `offering_positionings`
+* `offerings` -> many `offering_assets`
+* `offering_positionings` -> many optional `offering_assets`
+* `offerings` -> many optional `goals`
+* `offerings` -> many optional `strategic_campaigns`
+* `goals` -> many `strategic_campaigns`
+* `strategic_campaigns` -> many `opportunities`
+
+### AI Conversation / Context
+
+* `users` -> many `ai_conversations`
+* `ai_conversations` -> many `ai_conversation_messages`
+* `ai_conversations` -> many `ai_context_summaries`
+* `ai_conversations` -> many `ai_tasks`
+* `offerings` -> many optional `ai_conversations`
+* `offerings` -> many optional `ai_context_summaries`
+* `offerings` -> many optional `ai_tasks`
+* `opportunities` -> many optional `ai_conversations`
+* `opportunities` -> many optional `ai_context_summaries`
+* `opportunities` -> many optional `ai_tasks`
+
 ### Workspace Orchestration
 
 * `users` -> many `workspace_signals`
@@ -1412,6 +1806,7 @@ Purpose: schema and configuration data for capability providers.
 * `users` -> many `workspace_commands`
 * `workspace_signals` -> zero or more originating `opportunity_cycles`
 * `opportunity_cycles` -> optional `workspace_signals`
+* `opportunity_cycles` -> optional `offerings`
 * `opportunity_cycles` -> optional `goals`
 * `opportunity_cycles` -> optional `strategic_campaigns`
 * `opportunity_cycles` -> optional `opportunities`
@@ -1573,6 +1968,10 @@ These are the most important ones to include early.
 * `companies(user_id)`
 * `people(user_id)`
 * `opportunities(user_id)`
+* `offerings(user_id)`
+* `goals(user_id)`
+* `strategic_campaigns(user_id)`
+* `ai_conversations(user_id)`
 * `search_profiles(user_id)`
 * `tags(user_id)`
 
@@ -1587,6 +1986,11 @@ These are the most important ones to include early.
 
 * `people(company_id)`
 * `opportunities(company_id)`
+* `goals(offering_id)`
+* `strategic_campaigns(goal_id)`
+* `strategic_campaigns(offering_id)`
+* `ai_conversations(offering_id)`
+* `ai_context_summaries(offering_id)`
 * `activities(opportunity_id)`
 * `activities(person_id)`
 
@@ -1612,6 +2016,9 @@ These are the most important ones to include early.
 
 * `workspace_signals(user_id, status, priority_score)`
 * `workspace_signals(source_type, source_id)`
+* `opportunity_cycles(offering_id)`
+* `opportunity_cycles(goal_id)`
+* `opportunity_cycles(strategic_campaign_id)`
 * `opportunity_cycles(user_id, status, priority_score)`
 * `opportunity_cycles(user_id, status, updated_at)`
 * `workspace_commands(user_id, status, created_at)`
@@ -1665,6 +2072,13 @@ These are important even if some are enforced at application level instead of DB
 * a discovered opportunity may be promoted once
 * a promoted opportunity may reference its source discovered opportunity
 
+### Offering Context
+
+* an offering may exist before any goals, campaigns, or opportunities
+* goals and strategic campaigns should store `offering_id` when they are created to advance a known offering
+* strategic campaigns should preserve `offering_id` even though it is inferable through goals, because workspace and reporting queries should not need to join through goals
+* opportunity cycles should preserve `offering_id` whenever known, because the Active Workspace needs direct access to the commercial context being advanced
+
 ### Notes and Entity Tags
 
 * polymorphic relations require application-level validation of referenced entity existence
@@ -1674,6 +2088,7 @@ These are important even if some are enforced at application level instead of DB
 * a signal should be created only when it represents meaningful user attention, not every raw event
 * signal deduplication should suppress repeated source records unless the source materially changes
 * a cycle should usually reference at least one contextual entity or originating signal
+* a cycle should preserve offering context directly when the active offering can be inferred from a goal, campaign, opportunity, conversation, or command input
 * the foreground active cycle is selected by application logic, even if multiple active cycles exist
 * allowed actions must be recomputed or validated server-side before execution
 * every command that mutates domain state should produce or update a durable domain record such as Activity, Task, Opportunity, StrategicCampaign, AIConversation, or WorkspaceCommand result
@@ -1718,6 +2133,15 @@ These are the tables I recommend for the first real schema pass:
 * `search_profiles`
 * `search_runs`
 * `discovered_opportunities`
+* `offerings`
+* `offering_positionings`
+* `offering_assets`
+* `goals`
+* `strategic_campaigns`
+* `ai_conversations`
+* `ai_conversation_messages`
+* `ai_context_summaries`
+* `ai_tasks`
 * `workspace_signals`
 * `opportunity_cycles`
 * `workspace_commands`
@@ -1728,7 +2152,7 @@ These are the tables I recommend for the first real schema pass:
 * `connector_sync_states`
 * `capability_execution_logs`
 
-That is a strong MVP backbone with capability-based integration architecture.
+That is a strong MVP backbone with first-class offering context, workspace orchestration, and capability-based integration architecture.
 
 ---
 
@@ -1736,7 +2160,6 @@ That is a strong MVP backbone with capability-based integration architecture.
 
 These should come later:
 
-* `campaigns`
 * `sequences`
 * `sequence_steps`
 * `message_templates`
@@ -1757,7 +2180,6 @@ These should come later:
 * `application_fields`
 * `application_artifacts`
 * `application_audit_events`
-* `ai_summaries`
 * `opportunity_recommendations`
 * persisted `workspace_recommendations`
 * `metric_snapshots`
@@ -1795,6 +2217,15 @@ Models to include:
 - SearchProfile
 - SearchRun
 - DiscoveredOpportunity
+- Offering
+- OfferingPositioning
+- OfferingAsset
+- Goal
+- StrategicCampaign
+- AIConversation
+- AIConversationMessage
+- AIContextSummary
+- AITask
 - WorkspaceSignal
 - OpportunityCycle
 - WorkspaceCommand
@@ -1819,6 +2250,7 @@ Requirements:
 - Keep authentication separate from commercial subscription state
 - Model the capability-first architecture where UserConnectors link Capabilities to CapabilityProviders
 - Ensure WorkspaceCommands can route through UserConnectors to CapabilityProviders
+- Preserve offering context by adding optional offeringId references on Goal, StrategicCampaign, OpportunityCycle, AIConversation, AIContextSummary, and AITask
 - Do not overmodel deferred features yet
 
 Important modeling notes:
@@ -1828,13 +2260,19 @@ Important modeling notes:
 - Notes are polymorphic via linkedEntityType + linkedEntityId
 - EntityTag is polymorphic via entityType + entityId
 - DiscoveredOpportunity belongs to one SearchRun and may promote to one Opportunity
+- Offering belongs to one User and may have many OfferingPositionings, OfferingAssets, Goals, StrategicCampaigns, AIConversations, AIContextSummaries, AITasks, and OpportunityCycles
+- Goal belongs to one User when authenticated, may reference one Offering, and has many StrategicCampaigns and OpportunityCycles
+- StrategicCampaign belongs to one Goal, may reference one Offering, and has many Opportunities and OpportunityCycles
 - PlanFeature and ModelAccessPolicy are scoped by Plan
 - AuthenticationIdentity belongs to one User
 - AuthenticationSession belongs to one User and may optionally reference one AuthenticationIdentity
 - VerificationToken belongs to a User and/or AuthenticationIdentity depending on flow
 - UsageCounter is scoped by User + featureKey + billing period
 - WorkspaceSignal belongs to one User and may reference a source entity through sourceType + sourceId
-- OpportunityCycle belongs to one User and may optionally reference WorkspaceSignal, Goal, StrategicCampaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation
+- AIConversation belongs to one User or guest session and may optionally reference Offering and Opportunity
+- AIContextSummary belongs to one User and may optionally reference AIConversation, Offering, and Opportunity
+- AITask belongs to one User and may optionally reference AIConversation, AIContextSummary, Offering, and Opportunity
+- OpportunityCycle belongs to one User and may optionally reference WorkspaceSignal, Offering, Goal, StrategicCampaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation
 - WorkspaceCommand belongs to one User and may optionally reference OpportunityCycle and AIConversation
 - WorkspaceState is an API composition, not a persisted table
 - Capability has many CapabilityProviders implementing the same interface

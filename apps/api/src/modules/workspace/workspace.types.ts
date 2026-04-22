@@ -39,6 +39,7 @@ export interface WorkspaceCycleSummary {
   allowedActions: string[];
   refs: {
     signalId?: string;
+    offeringId?: string;
     goalId?: string;
     campaignId?: string;
     opportunityId?: string;

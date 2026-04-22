@@ -11,7 +11,7 @@ The platform is an **AI-powered opportunity operating system** for:
 * tracking applications
 * enforcing plan/usage rules
 
-At the conceptual level, the system has 12 domain areas:
+At the conceptual level, the system has 15 domain areas:
 
 1. Identity and ownership
 2. Commercial access
@@ -22,9 +22,12 @@ At the conceptual level, the system has 12 domain areas:
 7. Application assistance
 8. AI and analytics
 9. Offerings
-10. AI Conversation / Context
-11. Workspace Orchestration
-12. Integration Capabilities & Connectors
+10. Goals and Campaigns
+11. AI Conversation / Context
+12. Workspace Orchestration
+13. Integration Capabilities & Connectors
+14. Growth, Referrals, and Rewards
+15. Coaching, Momentum, and Engagement
 
 ---
 
@@ -59,6 +62,8 @@ Relationships:
 * a User has many Opportunities
 * a User has one or more Subscriptions over time
 * a User has many Usage Counters
+* a User may have Growth Credits and Referral Rewards
+* a User may have Momentum State, Coaching Nudges, and Notification Preferences
 * a User has many Search Profiles
 * a User has many Resume assets
 * a User has many Campaigns
@@ -142,17 +147,21 @@ This domain answers:
 * what features are enabled?
 * how much usage is allowed?
 * which AI capability level is available?
+* is this capability request allowed right now?
+* what usage remains in the current window?
+* what upgrade reason should be returned if blocked?
 
 #### Main Entities
 
 **Plan**
 
-A commercial tier such as Free, Pro, or Power.
+A commercial tier such as Free/Explorer, Builder, Operator, Studio, or Team.
 
 Represents:
 
 * the product package being sold
 * commercial feature bundle
+* default quota and capability posture
 
 Relationships:
 
@@ -162,7 +171,7 @@ Relationships:
 
 MVP: yes
 
-**Plan Feature**
+**Plan Feature / Entitlement**
 
 A capability or feature rule attached to a Plan.
 
@@ -174,26 +183,35 @@ Represents:
 
 Examples:
 
-* discovery.scan
-* resume.generate_variant
-* github.repo_analysis
-* application.start_session
+* offering.create
+* workspace.cycle
+* ai.request
+* discovery.ingest
+* email.draft
+* email.send
+* connector.create
+* communication.intelligence
+* coaching.advanced
 
 Relationships:
 
 * belongs to one Plan
+* can define a boolean enablement, numeric quota, model tier, or configuration payload
+* can be evaluated by CapabilityGateService
 
 MVP: yes
 
-**Subscription**
+**Subscription / User Plan**
 
 The current commercial access state for a User.
 
 Represents:
 
 * active paid plan
+* free/explorer plan
 * billing status
 * trialing/cancelled/past-due state
+* founder/internal/dev bypass status for dogfooding
 
 Relationships:
 
@@ -202,26 +220,107 @@ Relationships:
 
 MVP: yes
 
-**Usage Counter**
+**Usage Counter / Usage Window**
 
 A tracked quantity of feature consumption for a User within a time period.
 
 Represents:
 
 * how much of a metered feature has been used
+* the period/window that usage applies to
+* whether usage came from base plan, bonus credits, or reward credits
 
 Examples:
 
-* scans this month
-* resume variants this month
-* repo analyses this month
+* AI requests this day/month
+* opportunity cycles this week
+* discovery scans this month
+* content ingestions this month
+* email drafts this month
+* connector slots currently used
 
 Relationships:
 
 * belongs to one User
 * corresponds conceptually to one feature key
+* may be augmented by Growth Credits or Usage Credits
 
 MVP: yes
+
+**Capability Gate**
+
+The policy decision point used before executing cost-bearing or premium operations.
+
+Represents:
+
+* backend-enforced access control
+* usage/quota checks
+* upgrade reason generation
+* plan-aware allowance decisions
+
+Relationships:
+
+* evaluates User Plan, Entitlements, Usage Counters, Feature Flags, and Growth Credits
+* is called by AI, Discovery, Outreach, Connector, Workspace, and Communication services before execution
+* returns a Capability Check Result
+
+MVP: service-level concept
+
+**Capability Check Result**
+
+A structured allow/block result returned by the gating layer.
+
+Represents:
+
+* whether the requested action is allowed
+* which plan and entitlement applied
+* current usage and remaining allowance
+* block reason and suggested upgrade path
+
+Relationships:
+
+* produced by Capability Gate
+* consumed by product/capability services and API responses
+
+MVP: API/service contract
+
+**Upgrade Reason**
+
+A normalized reason explaining why a capability is blocked or constrained.
+
+Represents:
+
+* plan does not include feature
+* quota exhausted
+* connector not available on plan
+* premium model required
+* usage window limit reached
+* trial expired
+
+Relationships:
+
+* included in Capability Check Result
+* informs frontend upgrade prompts
+
+MVP: service-level enum/concept
+
+**Feature Flag / Capability Flag**
+
+A product or capability switch independent of billing state.
+
+Represents:
+
+* staged feature rollout
+* internal dogfooding access
+* experimental features
+* provider-specific enablement
+
+Relationships:
+
+* can modify or override entitlement behavior
+* may be scoped globally, by plan, or by user
+
+MVP: maybe, if simple
 
 **Model Access Policy**
 
@@ -1029,6 +1128,7 @@ It answers:
 * what value can the user offer?
 * how can the same offering be positioned differently?
 * what supporting materials exist for each offering?
+* which goals, campaigns, and active cycles are advancing this offering?
 
 #### Main Entities
 
@@ -1049,6 +1149,9 @@ Relationships:
 * a User has many Offerings
 * an Offering has many OfferingPositionings
 * an Offering has many OfferingAssets
+* an Offering may have many Goals
+* an Offering may have many StrategicCampaigns
+* an Offering may have many OpportunityCycles
 * an Offering can be matched to many Opportunities
 
 MVP: yes
@@ -1095,7 +1198,75 @@ MVP: V1
 
 ---
 
-### J. AI Conversation / Context
+### J. Goals and Campaigns
+
+This domain represents the user's intended outcomes and the tactical motions used to advance an offering.
+
+It answers:
+
+* what offering is being advanced?
+* what outcome is the user trying to create?
+* what tactical motion is being used?
+* how do opportunities and cycles connect back to the commercial objective?
+
+#### Main Entities
+
+**Goal**
+
+A desired business or professional outcome owned by the user.
+
+Represents:
+
+* promote a consulting offering
+* book advisory conversations
+* generate qualified leads
+* advance a job or contract search
+* build market visibility around a product, book, or service
+
+Relationships:
+
+* belongs to one User when authenticated
+* may belong to one Offering
+* has many StrategicCampaigns
+* may have many OpportunityCycles
+
+MVP: yes
+
+**StrategicCampaign**
+
+A tactical motion designed to advance a Goal, usually for a specific audience, channel, or positioning angle.
+
+Represents:
+
+* CTO outreach using a book as leverage
+* recruiter outreach for a specific market
+* executive briefing campaign
+* warm-network activation campaign
+* targeted discovery and follow-up motion
+
+Relationships:
+
+* belongs to one User when authenticated
+* belongs to one Goal
+* may belong to one Offering
+* has many Opportunities
+* may have many OpportunityCycles
+
+MVP: yes
+
+#### Conceptual Rule
+
+Offering context should be carried forward whenever it is known:
+
+```text
+Offering -> Goal -> StrategicCampaign -> Opportunity -> OpportunityCycle
+```
+
+The Offering is the marketable value proposition. The Goal defines the desired outcome for that offering. The StrategicCampaign defines the tactical motion. The Opportunity and OpportunityCycle represent concrete execution against that motion.
+
+---
+
+### K. AI Conversation / Context
 
 This domain represents the platform's persistent AI working memory rather than relying on implicit chat memory.
 
@@ -1189,7 +1360,7 @@ MVP: V1
 
 ---
 
-### K. Workspace Orchestration
+### L. Workspace Orchestration
 
 This domain represents the web product's operating spine. It turns raw CRM records, AI conversation, discovery results, and task/activity state into a focused execution cycle.
 
@@ -1219,6 +1390,7 @@ Represents:
 Relationships:
 
 * belongs to one User when authenticated
+* may be linked to one Offering
 * may be linked to one Goal
 * may be linked to one StrategicCampaign
 * may be linked to one Opportunity
@@ -1314,13 +1486,13 @@ Represents:
 
 Relationships:
 
-* composed from User-owned records across CRM, Discovery, AI Conversation, Goals, Campaigns, Assets, Tasks, Activities, Signals, and Cycles
+* composed from User-owned records across CRM, Discovery, Offerings, Goals, Campaigns, AI Conversation, Assets, Tasks, Activities, Signals, and Cycles
 
 MVP: API contract
 
 ---
 
-### L. Integration Capabilities & Connectors
+### M. Integration Capabilities & Connectors
 
 This domain represents the platform's capability-first, provider-abstracted integration architecture. It separates what the platform can do (capabilities) from how it does it (providers), enabling scalable addition of new integrations without changing business logic.
 
@@ -1485,6 +1657,318 @@ MVP: basic provider configurations
 
 ---
 
+### N. Growth, Referrals, and Rewards
+
+This domain represents product-native growth loops and reward credits. It should support sharing and referrals early without becoming a full billing or payout system.
+
+It answers:
+
+* how did this user arrive?
+* who referred whom?
+* did the referred user reach a meaningful milestone?
+* what reward or credit should be granted?
+* how can rewards extend useful free usage without losing cost control?
+
+#### Main Entities
+
+**Referral Link**
+
+A shareable referral handle or URL owned by a User.
+
+Represents:
+
+* user-specific invitation link
+* campaign/source metadata
+* active or revoked sharing channel
+
+Relationships:
+
+* belongs to one User
+* may create many Referral Invites or Referral Attributions
+
+MVP: V1 logical modeling
+
+**Referral Invite**
+
+A sent or shared invitation event.
+
+Represents:
+
+* a user shared Opportunity OS with someone
+* channel/source metadata
+* invite lifecycle before signup
+
+Relationships:
+
+* belongs to one referring User
+* may be tied to one Referral Link
+* may become one Referral Attribution
+
+MVP: later
+
+**Referral Attribution**
+
+The durable relationship between a referrer and a referred user.
+
+Represents:
+
+* who referred the new user
+* when attribution was established
+* attribution source and confidence
+
+Relationships:
+
+* belongs to one referrer User
+* belongs to one referred User
+* has many Referral Milestones
+* may create Referral Rewards
+
+MVP: V1 logical modeling
+
+**Referral Milestone**
+
+A meaningful product milestone used to decide whether a referral reward is earned.
+
+Represents:
+
+* signup plus onboarding completion
+* first completed OpportunityCycle
+* first sent outreach
+* paid conversion later
+
+Relationships:
+
+* belongs to one Referral Attribution
+* may produce one or more Referral Rewards
+
+MVP: V1 logical modeling
+
+**Referral Reward**
+
+A granted reward earned from a referral milestone.
+
+Represents:
+
+* additional AI usage
+* additional cycles
+* additional discovery scans
+* connector slot increase
+* premium trial unlock
+* subscription credit later
+
+Relationships:
+
+* belongs to a rewarded User
+* may be produced by a Referral Milestone
+* may create Growth Credits or Usage Credits
+
+MVP: V1 logical modeling
+
+**Growth Credit / Usage Credit**
+
+A non-billing credit that extends or unlocks bounded product usage.
+
+Represents:
+
+* bonus AI requests
+* bonus opportunity cycles
+* bonus discovery scans
+* short premium trial unlocks
+
+Relationships:
+
+* belongs to one User
+* may originate from Referral Reward, promotion, internal grant, or support adjustment
+* may be consumed by Usage Counters through Capability Gate decisions
+
+MVP: V1 logical modeling
+
+**Share Event**
+
+A lightweight event representing a product share action.
+
+Represents:
+
+* copied referral link
+* shared invite
+* shared result or milestone
+
+Relationships:
+
+* belongs to one User
+* may reference a Referral Link or Referral Invite
+
+MVP: later
+
+---
+
+### O. Coaching, Momentum, and Engagement
+
+This domain represents product-native nudges that help users keep moving through opportunity cycles.
+
+It answers:
+
+* is the user building momentum?
+* what target is the user trying to hit this week?
+* what should the system nudge next?
+* when should the system celebrate progress?
+* when should stalled users be reactivated?
+
+#### Main Entities
+
+**Goal Progress**
+
+The measurable progress state for a Goal.
+
+Represents:
+
+* cycles completed toward a goal
+* outreach sent toward a target
+* meetings booked
+* opportunities advanced
+
+Relationships:
+
+* belongs to one Goal
+* is derived from Activities, Tasks, Opportunities, and OpportunityCycles
+
+MVP: V1 logical modeling
+
+**Weekly Target / Outreach Quota**
+
+A target commitment for a time window.
+
+Represents:
+
+* weekly outreach goal
+* cycle completion target
+* follow-up target
+* discovery/review target
+
+Relationships:
+
+* belongs to one User
+* may belong to one Goal or StrategicCampaign
+* informs Momentum State and Coaching Nudges
+
+MVP: V1 logical modeling
+
+**Momentum State**
+
+The computed state of a user's current execution rhythm.
+
+Represents:
+
+* on track
+* behind target
+* stalled
+* recovering
+* strong momentum
+
+Relationships:
+
+* belongs to one User
+* derived from Goals, Weekly Targets, OpportunityCycles, Tasks, Activities, and WorkspaceSignals
+
+MVP: computed first; persist later if useful
+
+**Coaching Nudge**
+
+A system-generated recommendation or reminder intended to move the user forward.
+
+Represents:
+
+* complete one cycle today
+* send one follow-up
+* review a stale opportunity
+* celebrate a completed target
+* restart after inactivity
+
+Relationships:
+
+* belongs to one User
+* may reference Goal, StrategicCampaign, Opportunity, Task, OpportunityCycle, or WorkspaceSignal
+* may become a notification later
+
+MVP: V1 logical modeling
+
+**Engagement State**
+
+The user's recent activity and risk posture.
+
+Represents:
+
+* active
+* quiet
+* at risk
+* dormant
+* reactivated
+
+Relationships:
+
+* belongs to one User
+* informed by sessions, activities, workspace commands, completed cycles, and notifications
+
+MVP: later
+
+**Notification Preference**
+
+The user's preferences for reminders and coaching delivery.
+
+Represents:
+
+* email/push/in-app preferences
+* quiet hours
+* opt-in/out states
+* coaching cadence
+
+Relationships:
+
+* belongs to one User
+* controls future notification delivery
+
+MVP: later
+
+**Reactivation Trigger**
+
+A condition that identifies when a user or opportunity needs a restart nudge.
+
+Represents:
+
+* no completed cycle today
+* behind weekly outreach goal
+* stale opportunity
+* unused connector
+* abandoned onboarding
+
+Relationships:
+
+* may create Coaching Nudges
+* may be evaluated from Momentum State and Engagement State
+
+MVP: later
+
+**Motivation Event**
+
+A positive or corrective event emitted by the product to reinforce momentum.
+
+Represents:
+
+* completed cycle
+* weekly goal achieved
+* first outreach sent
+* referral milestone reached
+* stalled opportunity recovered
+
+Relationships:
+
+* belongs to one User
+* may reference Goal, OpportunityCycle, Activity, ReferralReward, or WorkspaceCommand
+
+MVP: later
+
+---
+
 ## 3. Core Conceptual Relationships
 
 ### User-Centered Relationships
@@ -1522,6 +2006,10 @@ MVP: basic provider configurations
 * A Plan has many Plan Features.
 * A Subscription links a User to a Plan.
 * A Plan controls which features and AI model tiers are available.
+* Plan Features define Entitlements that can be evaluated by the Capability Gate.
+* Usage Counters track metered feature consumption in usage windows.
+* Growth Credits or Usage Credits may extend a User's effective allowance.
+* Capability Check Results explain allowed/blocked decisions to backend services and frontend clients.
 
 ### Resume/Evidence Relationships
 
@@ -1546,9 +2034,20 @@ MVP: basic provider configurations
 * A User has many Offerings.
 * An Offering has many OfferingPositionings.
 * An Offering has many OfferingAssets.
+* An Offering may have many Goals.
+* An Offering may have many StrategicCampaigns.
+* An Offering may have many OpportunityCycles.
 * An Offering can be matched to many Opportunities.
 * An OfferingPositioning may be linked to specific Opportunity types.
 * OfferingAssets may be associated with OfferingPositionings.
+
+### Goals and Campaigns Relationships
+
+* A Goal belongs to one User when authenticated and may belong to one Offering.
+* A StrategicCampaign belongs to one Goal and may belong to one Offering.
+* A StrategicCampaign has many Opportunities.
+* Goals and StrategicCampaigns provide the strategic context that explains why an OpportunityCycle matters.
+* When an Offering is known, Goals, StrategicCampaigns, and OpportunityCycles should preserve that Offering context.
 
 ### AI Conversation / Context Relationships
 
@@ -1564,8 +2063,9 @@ MVP: basic provider configurations
 
 * A WorkspaceSignal belongs to one User and may reference a source entity such as DiscoveredOpportunity, Opportunity, Task, StrategicCampaign, Activity, or AIConversation.
 * A WorkspaceSignal may create or activate one OpportunityCycle.
-* An OpportunityCycle belongs to one User and may reference one Goal, StrategicCampaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation.
+* An OpportunityCycle belongs to one User and may reference one Offering, Goal, StrategicCampaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation.
 * An OpportunityCycle has a current phase and active workspace mode that guide the right-pane web experience.
+* Every orchestrated cycle should know which Offering it is advancing whenever that context is available.
 * A WorkspaceCommand belongs to one User and may belong to one OpportunityCycle.
 * A WorkspaceCommand records structured execution intent and may create or update CRM, Discovery, Outreach, Asset, Campaign, or AI records.
 * WorkspaceState is composed from the active OpportunityCycle, meaningful WorkspaceSignals, AI context, next-action ranking, and velocity metrics.
@@ -1575,6 +2075,7 @@ MVP: basic provider configurations
 * A User has many User Connectors for different capabilities and providers.
 * A User Connector links one Capability to one Capability Provider.
 * A Capability has many Capability Providers implementing the same interface.
+* Capability services should consult Capability Gate before executing cost-bearing or premium operations.
 * Workspace Commands execute through User Connectors via Capability routing.
 * Capability Execution Logs belong to both User Connectors and Workspace Commands.
 * Activities may be created from Capability Executions (e.g., email sent, meeting scheduled).
@@ -1582,6 +2083,27 @@ MVP: basic provider configurations
 * Discovery capabilities may create Discovered Opportunities through content ingestion.
 * Connector Sync State tracks incremental synchronization for provider data.
 * Connector Credentials provide secure authentication for User Connectors.
+
+### Growth, Referrals, and Rewards Relationships
+
+* A User may own many Referral Links.
+* A Referral Link may produce Referral Invites and Referral Attributions.
+* A Referral Attribution connects one referrer User to one referred User.
+* Referral Milestones belong to a Referral Attribution and represent meaningful product progress.
+* Referral Rewards are granted only after meaningful milestones, not simple clicks.
+* Referral Rewards may create Growth Credits or Usage Credits.
+* Growth Credits may be considered by Capability Gate when evaluating usage allowance.
+
+### Coaching, Momentum, and Engagement Relationships
+
+* Goal Progress belongs to one Goal and is derived from cycles, activities, tasks, and opportunity movement.
+* Weekly Targets may belong to a User, Goal, or StrategicCampaign.
+* Momentum State is computed from progress, targets, activities, tasks, signals, and cycles.
+* Coaching Nudges belong to one User and may reference Goals, Campaigns, Opportunities, Tasks, Signals, or Cycles.
+* Engagement State is informed by user sessions, completed cycles, activities, and workspace commands.
+* Notification Preferences control future nudge delivery channels and cadence.
+* Reactivation Triggers may create Coaching Nudges.
+* Motivation Events record meaningful positive or corrective product moments.
 
 ---
 
@@ -1644,6 +2166,59 @@ Examples:
 * Enabled
 * Limited
 * Premium
+
+### Upgrade Reason
+
+Examples:
+
+* Plan Does Not Include Capability
+* Usage Limit Reached
+* Connector Limit Reached
+* Premium Model Required
+* Trial Expired
+* Feature Disabled
+
+### Referral Milestone Type
+
+Examples:
+
+* Signup
+* Onboarding Completed
+* First Cycle Completed
+* First Outreach Sent
+* Paid Conversion
+
+### Reward Type
+
+Examples:
+
+* AI Usage Credit
+* Cycle Credit
+* Discovery Scan Credit
+* Connector Slot Credit
+* Premium Trial Unlock
+* Subscription Credit
+
+### Momentum State
+
+Examples:
+
+* On Track
+* Behind
+* Stalled
+* Recovering
+* Strong Momentum
+
+### Coaching Nudge Type
+
+Examples:
+
+* Complete Cycle
+* Send Follow-Up
+* Review Signal
+* Celebrate Progress
+* Reactivate Opportunity
+* Resume Onboarding
 
 ### Activity Type
 
@@ -1794,6 +2369,9 @@ Examples:
 * Plan Feature
 * Subscription
 * Usage Counter
+* Capability Gate
+* Capability Check Result
+* Upgrade Reason
 * Model Access Policy
 * Company
 * Person
@@ -1807,6 +2385,8 @@ Examples:
 * Search Run
 * Discovered Opportunity
 * Offering
+* Goal
+* StrategicCampaign
 * Capability (core types)
 * Capability Provider (Gmail, Outlook, Google Calendar, Twilio, Firecrawl)
 * User Connector (email, calendar)
@@ -1817,6 +2397,9 @@ Examples:
 
 * AI Summary
 * Opportunity Recommendation
+* Feature Flag / Capability Flag
+* Momentum State
+* Coaching Nudge
 
 ### V1 Logical Modeling
 
@@ -1832,9 +2415,22 @@ Examples:
 * WorkspaceState API contract
 * Capability Execution Log
 * Connector Configuration
+* Referral Link
+* Referral Attribution
+* Referral Milestone
+* Referral Reward
+* Growth Credit / Usage Credit
+* Goal Progress
+* Weekly Target / Outreach Quota
 
 ### Later Phase
 
+* Referral Invite
+* Share Event
+* Engagement State
+* Notification Preference
+* Reactivation Trigger
+* Motivation Event
 * Campaign
 * Sequence
 * Sequence Step
@@ -1868,12 +2464,12 @@ Examples:
 
 ## 6. Conceptual Model Summary
 
-The platform revolves around a **User** who owns a set of **Companies**, **People**, **Opportunities**, and **Offerings** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. That ownership is accessed through explicit authentication concepts: **Authentication Identity**, **Credential**, **Verification Token**, and **Authentication Session**. 
+The platform revolves around a **User** who owns a set of **Companies**, **People**, **Opportunities**, and **Offerings** inside a commercially controlled workspace defined by **Plan**, **Subscription/User Plan**, **Plan Feature/Entitlement**, **Usage Counter**, and **Capability Gate**. That ownership is accessed through explicit authentication concepts: **Authentication Identity**, **Credential**, **Verification Token**, and **Authentication Session**.
 
-The platform operates through a **capability-first, provider-abstracted integration architecture** where **User Connectors** link **Capabilities** (Email, Calendar, Messaging, Discovery) to **Capability Providers** (Gmail, Outlook, Twilio, Firecrawl). This enables the **Workspace Orchestration** layer to route **Workspace Commands** through appropriate capabilities without business logic depending on specific providers.
+The platform operates through a **capability-first, provider-abstracted integration architecture** where **User Connectors** link **Capabilities** (Email, Calendar, Messaging, Discovery) to **Capability Providers** (Gmail, Outlook, Twilio, Firecrawl). Capability services consult the **Capability Gate** before executing cost-bearing or premium operations, returning structured **Capability Check Results** and **Upgrade Reasons** that frontend clients can use for plan-aware experiences.
 
-New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities** (often via Discovery capabilities), and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions that can be matched to opportunities. Persistent **AI Conversation/Context** maintains working memory across sessions and may recommend capability-based actions.
+New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities** (often via Discovery capabilities), and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions. **Goals** define the outcomes the user wants for those offerings, and **StrategicCampaigns** define the tactical motions used to advance them. Persistent **AI Conversation/Context** maintains working memory across sessions and may recommend capability-based actions.
 
-The **Workspace Orchestration** domain turns CRM records, discovery results, AI insight, tasks, activities, goals, and campaigns into focused **Opportunity Cycles** so the web app can show what matters now, why it matters, what the AI recommends, what the active workspace should display, and which execution actions are allowed. **Capability Execution Logs** provide audit trails for all external integrations.
+The **Workspace Orchestration** domain turns CRM records, discovery results, AI insight, tasks, activities, offerings, goals, and campaigns into focused **Opportunity Cycles** so the web app can show what matters now, why it matters, which offering is being advanced, what the AI recommends, what the active workspace should display, and which execution actions are allowed. **Coaching, Momentum, and Engagement** concepts turn those cycles into targets, nudges, progress, and reactivation moments.
 
-Around that core, layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, and **AI Recommendations**, while keeping CRM as the main system of record and maintaining clean separation between business domains, functional capabilities, and provider implementations.
+Around that core, layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, **AI Recommendations**, and **Growth/Referral Rewards**, while keeping CRM as the main system of record and maintaining clean separation between business domains, functional capabilities, entitlement enforcement, and provider implementations.

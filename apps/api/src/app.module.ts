@@ -24,7 +24,6 @@ import { AssetModule } from './modules/asset/asset.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { GoalsModule } from './modules/goals/goals.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
-import { CapabilityModule } from '../capability/capability.module';
 import { DevContextInterceptor } from './common/dev-context.interceptor';
 
 @Module({
@@ -55,7 +54,6 @@ import { DevContextInterceptor } from './common/dev-context.interceptor';
     AnalyticsModule,
     GoalsModule,
     WorkspaceModule,
-    CapabilityModule,
   ],
   controllers: [TestValidationController],
   providers: [
