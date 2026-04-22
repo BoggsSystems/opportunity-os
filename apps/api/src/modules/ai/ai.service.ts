@@ -189,15 +189,34 @@ export class AiService {
       const emailMatch = message.match(/send email to (.+?)(?:\s+(.+))?/i);
       if (emailMatch && userId) {
         try {
+          // Get user's default email connector
+          const connector = await this.capabilityIntegrationService.getUserConnector(userId, 'email');
+          if (!connector) {
+            return {
+              reply: 'No email connector configured. Please set up your email provider first.',
+              suggestedAction: 'setup_email_connector'
+            };
+          }
+
+          // Use user's default provider, but allow override if explicitly mentioned
+          let providerName = connector.capabilityProvider?.providerName;
+          if (message.toLowerCase().includes('gmail') || message.toLowerCase().includes('google')) {
+            providerName = 'gmail';
+          } else if (message.toLowerCase().includes('outlook') || message.toLowerCase().includes('hotmail') || message.toLowerCase().includes('microsoft')) {
+            providerName = 'outlook';
+          }
+
           await this.capabilityIntegrationService.sendEmail(userId, {
             to: [emailMatch[1]],
             subject: emailMatch[2] || 'No subject',
             body: emailMatch[3] || '',
-            opportunityId: this.extractOpportunityId(message)
+            opportunityId: this.extractOpportunityId(message),
+            provider: providerName // Only override if explicitly mentioned
           });
           
+          const providerDisplayName = providerName === 'gmail' ? 'Gmail' : 'Outlook';
           return {
-            reply: 'Email sent successfully',
+            reply: `Email sent successfully via ${providerDisplayName}`,
             suggestedAction: 'check_sent_folder'
           };
         } catch (error) {
@@ -209,32 +228,7 @@ export class AiService {
       }
     }
 
-    // Check for Outlook-specific requests
-    if (message.toLowerCase().includes('outlook') || message.toLowerCase().includes('hotmail') || message.toLowerCase().includes('microsoft')) {
-      const emailMatch = message.match(/send (?:outlook|hotmail|microsoft) email to (.+?)(?:\s+(.+))?/i);
-      if (emailMatch && userId) {
-        try {
-          await this.capabilityIntegrationService.sendEmail(userId, {
-            to: [emailMatch[1]],
-            subject: emailMatch[2] || 'No subject',
-            body: emailMatch[3] || '',
-            opportunityId: this.extractOpportunityId(message),
-            provider: 'outlook' // Explicitly request Outlook
-          });
-          
-          return {
-            reply: 'Email sent via Outlook',
-            suggestedAction: 'check_outlook_sent_folder'
-          };
-        } catch (error) {
-          return {
-            reply: `Failed to send Outlook email: ${error.message}`,
-            suggestedAction: 'check_outlook_connector'
-          };
-        }
-      }
-    }
-
+    
     // Check for calendar-related requests
     if (message.toLowerCase().includes('calendar') || message.toLowerCase().includes('schedule') || message.toLowerCase().includes('meeting')) {
       const calendarMatch = message.match(/(?:schedule|create|set up)(?:\s+(.+))?/i);
