@@ -223,6 +223,62 @@ enum AITaskStatus {
   cancelled
 }
 
+enum OpportunityCyclePhase {
+  surfaced
+  interpreted
+  proposed
+  drafting
+  awaiting_confirmation
+  executed
+  confirmed
+  completed
+  dismissed
+}
+
+enum OpportunityCycleStatus {
+  active
+  paused
+  completed
+  dismissed
+  archived
+}
+
+enum WorkspaceMode {
+  empty
+  signal_review
+  goal_planning
+  campaign_review
+  opportunity_review
+  draft_edit
+  asset_review
+  execution_confirm
+  progress_summary
+}
+
+enum WorkspaceSignalStatus {
+  new
+  surfaced
+  active
+  consumed
+  dismissed
+  archived
+}
+
+enum WorkspaceSignalImportance {
+  low
+  medium
+  high
+  critical
+}
+
+enum WorkspaceCommandStatus {
+  pending
+  running
+  succeeded
+  failed
+  cancelled
+}
+
 model User {
   id              String    @id @default(uuid()) @db.Uuid
   email           String    @unique
@@ -240,21 +296,24 @@ model User {
   sessions           AuthenticationSession[]
   verificationTokens VerificationToken[]
 
-  companies      Company[]
-  people         Person[]
-  opportunities  Opportunity[]
-  activities     Activity[]
-  goals          Goal[]
-  campaigns      StrategicCampaign[]
-  tasks          Task[]
-  notes          Note[]
-  tags           Tag[]
-  searchProfiles SearchProfile[]
-  offerings      Offering[]
-  conversations  AIConversation[]
-  summaries      AIContextSummary[]
-  aiTasks        AITask[]
-  assets         UserAsset[]
+  companies         Company[]
+  people            Person[]
+  opportunities     Opportunity[]
+  activities        Activity[]
+  goals             Goal[]
+  campaigns         StrategicCampaign[]
+  tasks             Task[]
+  notes             Note[]
+  tags              Tag[]
+  searchProfiles    SearchProfile[]
+  offerings         Offering[]
+  conversations     AIConversation[]
+  summaries         AIContextSummary[]
+  aiTasks           AITask[]
+  assets            UserAsset[]
+  workspaceSignals  WorkspaceSignal[]
+  opportunityCycles OpportunityCycle[]
+  workspaceCommands WorkspaceCommand[]
 
   @@map("users")
 }
@@ -542,6 +601,7 @@ model Opportunity {
   summaries         AIContextSummary[]  @relation("AIContextSummaryOpportunity")
   aiTasks           AITask[]            @relation("AITaskOpportunity")
   assetInteractions AssetInteraction[]
+  opportunityCycles OpportunityCycle[]
 
   @@index([userId])
   @@index([companyId])
@@ -617,10 +677,11 @@ model Task {
   updatedAt     DateTime     @updatedAt
   completedAt   DateTime?
 
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-  company     Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  person      Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity       Opportunity?       @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  company           Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  person            Person?            @relation(fields: [personId], references: [id], onDelete: SetNull)
+  opportunityCycles OpportunityCycle[]
 
   @@index([userId])
   @@index([opportunityId])
@@ -743,8 +804,9 @@ model DiscoveredOpportunity {
   createdAt                   DateTime                    @default(now())
   updatedAt                   DateTime                    @updatedAt
 
-  searchRun SearchRun @relation(fields: [searchRunId], references: [id], onDelete: Cascade)
-  company   Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  searchRun         SearchRun          @relation(fields: [searchRunId], references: [id], onDelete: Cascade)
+  company           Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  opportunityCycles OpportunityCycle[]
 
   @@index([searchRunId])
   @@index([companyId])
@@ -833,12 +895,14 @@ model AIConversation {
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
 
-  user        User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offering    Offering?               @relation(fields: [offeringId], references: [id], onDelete: SetNull)
-  opportunity Opportunity?            @relation("AIConversationOpportunity", fields: [opportunityId], references: [id], onDelete: SetNull)
-  messages    AIConversationMessage[]
-  summaries   AIContextSummary[]
-  tasks       AITask[]
+  user              User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering          Offering?               @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  opportunity       Opportunity?            @relation("AIConversationOpportunity", fields: [opportunityId], references: [id], onDelete: SetNull)
+  messages          AIConversationMessage[]
+  summaries         AIContextSummary[]
+  tasks             AITask[]
+  opportunityCycles OpportunityCycle[]
+  workspaceCommands WorkspaceCommand[]
 
   @@index([userId])
   @@index([guestSessionId])
@@ -922,16 +986,16 @@ model AITask {
 }
 
 model UserAsset {
-  id              String        @id @default(uuid()) @db.Uuid
-  userId          String        @db.Uuid
-  displayName     String
-  fileName        String
-  fileUrl         String
-  mimeType        String?
-  category        AssetCategory @default(other)
-  isDefault       Boolean       @default(false)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String        @db.Uuid
+  displayName String
+  fileName    String
+  fileUrl     String
+  mimeType    String?
+  category    AssetCategory @default(other)
+  isDefault   Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   narrative    AssetNarrative?
@@ -982,10 +1046,10 @@ model AssetInteraction {
   context         String?
   occurredAt      DateTime             @default(now())
 
-  asset       UserAsset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-  person      Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
-  campaignId  String?      @db.Uuid
+  asset       UserAsset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  opportunity Opportunity?       @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  person      Person?            @relation(fields: [personId], references: [id], onDelete: SetNull)
+  campaignId  String?            @db.Uuid
   campaign    StrategicCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([assetId])
@@ -1001,18 +1065,19 @@ enum GoalStatus {
 }
 
 model Goal {
-  id          String     @id @default(uuid()) @db.Uuid
-  userId      String?    @db.Uuid
-  guestSessionId String? @db.VarChar(255)
-  title       String
-  description String?
-  targetDate  DateTime?
-  status      GoalStatus @default(ACTIVE)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id             String     @id @default(uuid()) @db.Uuid
+  userId         String?    @db.Uuid
+  guestSessionId String?    @db.VarChar(255)
+  title          String
+  description    String?
+  targetDate     DateTime?
+  status         GoalStatus @default(ACTIVE)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
-  user       User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaigns  StrategicCampaign[]
+  user              User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaigns         StrategicCampaign[]
+  opportunityCycles OpportunityCycle[]
 
   @@index([userId])
   @@index([guestSessionId])
@@ -1031,11 +1096,12 @@ model StrategicCampaign {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  user         User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  goal         Goal               @relation(fields: [goalId], references: [id], onDelete: Cascade)
-  opportunities Opportunity[]
-  assets       CampaignAsset[]
-  interactions AssetInteraction[]
+  user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal              Goal               @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  opportunities     Opportunity[]
+  assets            CampaignAsset[]
+  interactions      AssetInteraction[]
+  opportunityCycles OpportunityCycle[]
 
   @@index([userId])
   @@index([goalId])
@@ -1052,4 +1118,118 @@ model CampaignAsset {
 
   @@id([campaignId, assetId])
   @@map("campaign_assets")
+}
+
+model WorkspaceSignal {
+  id                       String                    @id @default(uuid()) @db.Uuid
+  userId                   String                    @db.Uuid
+  sourceType               String
+  sourceId                 String?                   @db.Uuid
+  title                    String
+  summary                  String?
+  importance               WorkspaceSignalImportance @default(medium)
+  status                   WorkspaceSignalStatus     @default(new)
+  priorityScore            Int                       @default(50)
+  reason                   String?
+  recommendedAction        String?
+  recommendedWorkspaceMode WorkspaceMode             @default(signal_review)
+  evidenceJson             Json?
+  metadataJson             Json?
+  surfacedAt               DateTime?
+  consumedAt               DateTime?
+  dismissedAt              DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunityCycles OpportunityCycle[]
+
+  @@index([userId])
+  @@index([sourceType, sourceId])
+  @@index([status])
+  @@index([importance])
+  @@index([priorityScore])
+  @@index([userId, status, priorityScore])
+  @@map("workspace_signals")
+}
+
+model OpportunityCycle {
+  id                      String                 @id @default(uuid()) @db.Uuid
+  userId                  String                 @db.Uuid
+  workspaceSignalId       String?                @db.Uuid
+  goalId                  String?                @db.Uuid
+  strategicCampaignId     String?                @db.Uuid
+  opportunityId           String?                @db.Uuid
+  taskId                  String?                @db.Uuid
+  discoveredOpportunityId String?                @db.Uuid
+  aiConversationId        String?                @db.Uuid
+  phase                   OpportunityCyclePhase  @default(surfaced)
+  status                  OpportunityCycleStatus @default(active)
+  workspaceMode           WorkspaceMode          @default(signal_review)
+  title                   String
+  whyItMatters            String?
+  recommendedAction       String?
+  priorityScore           Int                    @default(50)
+  confidence              Int?
+  allowedActionsJson      Json?
+  stateJson               Json?
+  startedAt               DateTime               @default(now())
+  lastAdvancedAt          DateTime?
+  completedAt             DateTime?
+  dismissedAt             DateTime?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceSignal       WorkspaceSignal?       @relation(fields: [workspaceSignalId], references: [id], onDelete: SetNull)
+  goal                  Goal?                  @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  strategicCampaign     StrategicCampaign?     @relation(fields: [strategicCampaignId], references: [id], onDelete: SetNull)
+  opportunity           Opportunity?           @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  task                  Task?                  @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  discoveredOpportunity DiscoveredOpportunity? @relation(fields: [discoveredOpportunityId], references: [id], onDelete: SetNull)
+  aiConversation        AIConversation?        @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
+  workspaceCommands     WorkspaceCommand[]
+
+  @@index([userId])
+  @@index([workspaceSignalId])
+  @@index([goalId])
+  @@index([strategicCampaignId])
+  @@index([opportunityId])
+  @@index([taskId])
+  @@index([discoveredOpportunityId])
+  @@index([aiConversationId])
+  @@index([phase])
+  @@index([status])
+  @@index([userId, status, priorityScore])
+  @@index([userId, status, updatedAt])
+  @@map("opportunity_cycles")
+}
+
+model WorkspaceCommand {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  userId             String                 @db.Uuid
+  opportunityCycleId String?                @db.Uuid
+  aiConversationId   String?                @db.Uuid
+  commandType        String
+  status             WorkspaceCommandStatus @default(pending)
+  inputJson          Json?
+  resultJson         Json?
+  errorMessage       String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunityCycle OpportunityCycle? @relation(fields: [opportunityCycleId], references: [id], onDelete: SetNull)
+  aiConversation   AIConversation?   @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([opportunityCycleId])
+  @@index([aiConversationId])
+  @@index([commandType])
+  @@index([status])
+  @@index([createdAt])
+  @@index([userId, status, createdAt])
+  @@map("workspace_commands")
 }

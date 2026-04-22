@@ -247,6 +247,144 @@
 
 ---
 
+### Workspace Orchestration Domain
+
+#### workspace_signals
+
+**Purpose:** Meaningful user-attention items promoted from raw events, AI insight, discovery results, stale opportunities, or task/campaign state.
+
+**Table Name:** `workspace_signals`
+
+**Key Columns:**
+- `id` (UUID, Primary Key) - Unique identifier
+- `user_id` (UUID, Foreign Key to users, Required) - Owner
+- `source_type` (VARCHAR(100), Required) - Source entity category
+- `source_id` (UUID, Optional) - Source entity id when applicable
+- `title` (VARCHAR(255), Required) - Signal title
+- `summary` (TEXT, Optional) - Brief explanation
+- `importance` (VARCHAR(50), Required, Default: medium) - Importance tier
+- `status` (VARCHAR(50), Required, Default: new) - Signal lifecycle status
+- `priority_score` (INTEGER, Required, Default: 50) - Ranking score
+- `reason` (TEXT, Optional) - Why the signal matters
+- `recommended_action` (TEXT, Optional) - Suggested next move
+- `recommended_workspace_mode` (VARCHAR(50), Required, Default: signal_review) - Preferred active workspace mode
+- `evidence_json` (JSONB, Optional) - Supporting facts/snippets
+- `metadata_json` (JSONB, Optional) - Flexible source metadata
+- `surfaced_at` (TIMESTAMP, Optional) - When presented to the user
+- `consumed_at` (TIMESTAMP, Optional) - When activated or resolved
+- `dismissed_at` (TIMESTAMP, Optional) - When dismissed
+- `created_at` (TIMESTAMP, Required) - Creation timestamp
+- `updated_at` (TIMESTAMP, Required) - Last update timestamp
+
+**Enums:**
+- `importance`: 'low', 'medium', 'high', 'critical'
+- `status`: 'new', 'surfaced', 'active', 'consumed', 'dismissed', 'archived'
+- `recommended_workspace_mode`: 'empty', 'signal_review', 'goal_planning', 'campaign_review', 'opportunity_review', 'draft_edit', 'asset_review', 'execution_confirm', 'progress_summary'
+
+**Indexes:**
+- PRIMARY KEY (`id`)
+- INDEX `idx_workspace_signals_user_id` (`user_id`)
+- INDEX `idx_workspace_signals_source` (`source_type`, `source_id`)
+- INDEX `idx_workspace_signals_status` (`status`)
+- INDEX `idx_workspace_signals_importance` (`importance`)
+- INDEX `idx_workspace_signals_priority_score` (`priority_score`)
+- INDEX `idx_workspace_signals_user_status_priority` (`user_id`, `status`, `priority_score`)
+- OPTIONAL UNIQUE INDEX `idx_workspace_signals_user_source_unique` (`user_id`, `source_type`, `source_id`) where `source_id` is not null
+
+---
+
+#### opportunity_cycles
+
+**Purpose:** The active unit of web workflow momentum, connecting a signal or recommendation to a focused workspace and execution path.
+
+**Table Name:** `opportunity_cycles`
+
+**Key Columns:**
+- `id` (UUID, Primary Key) - Unique identifier
+- `user_id` (UUID, Foreign Key to users, Required) - Owner
+- `workspace_signal_id` (UUID, Foreign Key to workspace_signals, Optional) - Originating signal
+- `goal_id` (UUID, Foreign Key to goals, Optional) - Related goal
+- `strategic_campaign_id` (UUID, Foreign Key to strategic_campaigns, Optional) - Related campaign
+- `opportunity_id` (UUID, Foreign Key to opportunities, Optional) - Related opportunity
+- `task_id` (UUID, Foreign Key to tasks, Optional) - Related task
+- `discovered_opportunity_id` (UUID, Foreign Key to discovered_opportunities, Optional) - Related discovered item
+- `ai_conversation_id` (UUID, Foreign Key to ai_conversations, Optional) - Related conductor conversation
+- `phase` (VARCHAR(50), Required, Default: surfaced) - Current cycle phase
+- `status` (VARCHAR(50), Required, Default: active) - Cycle lifecycle status
+- `workspace_mode` (VARCHAR(50), Required, Default: signal_review) - Current Active Workspace mode
+- `title` (VARCHAR(255), Required) - Cycle title
+- `why_it_matters` (TEXT, Optional) - User-facing rationale
+- `recommended_action` (TEXT, Optional) - Recommended next action
+- `priority_score` (INTEGER, Required, Default: 50) - Ranking score
+- `confidence` (INTEGER, Optional) - Recommendation confidence
+- `allowed_actions_json` (JSONB, Optional) - Valid actions from this state
+- `state_json` (JSONB, Optional) - Workspace-specific state such as draft details or selected assets
+- `started_at` (TIMESTAMP, Required) - Cycle start timestamp
+- `last_advanced_at` (TIMESTAMP, Optional) - Most recent phase movement
+- `completed_at` (TIMESTAMP, Optional) - Completion timestamp
+- `dismissed_at` (TIMESTAMP, Optional) - Dismissal timestamp
+- `created_at` (TIMESTAMP, Required) - Creation timestamp
+- `updated_at` (TIMESTAMP, Required) - Last update timestamp
+
+**Enums:**
+- `phase`: 'surfaced', 'interpreted', 'proposed', 'drafting', 'awaiting_confirmation', 'executed', 'confirmed', 'completed', 'dismissed'
+- `status`: 'active', 'paused', 'completed', 'dismissed', 'archived'
+- `workspace_mode`: 'empty', 'signal_review', 'goal_planning', 'campaign_review', 'opportunity_review', 'draft_edit', 'asset_review', 'execution_confirm', 'progress_summary'
+
+**Indexes:**
+- PRIMARY KEY (`id`)
+- INDEX `idx_opportunity_cycles_user_id` (`user_id`)
+- INDEX `idx_opportunity_cycles_signal_id` (`workspace_signal_id`)
+- INDEX `idx_opportunity_cycles_goal_id` (`goal_id`)
+- INDEX `idx_opportunity_cycles_campaign_id` (`strategic_campaign_id`)
+- INDEX `idx_opportunity_cycles_opportunity_id` (`opportunity_id`)
+- INDEX `idx_opportunity_cycles_task_id` (`task_id`)
+- INDEX `idx_opportunity_cycles_discovered_id` (`discovered_opportunity_id`)
+- INDEX `idx_opportunity_cycles_conversation_id` (`ai_conversation_id`)
+- INDEX `idx_opportunity_cycles_phase` (`phase`)
+- INDEX `idx_opportunity_cycles_status` (`status`)
+- INDEX `idx_opportunity_cycles_user_status_priority` (`user_id`, `status`, `priority_score`)
+- INDEX `idx_opportunity_cycles_user_status_updated` (`user_id`, `status`, `updated_at`)
+
+---
+
+#### workspace_commands
+
+**Purpose:** Structured execution intents from the Conductor or Active Workspace, with auditability around inputs, results, and domain mutations.
+
+**Table Name:** `workspace_commands`
+
+**Key Columns:**
+- `id` (UUID, Primary Key) - Unique identifier
+- `user_id` (UUID, Foreign Key to users, Required) - Owner
+- `opportunity_cycle_id` (UUID, Foreign Key to opportunity_cycles, Optional) - Related cycle
+- `ai_conversation_id` (UUID, Foreign Key to ai_conversations, Optional) - Related conductor conversation
+- `command_type` (VARCHAR(100), Required) - Command identifier
+- `status` (VARCHAR(50), Required, Default: pending) - Command lifecycle status
+- `input_json` (JSONB, Optional) - Input payload
+- `result_json` (JSONB, Optional) - Result payload
+- `error_message` (TEXT, Optional) - Error details
+- `started_at` (TIMESTAMP, Optional) - Execution start timestamp
+- `completed_at` (TIMESTAMP, Optional) - Execution completion timestamp
+- `created_at` (TIMESTAMP, Required) - Creation timestamp
+- `updated_at` (TIMESTAMP, Required) - Last update timestamp
+
+**Enums:**
+- `status`: 'pending', 'running', 'succeeded', 'failed', 'cancelled'
+- `command_type` examples: 'activate_signal', 'generate_draft', 'revise_draft', 'approve_draft', 'send_outreach', 'create_task', 'advance_opportunity', 'dismiss_cycle', 'complete_cycle', 'summarize_progress'
+
+**Indexes:**
+- PRIMARY KEY (`id`)
+- INDEX `idx_workspace_commands_user_id` (`user_id`)
+- INDEX `idx_workspace_commands_cycle_id` (`opportunity_cycle_id`)
+- INDEX `idx_workspace_commands_conversation_id` (`ai_conversation_id`)
+- INDEX `idx_workspace_commands_type` (`command_type`)
+- INDEX `idx_workspace_commands_status` (`status`)
+- INDEX `idx_workspace_commands_created_at` (`created_at`)
+- INDEX `idx_workspace_commands_user_status_created` (`user_id`, `status`, `created_at`)
+
+---
+
 ## Key Relationships
 
 ### Offerings Domain Relationships
@@ -274,6 +412,24 @@ ai_context_summaries (N) -> (1) offerings (optional)
 ai_context_summaries (N) -> (1) opportunities (optional)
 ai_tasks (N) -> (1) offerings (optional)
 ai_tasks (N) -> (1) opportunities (optional)
+```
+
+### Workspace Orchestration Relationships
+```
+users (1) ---------------------> (N) workspace_signals
+users (1) ---------------------> (N) opportunity_cycles
+users (1) ---------------------> (N) workspace_commands
+
+workspace_signals (1) ---------> (N) opportunity_cycles (optional origin)
+opportunity_cycles (1) --------> (N) workspace_commands
+
+opportunity_cycles (N) --------> (1) goals (optional)
+opportunity_cycles (N) --------> (1) strategic_campaigns (optional)
+opportunity_cycles (N) --------> (1) opportunities (optional)
+opportunity_cycles (N) --------> (1) tasks (optional)
+opportunity_cycles (N) --------> (1) discovered_opportunities (optional)
+opportunity_cycles (N) --------> (1) ai_conversations (optional)
+workspace_commands (N) --------> (1) ai_conversations (optional)
 ```
 
 ## Design Decisions Needed

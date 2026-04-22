@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ActivityType, prisma } from '@opportunity-os/db';
+import { ActivityType, Prisma, prisma } from '@opportunity-os/db';
+import { SendOutreachDto } from './dto/send-outreach.dto';
 
 @Injectable()
 export class OutreachService {
@@ -64,29 +65,84 @@ export class OutreachService {
 
   async sendDraft(
     userId: string,
-    draft: {
-      subject: string;
-      body: string;
-      recipients: Array<{ name: string; organization: string; email?: string | null; role: string }>;
-    },
+    draft: SendOutreachDto,
   ) {
-    await prisma.activity.create({
+    const linkedRefs = await this.resolveLinkedRefs(userId, draft);
+
+    const activity = await prisma.activity.create({
       data: {
         userId,
+        opportunityId: linkedRefs.opportunityId,
+        companyId: linkedRefs.companyId,
+        personId: linkedRefs.personId,
         activityType: ActivityType.email,
         subject: draft.subject,
         bodySummary: draft.body.slice(0, 500),
         occurredAt: new Date(),
-        metadataJson: {
+        metadataJson: this.toJson({
           recipients: draft.recipients,
           sentVia: 'ios_local_dev',
-        },
+          source: 'outreach_send',
+        }),
       },
     });
 
     return {
       success: true,
+      activity,
       sentAt: new Date().toISOString(),
     };
+  }
+
+  private async resolveLinkedRefs(userId: string, draft: SendOutreachDto) {
+    let opportunity:
+      | {
+          id: string;
+          companyId: string;
+          primaryPersonId: string | null;
+        }
+      | null = null;
+
+    if (draft.opportunityId) {
+      opportunity = await prisma.opportunity.findFirst({
+        where: { id: draft.opportunityId, userId },
+        select: { id: true, companyId: true, primaryPersonId: true },
+      });
+      if (!opportunity) {
+        throw new NotFoundException('Opportunity not found');
+      }
+    }
+
+    const companyId = draft.companyId ?? opportunity?.companyId;
+    const personId = draft.personId ?? opportunity?.primaryPersonId ?? undefined;
+
+    const [company, person] = await Promise.all([
+      companyId
+        ? prisma.company.findFirst({ where: { id: companyId, userId }, select: { id: true } })
+        : null,
+      personId
+        ? prisma.person.findFirst({ where: { id: personId, userId }, select: { id: true, companyId: true } })
+        : null,
+    ]);
+
+    if (companyId && !company) {
+      throw new NotFoundException('Company not found');
+    }
+    if (personId && !person) {
+      throw new NotFoundException('Person not found');
+    }
+    if (person?.companyId && companyId && person.companyId !== companyId) {
+      throw new NotFoundException('Person not found for company');
+    }
+
+    return {
+      opportunityId: opportunity?.id ?? draft.opportunityId,
+      companyId,
+      personId,
+    };
+  }
+
+  private toJson(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
   }
 }

@@ -17,5 +17,6 @@ import { AiModule } from '../ai/ai.module';
     DiscoveryGenerator,
     OfferingContextService,
   ],
+  exports: [NextActionsService],
 })
 export class NextActionsModule {}

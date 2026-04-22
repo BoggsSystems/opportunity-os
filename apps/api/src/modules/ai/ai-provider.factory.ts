@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiProvider } from './interfaces/ai-provider.interface';
+import { OpenAiProvider } from './providers/openai.provider';
 import { OpenRouterAiProvider } from './providers/openrouter.provider';
 
 @Injectable()
@@ -10,8 +11,10 @@ export class AiProviderFactory {
 
   constructor(
     private configService: ConfigService,
+    openAiProvider: OpenAiProvider,
     openRouterProvider: OpenRouterAiProvider,
   ) {
+    this.providers.set('openai', openAiProvider);
     this.providers.set('openrouter', openRouterProvider);
   }
 

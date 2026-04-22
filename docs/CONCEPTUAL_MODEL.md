@@ -11,7 +11,7 @@ The platform is an **AI-powered opportunity operating system** for:
 * tracking applications
 * enforcing plan/usage rules
 
-At the conceptual level, the system has 10 domain areas:
+At the conceptual level, the system has 11 domain areas:
 
 1. Identity and ownership
 2. Commercial access
@@ -23,6 +23,7 @@ At the conceptual level, the system has 10 domain areas:
 8. AI and analytics
 9. Offerings
 10. AI Conversation / Context
+11. Workspace Orchestration
 
 ---
 
@@ -1187,6 +1188,137 @@ MVP: V1
 
 ---
 
+### K. Workspace Orchestration
+
+This domain represents the web product's operating spine. It turns raw CRM records, AI conversation, discovery results, and task/activity state into a focused execution cycle.
+
+It answers:
+
+* what matters right now?
+* why does it matter?
+* what is the AI recommending?
+* what should the active workspace show?
+* what actions are allowed from the current state?
+* how does the user move from signal to execution to confirmation?
+
+#### Main Entities
+
+**OpportunityCycle**
+
+A bounded unit of momentum that the user and AI are actively moving through.
+
+Represents:
+
+* a surfaced signal being interpreted
+* an opportunity being advanced
+* a campaign/outreach action being prepared
+* a draft moving through review and approval
+* a completed execution loop ready to hand off to the next cycle
+
+Relationships:
+
+* belongs to one User when authenticated
+* may be linked to one Goal
+* may be linked to one StrategicCampaign
+* may be linked to one Opportunity
+* may be linked to one Task
+* may be linked to one DiscoveredOpportunity
+* may be linked to one AIConversation
+* may originate from one WorkspaceSignal
+* has many WorkspaceCommands over time
+
+MVP: V1 web spine
+
+**WorkspaceSignal**
+
+A meaningful item worth the user's attention. A signal is not every event; it is an event or insight that has been promoted because it may change what the user should do next.
+
+Represents:
+
+* a high-priority discovered opportunity
+* a stale opportunity that needs movement
+* an overdue or strategically important task
+* a campaign milestone or gap
+* an AI insight that deserves review
+* an asset/opportunity fit worth acting on
+
+Relationships:
+
+* belongs to one User when authenticated
+* may reference a source entity through source type and source id
+* may activate or create one OpportunityCycle
+* may be dismissed, consumed, or converted into active workspace state
+
+MVP: V1 web spine
+
+**WorkspaceRecommendation**
+
+The AI-ranked explanation of what should happen next. This may be stored as a first-class table later, but in the initial implementation it can be represented as structured data on OpportunityCycle, WorkspaceSignal, or WorkspaceCommand outputs.
+
+Represents:
+
+* why the item matters
+* the recommended action
+* supporting evidence
+* confidence or priority
+* the workspace mode that should be shown
+* allowed execution actions
+
+Relationships:
+
+* derived from NextAction candidates, AI context, and domain state
+* may be attached to an OpportunityCycle
+* may be returned in WorkspaceState without always being persisted
+
+MVP: computed first; persist later if needed
+
+**WorkspaceCommand**
+
+A structured execution intent from the user or AI conductor.
+
+Represents:
+
+* activate a signal
+* generate an outreach draft
+* revise a draft
+* approve or send outreach
+* create a task
+* advance an opportunity
+* dismiss or complete a cycle
+* summarize current progress
+
+Relationships:
+
+* belongs to one User when authenticated
+* may belong to one OpportunityCycle
+* may be linked to one AIConversation
+* may create or update Opportunities, Tasks, Activities, Assets, or Campaigns
+* stores input and result payloads for auditability
+
+MVP: V1 web spine
+
+**WorkspaceState**
+
+The composed state object returned to the web app. This is not necessarily a persisted entity; it is a backend contract produced by the orchestration layer.
+
+Represents:
+
+* the active cycle
+* conductor state
+* active workspace mode
+* current recommendation
+* relevant signals
+* velocity and progress metrics
+* allowed actions
+
+Relationships:
+
+* composed from User-owned records across CRM, Discovery, AI Conversation, Goals, Campaigns, Assets, Tasks, Activities, Signals, and Cycles
+
+MVP: API contract
+
+---
+
 ## 3. Core Conceptual Relationships
 
 ### User-Centered Relationships
@@ -1261,6 +1393,16 @@ MVP: V1
 * AITasks belong to one User and may be triggered by AIConversations.
 * AIContextSummaries can be referenced in future conversations.
 * AITasks may produce AIContextSummaries.
+
+### Workspace Orchestration Relationships
+
+* A WorkspaceSignal belongs to one User and may reference a source entity such as DiscoveredOpportunity, Opportunity, Task, StrategicCampaign, Activity, or AIConversation.
+* A WorkspaceSignal may create or activate one OpportunityCycle.
+* An OpportunityCycle belongs to one User and may reference one Goal, StrategicCampaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation.
+* An OpportunityCycle has a current phase and active workspace mode that guide the right-pane web experience.
+* A WorkspaceCommand belongs to one User and may belong to one OpportunityCycle.
+* A WorkspaceCommand records structured execution intent and may create or update CRM, Discovery, Outreach, Asset, Campaign, or AI records.
+* WorkspaceState is composed from the active OpportunityCycle, meaningful WorkspaceSignals, AI context, next-action ranking, and velocity metrics.
 
 ---
 
@@ -1377,6 +1519,55 @@ Examples:
 * Failed
 * Abandoned
 
+### Opportunity Cycle Phase
+
+Examples:
+
+* Surfaced
+* Interpreted
+* Proposed
+* Drafting
+* Awaiting Confirmation
+* Executed
+* Confirmed
+* Completed
+* Dismissed
+
+### Workspace Mode
+
+Examples:
+
+* Empty
+* Signal Review
+* Goal Planning
+* Campaign Review
+* Opportunity Review
+* Draft Edit
+* Asset Review
+* Execution Confirm
+* Progress Summary
+
+### Workspace Signal Status
+
+Examples:
+
+* New
+* Surfaced
+* Active
+* Consumed
+* Dismissed
+* Archived
+
+### Workspace Command Status
+
+Examples:
+
+* Pending
+* Running
+* Succeeded
+* Failed
+* Cancelled
+
 ---
 
 ## 5. MVP Conceptual Scope
@@ -1419,6 +1610,10 @@ Examples:
 * AIConversationMessage
 * AIContextSummary
 * AITask
+* OpportunityCycle
+* WorkspaceSignal
+* WorkspaceCommand
+* WorkspaceState API contract
 
 ### Later Phase
 
@@ -1449,9 +1644,10 @@ Examples:
 * Metric Snapshot
 * Company Watch
 * Contact Lead
+* Persisted WorkspaceRecommendation
 
 ---
 
 ## 6. Conceptual Model Summary
 
-The platform revolves around a **User** who owns a set of **Companies**, **People**, **Opportunities**, and **Offerings** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. That ownership is accessed through explicit authentication concepts: **Authentication Identity**, **Credential**, **Verification Token**, and **Authentication Session**. New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities**, and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions that can be matched to opportunities. Around that core, layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, **AI Recommendations**, and persistent **AI Conversation/Context** for maintaining working memory across sessions, all while keeping CRM as the main system of record and keeping authentication separate from commercial entitlement.
+The platform revolves around a **User** who owns a set of **Companies**, **People**, **Opportunities**, and **Offerings** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. That ownership is accessed through explicit authentication concepts: **Authentication Identity**, **Credential**, **Verification Token**, and **Authentication Session**. New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities**, and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions that can be matched to opportunities. Persistent **AI Conversation/Context** maintains working memory across sessions. The **Workspace Orchestration** domain turns CRM records, discovery results, AI insight, tasks, activities, goals, and campaigns into focused **Opportunity Cycles** so the web app can show what matters now, why it matters, what the AI recommends, what the active workspace should display, and which execution actions are allowed. Around that core, layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, and **AI Recommendations**, while keeping CRM as the main system of record and keeping authentication separate from commercial entitlement.

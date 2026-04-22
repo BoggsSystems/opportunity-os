@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, UnauthorizedException } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { SendOutreachDto } from './dto/send-outreach.dto';
 import { OutreachService } from './outreach.service';
 
 @Controller('outreach')
@@ -21,7 +22,7 @@ export class OutreachController {
 
   @Post('send')
   async send(
-    @Body() body: { subject: string; body: string; recipients: Array<{ name: string; organization: string; email?: string | null; role: string }> },
+    @Body() body: SendOutreachDto,
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     if (!user?.id) {

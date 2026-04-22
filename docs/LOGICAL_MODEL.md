@@ -159,6 +159,74 @@ Values:
 * `people`
 * `mixed`
 
+### `opportunity_cycle_phase`
+
+Values:
+
+* `surfaced`
+* `interpreted`
+* `proposed`
+* `drafting`
+* `awaiting_confirmation`
+* `executed`
+* `confirmed`
+* `completed`
+* `dismissed`
+
+### `opportunity_cycle_status`
+
+Values:
+
+* `active`
+* `paused`
+* `completed`
+* `dismissed`
+* `archived`
+
+### `workspace_mode`
+
+Values:
+
+* `empty`
+* `signal_review`
+* `goal_planning`
+* `campaign_review`
+* `opportunity_review`
+* `draft_edit`
+* `asset_review`
+* `execution_confirm`
+* `progress_summary`
+
+### `workspace_signal_status`
+
+Values:
+
+* `new`
+* `surfaced`
+* `active`
+* `consumed`
+* `dismissed`
+* `archived`
+
+### `workspace_signal_importance`
+
+Values:
+
+* `low`
+* `medium`
+* `high`
+* `critical`
+
+### `workspace_command_status`
+
+Values:
+
+* `pending`
+* `running`
+* `succeeded`
+* `failed`
+* `cancelled`
+
 ---
 
 ## 3. Tables
@@ -883,6 +951,144 @@ Purpose: scanned opportunities before promotion into CRM.
 
 ---
 
+### `workspace_signals`
+
+Purpose: meaningful items promoted for user attention. Signals are not raw events; they are ranked and explainable items that may deserve action.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `source_type` VARCHAR NOT NULL
+* `source_id` UUID NULL
+* `title` VARCHAR NOT NULL
+* `summary` TEXT NULL
+* `importance` `workspace_signal_importance` NOT NULL DEFAULT `medium`
+* `status` `workspace_signal_status` NOT NULL DEFAULT `new`
+* `priority_score` INTEGER NOT NULL DEFAULT 50
+* `reason` TEXT NULL
+* `recommended_action` TEXT NULL
+* `recommended_workspace_mode` `workspace_mode` NOT NULL DEFAULT `signal_review`
+* `evidence_json` JSONB NULL
+* `metadata_json` JSONB NULL
+* `surfaced_at` TIMESTAMP NULL
+* `consumed_at` TIMESTAMP NULL
+* `dismissed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on (`source_type`, `source_id`)
+* index on `status`
+* index on `importance`
+* index on `priority_score`
+* composite index on (`user_id`, `status`, `priority_score`)
+* optional unique composite index on (`user_id`, `source_type`, `source_id`) where `source_id` is not null
+
+#### Notes
+
+* `source_type` examples: `discovered_opportunity`, `opportunity`, `task`, `strategic_campaign`, `activity`, `ai_conversation`, `asset`
+* `evidence_json` stores supporting snippets or facts used by the Conductor
+* application logic should suppress low-value duplicate signals
+
+---
+
+### `opportunity_cycles`
+
+Purpose: the active unit of web workflow momentum. A cycle connects a signal or recommendation to a focused workspace and tracks progression from surfaced item to execution and confirmation.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `workspace_signal_id` UUID NULL FK -> `workspace_signals.id`
+* `goal_id` UUID NULL FK -> `goals.id`
+* `strategic_campaign_id` UUID NULL FK -> `strategic_campaigns.id`
+* `opportunity_id` UUID NULL FK -> `opportunities.id`
+* `task_id` UUID NULL FK -> `tasks.id`
+* `discovered_opportunity_id` UUID NULL FK -> `discovered_opportunities.id`
+* `ai_conversation_id` UUID NULL FK -> `ai_conversations.id`
+* `phase` `opportunity_cycle_phase` NOT NULL DEFAULT `surfaced`
+* `status` `opportunity_cycle_status` NOT NULL DEFAULT `active`
+* `workspace_mode` `workspace_mode` NOT NULL DEFAULT `signal_review`
+* `title` VARCHAR NOT NULL
+* `why_it_matters` TEXT NULL
+* `recommended_action` TEXT NULL
+* `priority_score` INTEGER NOT NULL DEFAULT 50
+* `confidence` INTEGER NULL
+* `allowed_actions_json` JSONB NULL
+* `state_json` JSONB NULL
+* `started_at` TIMESTAMP NOT NULL
+* `last_advanced_at` TIMESTAMP NULL
+* `completed_at` TIMESTAMP NULL
+* `dismissed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `workspace_signal_id`
+* index on `goal_id`
+* index on `strategic_campaign_id`
+* index on `opportunity_id`
+* index on `task_id`
+* index on `discovered_opportunity_id`
+* index on `ai_conversation_id`
+* index on `phase`
+* index on `status`
+* composite index on (`user_id`, `status`, `priority_score`)
+* composite index on (`user_id`, `status`, `updated_at`)
+
+#### Notes
+
+* At least one contextual reference should usually be present: signal, goal, campaign, opportunity, task, discovered opportunity, or conversation.
+* `allowed_actions_json` is intentionally flexible for V1 because the action vocabulary will evolve with the web UX.
+* `state_json` can store workspace-specific draft state, selected asset ids, temporary recommendation payloads, or UI hints.
+* Only one active cycle may be foregrounded in the UI, but the database can allow multiple active cycles and let application logic choose the foreground cycle.
+
+---
+
+### `workspace_commands`
+
+Purpose: audit and execute structured actions from the Conductor or Active Workspace.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `opportunity_cycle_id` UUID NULL FK -> `opportunity_cycles.id`
+* `ai_conversation_id` UUID NULL FK -> `ai_conversations.id`
+* `command_type` VARCHAR NOT NULL
+* `status` `workspace_command_status` NOT NULL DEFAULT `pending`
+* `input_json` JSONB NULL
+* `result_json` JSONB NULL
+* `error_message` TEXT NULL
+* `started_at` TIMESTAMP NULL
+* `completed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `opportunity_cycle_id`
+* index on `ai_conversation_id`
+* index on `command_type`
+* index on `status`
+* index on `created_at`
+* composite index on (`user_id`, `status`, `created_at`)
+
+#### Notes
+
+* `command_type` examples: `activate_signal`, `generate_draft`, `revise_draft`, `approve_draft`, `send_outreach`, `create_task`, `advance_opportunity`, `dismiss_cycle`, `complete_cycle`, `summarize_progress`
+* domain updates should still happen in the owning tables, such as activities, tasks, opportunities, campaigns, and AI conversations
+* commands provide an audit trail and a consistent execution path for both chat-driven and button-driven actions
+
+---
+
 ## 4. Relationship Summary
 
 ### Ownership
@@ -899,6 +1105,9 @@ Purpose: scanned opportunities before promotion into CRM.
   * tags
   * notes
   * search_profiles
+  * workspace_signals
+  * opportunity_cycles
+  * workspace_commands
   * subscriptions
   * usage_counters
 
@@ -933,6 +1142,22 @@ Purpose: scanned opportunities before promotion into CRM.
 * `search_runs` -> many `discovered_opportunities`
 * `discovered_opportunities` -> optional `companies`
 * `discovered_opportunities` -> optional promoted `opportunities`
+
+### Workspace Orchestration
+
+* `users` -> many `workspace_signals`
+* `users` -> many `opportunity_cycles`
+* `users` -> many `workspace_commands`
+* `workspace_signals` -> zero or more originating `opportunity_cycles`
+* `opportunity_cycles` -> optional `workspace_signals`
+* `opportunity_cycles` -> optional `goals`
+* `opportunity_cycles` -> optional `strategic_campaigns`
+* `opportunity_cycles` -> optional `opportunities`
+* `opportunity_cycles` -> optional `tasks`
+* `opportunity_cycles` -> optional `discovered_opportunities`
+* `opportunity_cycles` -> optional `ai_conversations`
+* `opportunity_cycles` -> many `workspace_commands`
+* `workspace_commands` -> optional `ai_conversations`
 
 ---
 
@@ -993,6 +1218,31 @@ These should almost always be required:
 * title
 * lifecycle_status
 
+### `workspace_signals`
+
+* user_id
+* source_type
+* title
+* importance
+* status
+* priority_score
+* recommended_workspace_mode
+
+### `opportunity_cycles`
+
+* user_id
+* phase
+* status
+* workspace_mode
+* title
+* started_at
+
+### `workspace_commands`
+
+* user_id
+* command_type
+* status
+
 ---
 
 ## 6. Important Indexes for MVP
@@ -1039,6 +1289,15 @@ These are the most important ones to include early.
 * `discovered_opportunities(search_run_id, lifecycle_status)`
 * `discovered_opportunities(posted_at)`
 
+### Workspace Orchestration Lookups
+
+* `workspace_signals(user_id, status, priority_score)`
+* `workspace_signals(source_type, source_id)`
+* `opportunity_cycles(user_id, status, priority_score)`
+* `opportunity_cycles(user_id, status, updated_at)`
+* `workspace_commands(user_id, status, created_at)`
+* `workspace_commands(opportunity_cycle_id)`
+
 ---
 
 ## 7. Constraints and Business Rules
@@ -1080,6 +1339,16 @@ These are important even if some are enforced at application level instead of DB
 
 * polymorphic relations require application-level validation of referenced entity existence
 
+### Workspace Orchestration
+
+* a signal should be created only when it represents meaningful user attention, not every raw event
+* signal deduplication should suppress repeated source records unless the source materially changes
+* a cycle should usually reference at least one contextual entity or originating signal
+* the foreground active cycle is selected by application logic, even if multiple active cycles exist
+* allowed actions must be recomputed or validated server-side before execution
+* every command that mutates domain state should produce or update a durable domain record such as Activity, Task, Opportunity, StrategicCampaign, AIConversation, or WorkspaceCommand result
+* WorkspaceState is an API composition, not a required persisted table
+
 ---
 
 ## 8. MVP Table Set
@@ -1108,6 +1377,9 @@ These are the tables I recommend for the first real schema pass:
 * `search_profiles`
 * `search_runs`
 * `discovered_opportunities`
+* `workspace_signals`
+* `opportunity_cycles`
+* `workspace_commands`
 
 That is a strong MVP backbone.
 
@@ -1140,6 +1412,7 @@ These should come later:
 * `application_audit_events`
 * `ai_summaries`
 * `opportunity_recommendations`
+* persisted `workspace_recommendations`
 * `metric_snapshots`
 
 ---
@@ -1174,6 +1447,9 @@ Models to include:
 - SearchProfile
 - SearchRun
 - DiscoveredOpportunity
+- WorkspaceSignal
+- OpportunityCycle
+- WorkspaceCommand
 
 Requirements:
 - Use UUID ids
@@ -1184,6 +1460,7 @@ Requirements:
 - Keep field names in Prisma-friendly camelCase while preserving the logical model
 - Use PostgreSQL provider
 - Keep the schema extensible for later additions like campaigns, resumes, repositories, and application sessions
+- Include workspace orchestration enums for cycle phase/status, workspace mode, signal status/importance, and command status
 - Keep authentication separate from commercial subscription state
 - Do not overmodel deferred features yet
 
@@ -1199,6 +1476,10 @@ Important modeling notes:
 - AuthenticationSession belongs to one User and may optionally reference one AuthenticationIdentity
 - VerificationToken belongs to a User and/or AuthenticationIdentity depending on flow
 - UsageCounter is scoped by User + featureKey + billing period
+- WorkspaceSignal belongs to one User and may reference a source entity through sourceType + sourceId
+- OpportunityCycle belongs to one User and may optionally reference WorkspaceSignal, Goal, StrategicCampaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation
+- WorkspaceCommand belongs to one User and may optionally reference OpportunityCycle and AIConversation
+- WorkspaceState is an API composition, not a persisted table
 
 After generating the Prisma schema, also provide:
 1. a short explanation of key modeling choices

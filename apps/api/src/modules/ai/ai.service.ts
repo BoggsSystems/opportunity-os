@@ -198,8 +198,9 @@ export class AiService {
     const response = await this.aiProviderFactory.getProvider().generateText(request);
     let reply = response.content.trim();
     let suggestedAction: string | undefined;
+    const toolAction = this.actionFromToolCalls(response.tool_calls);
 
-    const { action, plan } = await this.detectStrategicIntent(sessionId, input.message, reply, input.history);
+    const { action, plan } = await this.detectStrategicIntent(sessionId, input.message, reply, input.history, toolAction);
     suggestedAction = action;
     let onboardingPlan = plan;
 
@@ -1026,7 +1027,7 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
 
     // Parse JSON response
     try {
-      const extracted = JSON.parse(response.content) as ExtractedGoal;
+      const extracted = JSON.parse(this.extractJsonPayload(response.content)) as ExtractedGoal;
       
       // Validate required fields
       // Validate required fields
@@ -1052,6 +1053,34 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
         firstDraftPrompt: 'Introduce yourself and suggest a conversation',
       };
     }
+  }
+
+  private actionFromToolCalls(toolCalls: any[] | undefined): string | undefined {
+    if (!toolCalls?.length) return undefined;
+
+    const toolNames = toolCalls
+      .map((call) => call?.function?.name)
+      .filter((name): name is string => typeof name === 'string');
+
+    if (toolNames.includes('propose_goal')) return 'PROPOSE_GOAL';
+    if (toolNames.includes('propose_campaign')) return 'PROPOSE_CAMPAIGN';
+    return undefined;
+  }
+
+  private extractJsonPayload(content: string): string {
+    const trimmed = content.trim();
+    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    if (fenced?.[1]) {
+      return fenced[1].trim();
+    }
+
+    const firstBrace = trimmed.indexOf('{');
+    const lastBrace = trimmed.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      return trimmed.slice(firstBrace, lastBrace + 1);
+    }
+
+    return trimmed;
   }
 
   private async generateInitialOpportunities(

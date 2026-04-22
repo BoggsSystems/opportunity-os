@@ -23,6 +23,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { AssetModule } from './modules/asset/asset.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { GoalsModule } from './modules/goals/goals.module';
+import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { DevContextInterceptor } from './common/dev-context.interceptor';
 
 @Module({
@@ -52,6 +53,7 @@ import { DevContextInterceptor } from './common/dev-context.interceptor';
     AiModule,
     AnalyticsModule,
     GoalsModule,
+    WorkspaceModule,
   ],
   controllers: [TestValidationController],
   providers: [
