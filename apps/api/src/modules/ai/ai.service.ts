@@ -209,6 +209,32 @@ export class AiService {
       }
     }
 
+    // Check for Outlook-specific requests
+    if (message.toLowerCase().includes('outlook') || message.toLowerCase().includes('hotmail') || message.toLowerCase().includes('microsoft')) {
+      const emailMatch = message.match(/send (?:outlook|hotmail|microsoft) email to (.+?)(?:\s+(.+))?/i);
+      if (emailMatch && userId) {
+        try {
+          await this.capabilityIntegrationService.sendEmail(userId, {
+            to: [emailMatch[1]],
+            subject: emailMatch[2] || 'No subject',
+            body: emailMatch[3] || '',
+            opportunityId: this.extractOpportunityId(message),
+            provider: 'outlook' // Explicitly request Outlook
+          });
+          
+          return {
+            reply: 'Email sent via Outlook',
+            suggestedAction: 'check_outlook_sent_folder'
+          };
+        } catch (error) {
+          return {
+            reply: `Failed to send Outlook email: ${error.message}`,
+            suggestedAction: 'check_outlook_connector'
+          };
+        }
+      }
+    }
+
     // Check for calendar-related requests
     if (message.toLowerCase().includes('calendar') || message.toLowerCase().includes('schedule') || message.toLowerCase().includes('meeting')) {
       const calendarMatch = message.match(/(?:schedule|create|set up)(?:\s+(.+))?/i);

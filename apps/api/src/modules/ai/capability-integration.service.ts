@@ -16,17 +16,20 @@ export class CapabilityIntegrationService {
         throw new Error('No email connector configured');
       }
 
+      // Check if user prefers Outlook for this message
+      const providerName = this.detectPreferredProvider(message, connector.capabilityProvider.providerName);
+      
       // Get provider and execute send operation
       const result = await this.capabilityService.executeCapability(
         userId,
         'email',
-        connector.capabilityProvider.providerName,
+        providerName,
         'send',
         { message },
         { linkedEntityType: 'opportunity', linkedEntityId: message.opportunityId }
       );
 
-      this.logger.log(`Email sent successfully via ${connector.capabilityProvider.providerName}`);
+      this.logger.log(`Email sent successfully via ${providerName}`);
       return result;
     } catch (error) {
       this.logger.error('Failed to send email:', error);
@@ -216,5 +219,21 @@ export class CapabilityIntegrationService {
       this.logger.error('Failed to test connector:', error);
       throw error;
     }
+  }
+
+  private detectPreferredProvider(message: any, defaultProvider: string): string {
+    // Check if message mentions specific providers
+    const messageText = (message.body || message.subject || '').toLowerCase();
+    
+    if (messageText.includes('outlook') || messageText.includes('hotmail') || messageText.includes('microsoft')) {
+      return 'outlook';
+    }
+    
+    if (messageText.includes('gmail') || messageText.includes('google')) {
+      return 'gmail';
+    }
+    
+    // Return default provider if no specific preference detected
+    return defaultProvider;
   }
 }
