@@ -227,6 +227,40 @@ Values:
 * `failed`
 * `cancelled`
 
+### `capability_type`
+
+Values:
+
+* `email`
+* `calendar`
+* `messaging`
+* `calling`
+* `contacts`
+* `storage`
+* `discovery`
+
+### `connector_status`
+
+Values:
+
+* `connected`
+* `disconnected`
+* `error`
+* `expired`
+* `syncing`
+* `pending_setup`
+
+### `capability_execution_status`
+
+Values:
+
+* `succeeded`
+* `failed`
+* `retrying`
+* `cancelled`
+* `rate_limited`
+* `provider_error`
+
 ---
 
 ## 3. Tables
@@ -1089,6 +1123,230 @@ Purpose: audit and execute structured actions from the Conductor or Active Works
 
 ---
 
+### `capabilities`
+
+Purpose: functional capabilities the platform can perform, independent of specific providers.
+
+#### Columns
+
+* `id` UUID PK
+* `capability_type` `capability_type` NOT NULL
+* `name` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `is_active` BOOLEAN NOT NULL DEFAULT true
+* `supported_features_json` JSONB NULL
+* `default_config_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on `capability_type`
+* index on `is_active`
+
+#### Notes
+
+* Examples: email, calendar, messaging, calling, contacts, storage, discovery
+* `supported_features_json` can define feature flags like: `["send", "receive", "draft", "sync"]`
+
+---
+
+### `capability_providers`
+
+Purpose: specific providers that implement capability interfaces.
+
+#### Columns
+
+* `id` UUID PK
+* `capability_id` UUID NOT NULL FK -> `capabilities.id`
+* `provider_name` VARCHAR NOT NULL
+* `display_name` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `is_active` BOOLEAN NOT NULL DEFAULT true
+* `auth_type` VARCHAR NOT NULL
+* `required_scopes_json` JSONB NULL
+* `rate_limit_config_json` JSONB NULL
+* `provider_config_schema_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique composite index on (`capability_id`, `provider_name`)
+* index on `provider_name`
+* index on `is_active`
+
+#### Notes
+
+* Examples: Gmail, Outlook (email capability); Google Calendar, Microsoft Graph (calendar capability)
+* `auth_type` examples: `oauth2`, `api_key`, `basic_auth`
+
+---
+
+### `user_connectors`
+
+Purpose: user's configured connections to specific capability providers.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `capability_id` UUID NOT NULL FK -> `capabilities.id`
+* `capability_provider_id` UUID NOT NULL FK -> `capability_providers.id`
+* `connector_name` VARCHAR NULL
+* `status` `connector_status` NOT NULL DEFAULT `pending_setup`
+* `enabled_features_json` JSONB NULL
+* `last_sync_at` TIMESTAMP NULL
+* `last_success_at` TIMESTAMP NULL
+* `error_message` TEXT NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique composite index on (`user_id`, `capability_id`)
+* index on `user_id`
+* index on `capability_provider_id`
+* index on `status`
+* composite index on (`user_id`, `status`)
+
+#### Notes
+
+* One user can have only one connector per capability type (e.g., one email connector)
+* `enabled_features_json` defines which capability features are enabled for this connector
+
+---
+
+### `connector_credentials`
+
+Purpose: stored authentication and credential data for user connectors.
+
+#### Columns
+
+* `id` UUID PK
+* `user_connector_id` UUID NOT NULL FK -> `user_connectors.id`
+* `credential_type` VARCHAR NOT NULL
+* `encrypted_data` TEXT NOT NULL
+* `expires_at` TIMESTAMP NULL
+* `last_refreshed_at` TIMESTAMP NULL
+* `refresh_status` VARCHAR NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on `user_connector_id`
+* index on `expires_at`
+
+#### Notes
+
+* `encrypted_data` stores OAuth tokens, API keys, etc.
+* Application-level encryption required for sensitive data
+
+---
+
+### `connector_sync_states`
+
+Purpose: tracking data and state for connector synchronization operations.
+
+#### Columns
+
+* `id` UUID PK
+* `user_connector_id` UUID NOT NULL FK -> `user_connectors.id`
+* `sync_type` VARCHAR NOT NULL
+* `provider_cursor` TEXT NULL
+* `last_sync_at` TIMESTAMP NULL
+* `sync_status` VARCHAR NOT NULL
+* `items_synced` INTEGER NOT NULL DEFAULT 0
+* `error_details_json` JSONB NULL
+* `retry_count` INTEGER NOT NULL DEFAULT 0
+* `next_retry_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique composite index on (`user_connector_id`, `sync_type`)
+* index on `sync_status`
+* index on `next_retry_at`
+
+#### Notes
+
+* `sync_type` examples: `incremental`, `full`, `delta`
+* `provider_cursor` stores provider-specific pagination tokens
+
+---
+
+### `capability_execution_logs`
+
+Purpose: audit trail and logging for all capability executions.
+
+#### Columns
+
+* `id` UUID PK
+* `user_connector_id` UUID NOT NULL FK -> `user_connectors.id`
+* `workspace_command_id` UUID NULL FK -> `workspace_commands.id`
+* `execution_type` VARCHAR NOT NULL
+* `execution_status` `capability_execution_status` NOT NULL
+* `input_payload_json` JSONB NULL
+* `output_payload_json` JSONB NULL
+* `error_details_json` JSONB NULL
+* `duration_ms` INTEGER NULL
+* `provider_response_code` VARCHAR NULL
+* `provider_request_id` VARCHAR NULL
+* `linked_entity_type` VARCHAR NULL
+* `linked_entity_id` UUID NULL
+* `executed_at` TIMESTAMP NOT NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_connector_id`
+* index on `workspace_command_id`
+* index on `execution_status`
+* index on `executed_at`
+* composite index on (`user_connector_id`, `executed_at`)
+* optional composite index on (`linked_entity_type`, `linked_entity_id`)
+
+#### Notes
+
+* Links capability executions to business entities (opportunities, activities, etc.)
+* Provides complete audit trail for all external integrations
+
+---
+
+### `connector_configurations`
+
+Purpose: schema and configuration data for capability providers.
+
+#### Columns
+
+* `id` UUID PK
+* `capability_provider_id` UUID NOT NULL FK -> `capability_providers.id`
+* `config_key` VARCHAR NOT NULL
+* `config_value` JSONB NOT NULL
+* `config_type` VARCHAR NOT NULL
+* `is_required` BOOLEAN NOT NULL DEFAULT false
+* `is_user_configurable` BOOLEAN NOT NULL DEFAULT true
+* `description` TEXT NULL
+* `validation_rules_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique composite index on (`capability_provider_id`, `config_key`)
+* index on `config_type`
+* index on `is_required`
+
+#### Notes
+
+* Defines setup requirements and validation for each provider
+* `config_type` examples: `oauth_scope`, `api_endpoint`, `webhook_url`
+
+---
+
 ## 4. Relationship Summary
 
 ### Ownership
@@ -1108,6 +1366,10 @@ Purpose: audit and execute structured actions from the Conductor or Active Works
   * workspace_signals
   * opportunity_cycles
   * workspace_commands
+  * user_connectors
+  * connector_credentials (through user_connectors)
+  * connector_sync_states (through user_connectors)
+  * capability_execution_logs (through user_connectors)
   * subscriptions
   * usage_counters
 
@@ -1158,6 +1420,18 @@ Purpose: audit and execute structured actions from the Conductor or Active Works
 * `opportunity_cycles` -> optional `ai_conversations`
 * `opportunity_cycles` -> many `workspace_commands`
 * `workspace_commands` -> optional `ai_conversations`
+
+### Capability Integration
+
+* `capabilities` -> many `capability_providers`
+* `capability_providers` -> many `user_connectors`
+* `capability_providers` -> many `connector_configurations`
+* `users` -> many `user_connectors` (one per capability type)
+* `user_connectors` -> one `connector_credentials`
+* `user_connectors` -> many `connector_sync_states`
+* `user_connectors` -> many `capability_execution_logs`
+* `workspace_commands` -> optional `capability_execution_logs`
+* `capability_execution_logs` may reference business entities (opportunities, activities, people)
 
 ---
 
@@ -1243,6 +1517,51 @@ These should almost always be required:
 * command_type
 * status
 
+### `capabilities`
+
+* capability_type
+* name
+
+### `capability_providers`
+
+* capability_id
+* provider_name
+* display_name
+* auth_type
+
+### `user_connectors`
+
+* user_id
+* capability_id
+* capability_provider_id
+* status
+
+### `connector_credentials`
+
+* user_connector_id
+* credential_type
+* encrypted_data
+
+### `connector_sync_states`
+
+* user_connector_id
+* sync_type
+* sync_status
+
+### `capability_execution_logs`
+
+* user_connector_id
+* execution_type
+* execution_status
+* executed_at
+
+### `connector_configurations`
+
+* capability_provider_id
+* config_key
+* config_value
+* config_type
+
 ---
 
 ## 6. Important Indexes for MVP
@@ -1298,6 +1617,17 @@ These are the most important ones to include early.
 * `workspace_commands(user_id, status, created_at)`
 * `workspace_commands(opportunity_cycle_id)`
 
+### Capability Integration Lookups
+
+* `user_connectors(user_id, status)`
+* `user_connectors(user_id, capability_id)`
+* `capability_providers(capability_id, is_active)`
+* `connector_credentials(user_connector_id, expires_at)`
+* `connector_sync_states(user_connector_id, sync_status)`
+* `capability_execution_logs(user_connector_id, executed_at)`
+* `capability_execution_logs(workspace_command_id)`
+* `connector_configurations(capability_provider_id, is_required)`
+
 ---
 
 ## 7. Constraints and Business Rules
@@ -1349,6 +1679,17 @@ These are important even if some are enforced at application level instead of DB
 * every command that mutates domain state should produce or update a durable domain record such as Activity, Task, Opportunity, StrategicCampaign, AIConversation, or WorkspaceCommand result
 * WorkspaceState is an API composition, not a required persisted table
 
+### Capability Integration
+
+* a user may have only one connector per capability type (e.g., one email connector)
+* connector credentials must be encrypted at rest
+* capability execution logs must be created for all external API calls
+* workspace commands that require external capabilities must route through user connectors
+* connector sync state must track incremental sync cursors for efficiency
+* capability providers must implement the same interface defined by their capability type
+* connector configurations must validate required fields before connector activation
+* failed capability executions should trigger retry logic with exponential backoff
+
 ---
 
 ## 8. MVP Table Set
@@ -1380,8 +1721,14 @@ These are the tables I recommend for the first real schema pass:
 * `workspace_signals`
 * `opportunity_cycles`
 * `workspace_commands`
+* `capabilities`
+* `capability_providers`
+* `user_connectors`
+* `connector_credentials`
+* `connector_sync_states`
+* `capability_execution_logs`
 
-That is a strong MVP backbone.
+That is a strong MVP backbone with capability-based integration architecture.
 
 ---
 
@@ -1414,6 +1761,7 @@ These should come later:
 * `opportunity_recommendations`
 * persisted `workspace_recommendations`
 * `metric_snapshots`
+* `connector_configurations`
 
 ---
 
@@ -1450,6 +1798,12 @@ Models to include:
 - WorkspaceSignal
 - OpportunityCycle
 - WorkspaceCommand
+- Capability
+- CapabilityProvider
+- UserConnector
+- ConnectorCredential
+- ConnectorSyncState
+- CapabilityExecutionLog
 
 Requirements:
 - Use UUID ids
@@ -1461,7 +1815,10 @@ Requirements:
 - Use PostgreSQL provider
 - Keep the schema extensible for later additions like campaigns, resumes, repositories, and application sessions
 - Include workspace orchestration enums for cycle phase/status, workspace mode, signal status/importance, and command status
+- Include capability integration enums for capability type, connector status, and capability execution status
 - Keep authentication separate from commercial subscription state
+- Model the capability-first architecture where UserConnectors link Capabilities to CapabilityProviders
+- Ensure WorkspaceCommands can route through UserConnectors to CapabilityProviders
 - Do not overmodel deferred features yet
 
 Important modeling notes:
@@ -1480,6 +1837,14 @@ Important modeling notes:
 - OpportunityCycle belongs to one User and may optionally reference WorkspaceSignal, Goal, StrategicCampaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation
 - WorkspaceCommand belongs to one User and may optionally reference OpportunityCycle and AIConversation
 - WorkspaceState is an API composition, not a persisted table
+- Capability has many CapabilityProviders implementing the same interface
+- CapabilityProvider belongs to one Capability and has many UserConnectors
+- UserConnector belongs to one User and links one Capability to one CapabilityProvider (one connector per capability type per user)
+- UserConnector has one ConnectorCredential for authentication
+- UserConnector has many ConnectorSyncStates for different sync types
+- UserConnector has many CapabilityExecutionLogs for audit trail
+- CapabilityExecutionLog belongs to one UserConnector and may optionally reference one WorkspaceCommand
+- CapabilityExecutionLog may link to business entities through linkedEntityType + linkedEntityId
 
 After generating the Prisma schema, also provide:
 1. a short explanation of key modeling choices

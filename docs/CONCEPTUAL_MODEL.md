@@ -11,7 +11,7 @@ The platform is an **AI-powered opportunity operating system** for:
 * tracking applications
 * enforcing plan/usage rules
 
-At the conceptual level, the system has 11 domain areas:
+At the conceptual level, the system has 12 domain areas:
 
 1. Identity and ownership
 2. Commercial access
@@ -24,6 +24,7 @@ At the conceptual level, the system has 11 domain areas:
 9. Offerings
 10. AI Conversation / Context
 11. Workspace Orchestration
+12. Integration Capabilities & Connectors
 
 ---
 
@@ -1319,6 +1320,171 @@ MVP: API contract
 
 ---
 
+### L. Integration Capabilities & Connectors
+
+This domain represents the platform's capability-first, provider-abstracted integration architecture. It separates what the platform can do (capabilities) from how it does it (providers), enabling scalable addition of new integrations without changing business logic.
+
+It answers:
+
+* what functional capabilities can the platform perform?
+* which providers implement each capability?
+* how are user connectors configured and managed?
+* how do actions flow from business intent to provider execution?
+* what is the audit trail for external integrations?
+
+#### Main Entities
+
+**Capability**
+
+A functional capability the platform can perform, independent of specific providers.
+
+Represents:
+
+* Email sending/receiving
+* Calendar management  
+* Messaging/SMS communications
+* Voice calling and transcription
+* Contact synchronization
+* File storage and retrieval
+* Content discovery and ingestion
+
+Relationships:
+
+* has many Capability Providers
+* has many User Connectors
+* used by Workspace Commands for execution
+* used by Next Action Engine for action routing
+* may generate Capability Execution Logs
+
+MVP: core capabilities (email, calendar, messaging, discovery)
+
+**Capability Provider**
+
+A specific provider that implements a capability interface.
+
+Represents:
+
+* Gmail, Outlook (Email Providers)
+* Google Calendar, Microsoft Graph (Calendar Providers)
+* Twilio, WhatsApp (Messaging Providers)
+* Firecrawl, Apify (Discovery Providers)
+* Google Drive, S3 (Storage Providers)
+
+Relationships:
+
+* implements one Capability
+* has many User Connectors
+* has Provider Configuration schema
+* may have provider-specific sync requirements
+
+MVP: Gmail, Outlook, Google Calendar, Twilio, Firecrawl
+
+**User Connector**
+
+A user's configured connection to a specific capability provider.
+
+Represents:
+
+* User's authenticated Gmail connection
+* User's Twilio account connection
+* User's Google Calendar connection
+* User's preferred email provider
+
+Relationships:
+
+* belongs to one User
+* links one Capability to one Capability Provider
+* has one Connector Credential
+* has one Connector Sync State
+* has many Capability Execution Logs
+* may have enabled/disabled feature flags
+
+MVP: email and calendar connectors
+
+**Connector Credential**
+
+Stored authentication and credential data for a user connector.
+
+Represents:
+
+* OAuth access/refresh tokens
+* API keys and secrets
+* Connection-specific credentials
+* Credential metadata and expiry
+
+Relationships:
+
+* belongs to one User Connector
+* encrypted at rest
+* may have refresh/renewal workflow
+* tracks credential health status
+
+MVP: OAuth tokens and API keys
+
+**Connector Sync State**
+
+Tracking data and state for connector synchronization operations.
+
+Represents:
+
+* Last successful sync timestamp
+* Provider-specific sync cursors
+* Incremental sync state
+* Error/retry state and backoff
+* Sync performance metrics
+
+Relationships:
+
+* belongs to one User Connector
+* updated by sync operations
+* may trigger sync health alerts
+* used for incremental sync optimization
+
+MVP: email sync cursors, calendar sync state
+
+**Capability Execution Log**
+
+Audit trail and logging for all capability executions.
+
+Represents:
+
+* Email sent via Gmail connector
+* Calendar event created via Google Calendar
+* Discovery crawl executed via Firecrawl
+* SMS sent via Twilio connector
+
+Relationships:
+
+* belongs to one User Connector
+* belongs to one Workspace Command (origin)
+* may link to business entities (Opportunity, Activity, Person)
+* stores execution outcome and provider response
+* may have retry/failure tracking
+
+MVP: email and calendar execution logs
+
+**Connector Configuration**
+
+Schema and configuration data for capability providers.
+
+Represents:
+
+* Required OAuth scopes
+* Supported features and limitations
+* Rate limiting configuration
+* Provider-specific settings
+
+Relationships:
+
+* belongs to one Capability Provider
+* defines connector setup requirements
+* may vary by provider version
+* used for connector validation
+
+MVP: basic provider configurations
+
+---
+
 ## 3. Core Conceptual Relationships
 
 ### User-Centered Relationships
@@ -1403,6 +1569,19 @@ MVP: API contract
 * A WorkspaceCommand belongs to one User and may belong to one OpportunityCycle.
 * A WorkspaceCommand records structured execution intent and may create or update CRM, Discovery, Outreach, Asset, Campaign, or AI records.
 * WorkspaceState is composed from the active OpportunityCycle, meaningful WorkspaceSignals, AI context, next-action ranking, and velocity metrics.
+
+### Capability Integration Relationships
+
+* A User has many User Connectors for different capabilities and providers.
+* A User Connector links one Capability to one Capability Provider.
+* A Capability has many Capability Providers implementing the same interface.
+* Workspace Commands execute through User Connectors via Capability routing.
+* Capability Execution Logs belong to both User Connectors and Workspace Commands.
+* Activities may be created from Capability Executions (e.g., email sent, meeting scheduled).
+* AI Conversations may recommend Capability actions and generate Workspace Commands.
+* Discovery capabilities may create Discovered Opportunities through content ingestion.
+* Connector Sync State tracks incremental synchronization for provider data.
+* Connector Credentials provide secure authentication for User Connectors.
 
 ---
 
@@ -1568,6 +1747,38 @@ Examples:
 * Failed
 * Cancelled
 
+### Capability Type
+
+Examples:
+
+* Email
+* Calendar
+* Messaging
+* Calling
+* Contacts
+* Storage
+* Discovery
+
+### Connector Status
+
+Examples:
+
+* Connected
+* Disconnected
+* Error
+* Expired
+* Syncing
+
+### Capability Execution Status
+
+Examples:
+
+* Succeeded
+* Failed
+* Retrying
+* Cancelled
+* RateLimited
+
 ---
 
 ## 5. MVP Conceptual Scope
@@ -1596,6 +1807,11 @@ Examples:
 * Search Run
 * Discovered Opportunity
 * Offering
+* Capability (core types)
+* Capability Provider (Gmail, Outlook, Google Calendar, Twilio, Firecrawl)
+* User Connector (email, calendar)
+* Connector Credential
+* Connector Sync State
 
 ### MVP Maybe, if you move fast
 
@@ -1614,6 +1830,8 @@ Examples:
 * WorkspaceSignal
 * WorkspaceCommand
 * WorkspaceState API contract
+* Capability Execution Log
+* Connector Configuration
 
 ### Later Phase
 
@@ -1650,4 +1868,12 @@ Examples:
 
 ## 6. Conceptual Model Summary
 
-The platform revolves around a **User** who owns a set of **Companies**, **People**, **Opportunities**, and **Offerings** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. That ownership is accessed through explicit authentication concepts: **Authentication Identity**, **Credential**, **Verification Token**, and **Authentication Session**. New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities**, and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions that can be matched to opportunities. Persistent **AI Conversation/Context** maintains working memory across sessions. The **Workspace Orchestration** domain turns CRM records, discovery results, AI insight, tasks, activities, goals, and campaigns into focused **Opportunity Cycles** so the web app can show what matters now, why it matters, what the AI recommends, what the active workspace should display, and which execution actions are allowed. Around that core, layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, and **AI Recommendations**, while keeping CRM as the main system of record and keeping authentication separate from commercial entitlement.
+The platform revolves around a **User** who owns a set of **Companies**, **People**, **Opportunities**, and **Offerings** inside a commercially controlled workspace defined by **Plan**, **Subscription**, **Plan Feature**, and **Usage Counter**. That ownership is accessed through explicit authentication concepts: **Authentication Identity**, **Credential**, **Verification Token**, and **Authentication Session**. 
+
+The platform operates through a **capability-first, provider-abstracted integration architecture** where **User Connectors** link **Capabilities** (Email, Calendar, Messaging, Discovery) to **Capability Providers** (Gmail, Outlook, Twilio, Firecrawl). This enables the **Workspace Orchestration** layer to route **Workspace Commands** through appropriate capabilities without business logic depending on specific providers.
+
+New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities** (often via Discovery capabilities), and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions that can be matched to opportunities. Persistent **AI Conversation/Context** maintains working memory across sessions and may recommend capability-based actions.
+
+The **Workspace Orchestration** domain turns CRM records, discovery results, AI insight, tasks, activities, goals, and campaigns into focused **Opportunity Cycles** so the web app can show what matters now, why it matters, what the AI recommends, what the active workspace should display, and which execution actions are allowed. **Capability Execution Logs** provide audit trails for all external integrations.
+
+Around that core, layers support **Outreach**, **Resume Tailoring**, **GitHub Evidence**, **Application Assistance**, and **AI Recommendations**, while keeping CRM as the main system of record and maintaining clean separation between business domains, functional capabilities, and provider implementations.

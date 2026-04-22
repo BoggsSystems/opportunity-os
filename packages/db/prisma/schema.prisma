@@ -279,6 +279,34 @@ enum WorkspaceCommandStatus {
   cancelled
 }
 
+enum CapabilityType {
+  email
+  calendar
+  messaging
+  calling
+  contacts
+  storage
+  discovery
+}
+
+enum ConnectorStatus {
+  connected
+  disconnected
+  error
+  expired
+  syncing
+  pending_setup
+}
+
+enum CapabilityExecutionStatus {
+  succeeded
+  failed
+  retrying
+  cancelled
+  rate_limited
+  provider_error
+}
+
 model User {
   id              String    @id @default(uuid()) @db.Uuid
   email           String    @unique
@@ -314,6 +342,7 @@ model User {
   workspaceSignals  WorkspaceSignal[]
   opportunityCycles OpportunityCycle[]
   workspaceCommands WorkspaceCommand[]
+  userConnectors    UserConnector[]
 
   @@map("users")
 }
@@ -1223,6 +1252,7 @@ model WorkspaceCommand {
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   opportunityCycle OpportunityCycle? @relation(fields: [opportunityCycleId], references: [id], onDelete: SetNull)
   aiConversation   AIConversation?   @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
+  capabilityExecutionLogs CapabilityExecutionLog[]
 
   @@index([userId])
   @@index([opportunityCycleId])
@@ -1232,4 +1262,164 @@ model WorkspaceCommand {
   @@index([createdAt])
   @@index([userId, status, createdAt])
   @@map("workspace_commands")
+}
+
+model Capability {
+  id                    String              @id @default(uuid()) @db.Uuid
+  capabilityType        CapabilityType      @unique
+  name                  String
+  description           String?
+  isActive              Boolean             @default(true)
+  supportedFeaturesJson Json?
+  defaultConfigJson     Json?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  capabilityProviders CapabilityProvider[]
+  userConnectors      UserConnector[]
+
+  @@map("capabilities")
+}
+
+model CapabilityProvider {
+  id                        String    @id @default(uuid()) @db.Uuid
+  capabilityId             String    @db.Uuid
+  providerName              String
+  displayName              String
+  description               String?
+  isActive                  Boolean   @default(true)
+  authType                  String
+  requiredScopesJson        Json?
+  rateLimitConfigJson       Json?
+  providerConfigSchemaJson Json?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  capability         Capability          @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  userConnectors     UserConnector[]
+  connectorConfigurations ConnectorConfiguration[]
+
+  @@unique([capabilityId, providerName])
+  @@index([providerName])
+  @@index([isActive])
+  @@map("capability_providers")
+}
+
+model UserConnector {
+  id                       String           @id @default(uuid()) @db.Uuid
+  userId                   String           @db.Uuid
+  capabilityId             String           @db.Uuid
+  capabilityProviderId     String           @db.Uuid
+  connectorName            String?
+  status                   ConnectorStatus   @default(pending_setup)
+  enabledFeaturesJson      Json?
+  lastSyncAt               DateTime?
+  lastSuccessAt            DateTime?
+  errorMessage             String?
+  metadataJson             Json?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  capability             Capability          @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  capabilityProvider     CapabilityProvider  @relation(fields: [capabilityProviderId], references: [id], onDelete: Cascade)
+  connectorCredentials   ConnectorCredential?
+  connectorSyncStates    ConnectorSyncState[]
+  capabilityExecutionLogs CapabilityExecutionLog[]
+
+  @@unique([userId, capabilityId])
+  @@index([userId])
+  @@index([capabilityProviderId])
+  @@index([status])
+  @@index([userId, status])
+  @@map("user_connectors")
+}
+
+model ConnectorCredential {
+  id                String    @id @default(uuid()) @db.Uuid
+  userConnectorId    String    @unique @db.Uuid
+  credentialType     String
+  encryptedData      String
+  expiresAt          DateTime?
+  lastRefreshedAt    DateTime?
+  refreshStatus      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  userConnector UserConnector @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("connector_credentials")
+}
+
+model ConnectorSyncState {
+  id                String    @id @default(uuid()) @db.Uuid
+  userConnectorId    String    @db.Uuid
+  syncType          String
+  providerCursor    String?
+  lastSyncAt        DateTime?
+  syncStatus        String
+  itemsSynced       Int       @default(0)
+  errorDetailsJson  Json?
+  retryCount        Int       @default(0)
+  nextRetryAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  userConnector UserConnector @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
+
+  @@unique([userConnectorId, syncType])
+  @@index([syncStatus])
+  @@index([nextRetryAt])
+  @@map("connector_sync_states")
+}
+
+model CapabilityExecutionLog {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  userConnectorId        String                    @db.Uuid
+  workspaceCommandId     String?                   @db.Uuid
+  executionType          String
+  executionStatus        CapabilityExecutionStatus
+  inputPayloadJson       Json?
+  outputPayloadJson      Json?
+  errorDetailsJson       Json?
+  durationMs             Int?
+  providerResponseCode   String?
+  providerRequestId       String?
+  linkedEntityType       String?
+  linkedEntityId         String?                   @db.Uuid
+  executedAt             DateTime                  @default(now())
+  createdAt              DateTime                  @default(now())
+
+  userConnector    UserConnector    @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
+  workspaceCommand WorkspaceCommand? @relation(fields: [workspaceCommandId], references: [id], onDelete: SetNull)
+
+  @@index([userConnectorId])
+  @@index([workspaceCommandId])
+  @@index([executionStatus])
+  @@index([executedAt])
+  @@index([userConnectorId, executedAt])
+  @@index([linkedEntityType, linkedEntityId])
+  @@map("capability_execution_logs")
+}
+
+model ConnectorConfiguration {
+  id                       String    @id @default(uuid()) @db.Uuid
+  capabilityProviderId     String    @db.Uuid
+  configKey                String
+  configValue              Json
+  configType               String
+  isRequired               Boolean   @default(false)
+  isUserConfigurable       Boolean   @default(true)
+  description              String?
+  validationRulesJson      Json?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  capabilityProvider CapabilityProvider @relation(fields: [capabilityProviderId], references: [id], onDelete: Cascade)
+
+  @@unique([capabilityProviderId, configKey])
+  @@index([configType])
+  @@index([isRequired])
+  @@map("connector_configurations")
 }

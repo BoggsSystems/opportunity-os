@@ -11,6 +11,7 @@ import {
 import { SearchService } from './search.service';
 import { AiProviderFactory } from './ai-provider.factory';
 import { AiRequest, AiMessage } from './interfaces/ai-provider.interface';
+import { CapabilityIntegrationService } from './capability-integration.service';
 
 type ConversationRole = 'system' | 'user' | 'assistant';
 
@@ -46,6 +47,7 @@ export class AiService {
   constructor(
     private aiProviderFactory: AiProviderFactory,
     private searchService: SearchService,
+    private capabilityIntegrationService: CapabilityIntegrationService,
   ) {}
 
   async summarizeText(input: string): Promise<string> {
@@ -109,6 +111,180 @@ export class AiService {
     history?: ConversationTurn[];
     context?: ConversationContext;
   }): Promise<{ sessionId: string; reply: string; shouldBeSilent: boolean; suggestedAction?: string }> {
+    this.logger.log(
+      `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} guestSessionId=${input.guestSessionId ?? 'none'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
+    );
+
+    let sessionId = input.sessionId;
+    
+    // If no sessionId is provided, try to resume the most recent active conversation
+    if (!sessionId && input.userId) {
+      const lastConversation = await prisma.aIConversation.findFirst({
+        where: { userId: input.userId, status: 'active' },
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true }
+      });
+      sessionId = lastConversation?.id;
+    }
+
+    if (!sessionId) {
+      sessionId = crypto.randomUUID();
+      this.logger.log(`No sessionId provided, generated new sessionId=${sessionId}`);
+    }
+    
+    // Memory Retrieval: Load long-term summaries for this user (if authenticated)
+    const summaries = input.userId ? await this.getLongTermSummaries(input.userId) : [];
+    
+    // Load persistent history from DB (authenticated or guest with sessionId)
+    const dbHistory = (input.userId || input.sessionId) 
+      ? await this.getPersistentHistoryForSession(sessionId, input.userId, input.guestSessionId) 
+      : [];
+    
+    // Merge provided history with DB history
+    const history = this.mergeConversationHistory(
+      dbHistory,
+      input.history ?? [],
+    );
+
+    // Check if message contains capability-related requests
+    const capabilityResponse = await this.handleCapabilityRequests(input.message, input.userId);
+    if (capabilityResponse) {
+      return {
+        sessionId,
+        reply: capabilityResponse,
+        shouldBeSilent: false,
+        suggestedAction: capabilityResponse.suggestedAction
+      };
+    }
+
+    this.logger.log(
+      `Conversation history merged: sessionId=${sessionId} dbHistory=${dbHistory.length} providedHistory=${input.history?.length ?? 0} totalHistory=${history.length}`,
+    );
+
+    // Generate AI response
+    const request: AiRequest = {
+      prompt: `Please provide a helpful response to the user's message. User message: "${input.message}". 
+      
+      Previous conversation history:
+      ${history.map((turn, index) => `${index + 1}. ${turn.role}: ${turn.text}`).join('\n')}
+      
+      User context: ${JSON.stringify(input.context || {})}
+      
+      Available capabilities: ${JSON.stringify(summaries.map(s => s.content))}`,
+      temperature: 0.3,
+      maxTokens: 500,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    return {
+      sessionId,
+      reply: response.content,
+      shouldBeSilent: false,
+    };
+  }
+
+  private async handleCapabilityRequests(message: string, userId?: string): Promise<{ reply: string; suggestedAction?: string } | null> {
+    // Check for email-related requests
+    if (message.toLowerCase().includes('send email') || message.toLowerCase().includes('email')) {
+      const emailMatch = message.match(/send email to (.+?)(?:\s+(.+))?/i);
+      if (emailMatch && userId) {
+        try {
+          await this.capabilityIntegrationService.sendEmail(userId, {
+            to: [emailMatch[1]],
+            subject: emailMatch[2] || 'No subject',
+            body: emailMatch[3] || '',
+            opportunityId: this.extractOpportunityId(message)
+          });
+          
+          return {
+            reply: 'Email sent successfully',
+            suggestedAction: 'check_sent_folder'
+          };
+        } catch (error) {
+          return {
+            reply: `Failed to send email: ${error.message}`,
+            suggestedAction: 'check_email_connector'
+          };
+        }
+      }
+    }
+
+    // Check for calendar-related requests
+    if (message.toLowerCase().includes('calendar') || message.toLowerCase().includes('schedule') || message.toLowerCase().includes('meeting')) {
+      const calendarMatch = message.match(/(?:schedule|create|set up)(?:\s+(.+))?/i);
+      if (calendarMatch && userId) {
+        try {
+          const eventDetails = {
+            title: calendarMatch[1] || 'New Event',
+            start: new Date(),
+            description: calendarMatch[2] || ''
+          };
+          
+          await this.capabilityIntegrationService.createCalendarEvent(userId, eventDetails);
+          
+          return {
+            reply: 'Calendar event created successfully',
+            suggestedAction: 'check_calendar'
+          };
+        } catch (error) {
+          return {
+            reply: `Failed to create calendar event: ${error.message}`,
+            suggestedAction: 'check_calendar_connector'
+          };
+        }
+      }
+    }
+
+    // Check for messaging-related requests
+    if (message.toLowerCase().includes('send message') || message.toLowerCase().includes('text') || message.toLowerCase().includes('sms')) {
+      const messageMatch = message.match(/(?:send|text)(?:\s+(.+))?/i);
+      if (messageMatch && userId) {
+        try {
+          await this.capabilityIntegrationService.sendMessage(userId, {
+            message: messageMatch[1] || '',
+            opportunityId: this.extractOpportunityId(message)
+          });
+          
+          return {
+            reply: 'Message sent successfully',
+            suggestedAction: 'check_messaging_connector'
+          };
+        } catch (error) {
+          return {
+            reply: `Failed to send message: ${error.message}`,
+            suggestedAction: 'check_messaging_connector'
+          };
+        }
+      }
+    }
+
+    // Check for discovery-related requests
+    if (message.toLowerCase().includes('discover') || message.toLowerCase().includes('research') || message.toLowerCase().includes('find')) {
+      const urlMatch = message.match(/(?:discover|research|find)(?:\s+(.+))?/i);
+      if (urlMatch && userId) {
+        try {
+          await this.capabilityIntegrationService.discoverContent(userId, urlMatch[1]);
+          
+          return {
+            reply: 'Content discovery started',
+            suggestedAction: 'check_discovery_results'
+          };
+        } catch (error) {
+          return {
+            reply: `Failed to discover content: ${error.message}`,
+            suggestedAction: 'check_discovery_connector'
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private extractOpportunityId(message: string): string | undefined {
+    const match = message.match(/opportunity[-\s]?id[:\s]+([a-f0-9]{8}-[a-f0-9]{4})/i);
+    return match ? match[1] : undefined;
+  }
     this.logger.log(
       `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} guestSessionId=${input.guestSessionId ?? 'none'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
     );

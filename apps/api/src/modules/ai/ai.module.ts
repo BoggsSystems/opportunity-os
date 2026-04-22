@@ -7,13 +7,14 @@ import { SearchService } from './search.service';
 import { AiProviderFactory } from './ai-provider.factory';
 import { OpenAiProvider } from './providers/openai.provider';
 import { OpenRouterAiProvider } from './providers/openrouter.provider';
+import { CapabilityModule } from '../../capability/capability.module';
 
 import { AssistantGateway } from './assistant.gateway';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, CapabilityModule],
   controllers: [AiController],
-  providers: [AiService, TtsService, SearchService, AiProviderFactory, OpenAiProvider, OpenRouterAiProvider, AssistantGateway],
+  providers: [AiService, TtsService, SearchService, AiProviderFactory, OpenAiProvider, OpenRouterAiProvider, AssistantGateway, CapabilityIntegrationService],
   exports: [AiService, SearchService],
 })
 export class AiModule {}
