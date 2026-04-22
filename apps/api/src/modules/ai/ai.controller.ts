@@ -3,6 +3,7 @@ import { Response } from 'express';
 import { AiService } from './ai.service';
 import { TtsService } from './tts.service';
 import { prisma } from '@opportunity-os/db';
+import { CommercialService } from '../commercial/commercial.service';
 
 @Controller('ai')
 export class AiController {
@@ -10,13 +11,19 @@ export class AiController {
 
   constructor(
     private readonly aiService: AiService,
-    private readonly ttsService: TtsService
+    private readonly ttsService: TtsService,
+    private readonly commercialService: CommercialService,
   ) {}
 
   
   @Post('test')
-  async testConnection() {
+  async testConnection(@Req() req: any) {
     try {
+      const aiAllowance = await this.consumeAiRequest(req.user?.id);
+      if (aiAllowance) {
+        return aiAllowance;
+      }
+
       const result = await this.aiService.generateText('Hello! This is a test of the AI integration. Please respond with a simple confirmation.');
       return {
         success: true,
@@ -37,7 +44,7 @@ export class AiController {
   }
 
   @Post('summarize')
-  async summarizeText(@Body() body: { text: string }) {
+  async summarizeText(@Body() body: { text: string }, @Req() req: any) {
     if (!body.text) {
       throw new HttpException(
         { message: 'Text is required for summarization' },
@@ -46,6 +53,11 @@ export class AiController {
     }
 
     try {
+      const aiAllowance = await this.consumeAiRequest(req.user?.id);
+      if (aiAllowance) {
+        return aiAllowance;
+      }
+
       const summary = await this.aiService.summarizeText(body.text);
       return {
         success: true,
@@ -66,7 +78,7 @@ export class AiController {
   }
 
   @Post('interpret-offering')
-  async interpretOffering(@Body() body: { offeringContext: any }) {
+  async interpretOffering(@Body() body: { offeringContext: any }, @Req() req: any) {
     if (!body.offeringContext) {
       throw new HttpException(
         { message: 'Offering context is required' },
@@ -75,6 +87,11 @@ export class AiController {
     }
 
     try {
+      const aiAllowance = await this.consumeAiRequest(req.user?.id);
+      if (aiAllowance) {
+        return aiAllowance;
+      }
+
       const interpretation = await this.aiService.interpretOffering(body.offeringContext);
       return {
         success: true,
@@ -120,6 +137,11 @@ export class AiController {
     }
 
     try {
+      const aiAllowance = await this.consumeAiRequest(userId);
+      if (aiAllowance) {
+        return aiAllowance;
+      }
+
       this.logger.log(
         `🎤 VOICE PIPELINE: converse request userId=${userId ?? 'GUEST'} userName=${userName ?? 'unknown'} sessionId=${body.sessionId ?? 'new'} message="${body.message}"`,
       );
@@ -180,6 +202,18 @@ export class AiController {
     }
 
     try {
+      if (userId) {
+        const aiAllowance = await this.commercialService.incrementUsage(userId, 'ai_requests');
+        if (!aiAllowance.allowed) {
+          res.status(HttpStatus.PAYMENT_REQUIRED).json({
+            success: false,
+            blocked: true,
+            ...aiAllowance,
+          });
+          return;
+        }
+      }
+
       this.logger.log(
         `🎤 VOICE PIPELINE: converse-stream request userId=${userId ?? 'GUEST'} sessionId=${body.sessionId ?? 'new'} message="${body.message}"`,
       );
@@ -328,10 +362,15 @@ export class AiController {
   /**
    * Finalizes onboarding by extracting goal from conversation and persisting to database.
    * Called when user completes the goal discovery conversation.
-   */
+  */
   @Post('preview-strategic-plan')
-  async previewStrategicPlan(@Body() body: { sessionId: string; guestSessionId?: string }) {
+  async previewStrategicPlan(@Body() body: { sessionId: string; guestSessionId?: string }, @Req() req: any) {
     try {
+      const aiAllowance = await this.consumeAiRequest(req.user?.id);
+      if (aiAllowance) {
+        return aiAllowance;
+      }
+
       return await this.aiService.previewStrategicPlan(body.sessionId, body.guestSessionId);
     } catch (err: any) {
       this.logger.error(`Preview failed: ${err.message}`);
@@ -355,6 +394,11 @@ export class AiController {
     }
 
     try {
+      const aiAllowance = await this.consumeAiRequest(userId);
+      if (aiAllowance) {
+        return aiAllowance;
+      }
+
       this.logger.log(
         `🎯 STRATEGY: Finalizing for userId=${userId ?? 'GUEST'}, sessionId=${body.sessionId}`
       );
@@ -393,5 +437,22 @@ export class AiController {
     const level = body.level || 'INFO';
     this.logger.log(`📱 FRONTEND_DEBUG [${level}]: ${body.message}`);
     return { success: true };
+  }
+
+  private async consumeAiRequest(userId?: string) {
+    if (!userId) {
+      return null;
+    }
+
+    const allowance = await this.commercialService.incrementUsage(userId, 'ai_requests');
+    if (allowance.allowed) {
+      return null;
+    }
+
+    return {
+      success: false,
+      blocked: true,
+      ...allowance,
+    };
   }
 }

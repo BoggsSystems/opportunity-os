@@ -103,6 +103,31 @@ export class AuthService {
         },
       });
 
+      const freePlan = await tx.plan.findUnique({
+        where: {
+          code: 'free_explorer',
+        },
+        include: {
+          planFeatures: true,
+        },
+      });
+
+      let subscription: Awaited<ReturnType<typeof tx.subscription.create>> | null = null;
+
+      if (freePlan) {
+        const now = new Date();
+        subscription = await tx.subscription.create({
+          data: {
+            userId: user.id,
+            planId: freePlan.id,
+            status: 'active',
+            startedAt: now,
+            currentPeriodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
+            currentPeriodEnd: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)),
+          },
+        });
+      }
+
       if (dto.guestSessionId) {
         await tx.goal.updateMany({
           where: { guestSessionId: dto.guestSessionId, userId: null },
@@ -124,10 +149,33 @@ export class AuthService {
         user,
         identity,
         session,
+        subscription: subscription
+          ? {
+              ...subscription,
+              plan: freePlan,
+            }
+          : null,
       };
     });
 
     return this.buildAuthResponse(result.user, result.identity.id, result.session.id, refreshToken, {
+      subscription: result.subscription
+        ? {
+            id: result.subscription.id,
+            status: result.subscription.status,
+            plan: {
+              id: result.subscription.plan.id,
+              code: result.subscription.plan.code,
+              name: result.subscription.plan.name,
+            },
+          }
+        : null,
+      entitlements:
+        result.subscription?.plan.planFeatures.map((feature) => ({
+          key: feature.featureKey,
+          accessLevel: feature.accessLevel,
+          config: feature.configJson,
+        })) ?? [],
       ...(this.isNonProduction() ? { verificationToken } : {}),
     });
   }

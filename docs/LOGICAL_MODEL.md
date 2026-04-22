@@ -21,6 +21,8 @@ These principles guide the relational design:
   * campaigns
   * GitHub evidence
   * application sessions
+* use **JSONB** for semi-structured provider payloads, AI metadata, and flexible configuration
+* keep **User** out of foreign key cascades; user deletion should be an explicit product/data-retention operation
 
 ---
 
@@ -332,6 +334,90 @@ Values:
 * `rate_limited`
 * `provider_error`
 
+### `upgrade_reason`
+
+Values:
+
+* `plan_does_not_include_capability`
+* `usage_limit_reached`
+* `connector_limit_reached`
+* `missing_required_connector`
+* `trial_expired`
+* `payment_required`
+* `feature_temporarily_disabled`
+
+### `referral_milestone_type`
+
+Values:
+
+* `signup`
+* `onboarding_completed`
+* `first_cycle_completed`
+* `first_outreach_sent`
+* `paid_conversion`
+
+### `reward_type`
+
+Values:
+
+* `ai_usage_credit`
+* `cycle_credit`
+* `discovery_scan_credit`
+* `connector_slot_credit`
+* `premium_trial_unlock`
+* `subscription_credit`
+
+### `growth_credit_status`
+
+Values:
+
+* `available`
+* `partially_used`
+* `consumed`
+* `expired`
+* `revoked`
+
+### `momentum_state_type`
+
+Values:
+
+* `on_track`
+* `behind`
+* `stalled`
+* `recovering`
+* `strong_momentum`
+
+### `coaching_nudge_type`
+
+Values:
+
+* `complete_cycle`
+* `send_follow_up`
+* `review_signal`
+* `celebrate_progress`
+* `reactivate_opportunity`
+* `resume_onboarding`
+
+### `coaching_nudge_status`
+
+Values:
+
+* `pending`
+* `delivered`
+* `acted_on`
+* `dismissed`
+* `expired`
+
+### `engagement_state_type`
+
+Values:
+
+* `active`
+* `quiet`
+* `at_risk`
+* `dormant`
+* `reactivated`
+
 ---
 
 ## 3. Tables
@@ -507,7 +593,8 @@ Purpose: pricing tiers.
 
 #### Notes
 
-* Examples: `free`, `pro`, `power`
+* Examples: `free_explorer`, `builder`, `operator`, `studio`, `team`
+* A plan defines durable commercial posture; plan feature rows define concrete capability access and quotas.
 
 ---
 
@@ -533,9 +620,16 @@ Purpose: plan capability definitions.
 
 * `config_json` can hold quota-like settings such as:
 
-  * max scans
-  * max resume variants
-  * max active campaigns
+  * max AI requests or token budget
+  * max next-action cycles
+  * max offerings
+  * max discovery scans
+  * max content ingestions
+  * max connector slots
+  * max connected email accounts
+  * whether email draft/send/background sync is enabled
+
+* `CapabilityGateService` evaluates plan features at runtime; this is not a persisted table.
 
 ---
 
@@ -600,6 +694,8 @@ Purpose: current metered usage by feature and period.
 #### Notes
 
 * This is a fast lookup table for entitlement enforcement
+* Growth credits can extend the effective allowance for a feature without mutating the base plan feature.
+* Usage increments should occur in the same application flow as the gated capability execution or through an idempotent usage event pattern.
 
 ---
 
@@ -1711,6 +1807,437 @@ Purpose: schema and configuration data for capability providers.
 
 ---
 
+### `referral_links`
+
+Purpose: shareable referral handles owned by a user.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `code` VARCHAR NOT NULL UNIQUE
+* `label` VARCHAR NULL
+* `campaign_source` VARCHAR NULL
+* `is_active` BOOLEAN NOT NULL DEFAULT true
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on `code`
+* index on `user_id`
+* composite index on (`user_id`, `is_active`)
+
+#### Notes
+
+* Referral links should identify the referrer, not grant rewards by themselves.
+* Rewards should be created only after meaningful referred-user milestones.
+
+---
+
+### `referral_invites`
+
+Purpose: optional explicit invitations sent or shared by a user.
+
+#### Columns
+
+* `id` UUID PK
+* `referral_link_id` UUID NULL FK -> `referral_links.id`
+* `referrer_user_id` UUID NOT NULL FK -> `users.id`
+* `invitee_email_hash` TEXT NULL
+* `channel` VARCHAR NULL
+* `status` VARCHAR NOT NULL DEFAULT `sent`
+* `sent_at` TIMESTAMP NULL
+* `accepted_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `referral_link_id`
+* index on `referrer_user_id`
+* index on `status`
+
+#### Notes
+
+* Store hashed invitee email when possible; this table should not become an address book.
+* Invites are attribution helpers, not reward triggers.
+
+---
+
+### `referral_attributions`
+
+Purpose: durable relationship between a referrer and a referred user.
+
+#### Columns
+
+* `id` UUID PK
+* `referral_link_id` UUID NULL FK -> `referral_links.id`
+* `referral_invite_id` UUID NULL FK -> `referral_invites.id`
+* `referrer_user_id` UUID NOT NULL FK -> `users.id`
+* `referred_user_id` UUID NOT NULL FK -> `users.id`
+* `attribution_source` VARCHAR NULL
+* `attributed_at` TIMESTAMP NOT NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on `referred_user_id`
+* index on `referrer_user_id`
+* index on `referral_link_id`
+* index on `referral_invite_id`
+
+#### Notes
+
+* A referred user should normally have one canonical referral attribution.
+* Application logic should prevent self-referrals.
+
+---
+
+### `referral_milestones`
+
+Purpose: meaningful progress events that can qualify a referral for rewards.
+
+#### Columns
+
+* `id` UUID PK
+* `referral_attribution_id` UUID NOT NULL FK -> `referral_attributions.id`
+* `milestone_type` `referral_milestone_type` NOT NULL
+* `occurred_at` TIMESTAMP NOT NULL
+* `source_entity_type` VARCHAR NULL
+* `source_entity_id` UUID NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique composite index on (`referral_attribution_id`, `milestone_type`)
+* index on `milestone_type`
+* index on `occurred_at`
+
+#### Notes
+
+* Milestones are product outcomes such as onboarding completion or first completed cycle, not raw click events.
+
+---
+
+### `referral_rewards`
+
+Purpose: reward grants produced by referral milestones.
+
+#### Columns
+
+* `id` UUID PK
+* `referral_attribution_id` UUID NOT NULL FK -> `referral_attributions.id`
+* `referral_milestone_id` UUID NULL FK -> `referral_milestones.id`
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `reward_type` `reward_type` NOT NULL
+* `feature_key` VARCHAR NULL
+* `quantity` INTEGER NULL
+* `status` VARCHAR NOT NULL DEFAULT `granted`
+* `granted_at` TIMESTAMP NOT NULL
+* `expires_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `referral_attribution_id`
+* index on `referral_milestone_id`
+* index on (`user_id`, `reward_type`)
+
+#### Notes
+
+* One milestone may produce rewards for both referrer and referred user.
+* Rewards that affect usage should create corresponding `growth_credits`.
+
+---
+
+### `growth_credits`
+
+Purpose: additive allowance credits that extend plan limits for specific capabilities.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `referral_reward_id` UUID NULL FK -> `referral_rewards.id`
+* `feature_key` VARCHAR NOT NULL
+* `credit_type` `reward_type` NOT NULL
+* `quantity_granted` INTEGER NOT NULL
+* `quantity_used` INTEGER NOT NULL DEFAULT 0
+* `status` `growth_credit_status` NOT NULL DEFAULT `available`
+* `granted_at` TIMESTAMP NOT NULL
+* `expires_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `feature_key`
+* composite index on (`user_id`, `feature_key`, `status`)
+* index on `expires_at`
+
+#### Notes
+
+* Capability gating can consider unexpired available credits after evaluating base plan limits.
+* Credits should be consumed idempotently to avoid double spending during retries.
+
+---
+
+### `goal_progress`
+
+Purpose: rollup progress against a user's goal.
+
+#### Columns
+
+* `id` UUID PK
+* `goal_id` UUID NOT NULL FK -> `goals.id`
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `period_start` DATE NULL
+* `period_end` DATE NULL
+* `target_count` INTEGER NULL
+* `completed_count` INTEGER NOT NULL DEFAULT 0
+* `progress_percent` INTEGER NULL
+* `metadata_json` JSONB NULL
+* `computed_at` TIMESTAMP NOT NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `goal_id`
+* index on `user_id`
+* composite index on (`user_id`, `period_start`, `period_end`)
+
+#### Notes
+
+* This can be recomputed from activities, cycles, and tasks; persistence is useful for fast workspace and coaching reads.
+
+---
+
+### `weekly_targets`
+
+Purpose: user-defined or AI-recommended weekly execution targets.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `goal_id` UUID NULL FK -> `goals.id`
+* `offering_id` UUID NULL FK -> `offerings.id`
+* `target_type` VARCHAR NOT NULL
+* `target_count` INTEGER NOT NULL
+* `week_start` DATE NOT NULL
+* `week_end` DATE NOT NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `goal_id`
+* index on `offering_id`
+* composite index on (`user_id`, `week_start`, `target_type`)
+
+#### Notes
+
+* Examples of `target_type`: `outreach_sent`, `cycles_completed`, `followups_sent`.
+
+---
+
+### `momentum_states`
+
+Purpose: latest or periodic momentum assessment for a user, goal, offering, or campaign.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `goal_id` UUID NULL FK -> `goals.id`
+* `offering_id` UUID NULL FK -> `offerings.id`
+* `strategic_campaign_id` UUID NULL FK -> `strategic_campaigns.id`
+* `state_type` `momentum_state_type` NOT NULL
+* `score` INTEGER NULL
+* `reason` TEXT NULL
+* `computed_at` TIMESTAMP NOT NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `goal_id`
+* index on `offering_id`
+* index on `strategic_campaign_id`
+* composite index on (`user_id`, `computed_at`)
+
+#### Notes
+
+* Momentum can be computed from activities, tasks, opportunities, signals, cycles, and weekly targets.
+
+---
+
+### `coaching_nudges`
+
+Purpose: product-native prompts that help users keep cycles moving.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `momentum_state_id` UUID NULL FK -> `momentum_states.id`
+* `nudge_type` `coaching_nudge_type` NOT NULL
+* `status` `coaching_nudge_status` NOT NULL DEFAULT `pending`
+* `title` VARCHAR NOT NULL
+* `body` TEXT NULL
+* `linked_entity_type` VARCHAR NULL
+* `linked_entity_id` UUID NULL
+* `scheduled_for` TIMESTAMP NULL
+* `delivered_at` TIMESTAMP NULL
+* `acted_on_at` TIMESTAMP NULL
+* `dismissed_at` TIMESTAMP NULL
+* `expires_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `momentum_state_id`
+* index on `status`
+* index on `scheduled_for`
+* composite index on (`user_id`, `status`, `scheduled_for`)
+* optional composite index on (`linked_entity_type`, `linked_entity_id`)
+
+#### Notes
+
+* Nudges should reference actionable product context whenever possible.
+* Notification delivery can be added later; this table represents the coaching decision.
+
+---
+
+### `engagement_states`
+
+Purpose: user engagement posture used for reactivation and lifecycle messaging.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `state_type` `engagement_state_type` NOT NULL
+* `last_activity_at` TIMESTAMP NULL
+* `last_cycle_completed_at` TIMESTAMP NULL
+* `computed_at` TIMESTAMP NOT NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `state_type`
+* composite index on (`user_id`, `computed_at`)
+
+#### Notes
+
+* This supports coaching and later lifecycle notification decisions.
+
+---
+
+### `notification_preferences`
+
+Purpose: user-level preferences for coaching and product notifications.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `channel` VARCHAR NOT NULL
+* `topic` VARCHAR NOT NULL
+* `is_enabled` BOOLEAN NOT NULL DEFAULT true
+* `quiet_hours_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique composite index on (`user_id`, `channel`, `topic`)
+* index on `user_id`
+
+#### Notes
+
+* Examples of `channel`: `email`, `push`, `in_app`.
+* Examples of `topic`: `coaching`, `goal_progress`, `reactivation`, `referral_rewards`.
+
+---
+
+### `reactivation_triggers`
+
+Purpose: detected conditions that may create coaching nudges or lifecycle outreach.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `engagement_state_id` UUID NULL FK -> `engagement_states.id`
+* `trigger_type` VARCHAR NOT NULL
+* `linked_entity_type` VARCHAR NULL
+* `linked_entity_id` UUID NULL
+* `detected_at` TIMESTAMP NOT NULL
+* `resolved_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `engagement_state_id`
+* index on `trigger_type`
+* index on `detected_at`
+
+#### Notes
+
+* Examples: inactive after onboarding, stalled opportunity, missed weekly target, no cycle completed this week.
+
+---
+
+### `motivation_events`
+
+Purpose: durable record of positive or progress-oriented events that can feed coaching.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `event_type` VARCHAR NOT NULL
+* `linked_entity_type` VARCHAR NULL
+* `linked_entity_id` UUID NULL
+* `occurred_at` TIMESTAMP NOT NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `event_type`
+* index on `occurred_at`
+* optional composite index on (`linked_entity_type`, `linked_entity_id`)
+
+#### Notes
+
+* Examples: first cycle completed, weekly goal reached, referral reward earned, opportunity advanced.
+
+---
+
 ## 4. Relationship Summary
 
 ### Ownership
@@ -1742,6 +2269,19 @@ Purpose: schema and configuration data for capability providers.
   * capability_execution_logs (through user_connectors)
   * subscriptions
   * usage_counters
+  * referral_links
+  * referral_invites
+  * referral_attributions as referrer or referred user
+  * referral_rewards
+  * growth_credits
+  * goal_progress
+  * weekly_targets
+  * momentum_states
+  * coaching_nudges
+  * engagement_states
+  * notification_preferences
+  * reactivation_triggers
+  * motivation_events
 
 ### Commercial
 
@@ -1750,6 +2290,10 @@ Purpose: schema and configuration data for capability providers.
 * `plans` -> many `model_access_policies`
 * `users` -> many `subscriptions`
 * `users` -> many `usage_counters`
+* `users` -> many `growth_credits`
+* `CapabilityGateService` evaluates active subscription, plan features, usage counters, growth credits, connector state, and feature flags
+* `CapabilityCheckResult` is an API/service result, not a required persisted table
+* `UpgradeReason` is represented by stable reason codes, not a required persisted table
 
 ### Authentication
 
@@ -1827,6 +2371,34 @@ Purpose: schema and configuration data for capability providers.
 * `user_connectors` -> many `capability_execution_logs`
 * `workspace_commands` -> optional `capability_execution_logs`
 * `capability_execution_logs` may reference business entities (opportunities, activities, people)
+
+### Growth, Referrals, and Rewards
+
+* `users` -> many `referral_links`
+* `referral_links` -> many optional `referral_invites`
+* `referral_links` -> many optional `referral_attributions`
+* `referral_invites` -> optional `referral_attributions`
+* `referral_attributions` connect one referrer user to one referred user
+* `referral_attributions` -> many `referral_milestones`
+* `referral_attributions` -> many `referral_rewards`
+* `referral_milestones` -> optional many `referral_rewards`
+* `referral_rewards` -> optional many `growth_credits`
+* `users` -> many `growth_credits`
+
+### Coaching, Momentum, and Engagement
+
+* `goals` -> many `goal_progress`
+* `users` -> many `weekly_targets`
+* `goals` -> optional many `weekly_targets`
+* `offerings` -> optional many `weekly_targets`
+* `users` -> many `momentum_states`
+* `goals`, `offerings`, and `strategic_campaigns` -> optional many `momentum_states`
+* `momentum_states` -> many `coaching_nudges`
+* `users` -> many `coaching_nudges`
+* `users` -> many `engagement_states`
+* `engagement_states` -> many `reactivation_triggers`
+* `users` -> many `notification_preferences`
+* `users` -> many `motivation_events`
 
 ---
 
@@ -1957,6 +2529,75 @@ These should almost always be required:
 * config_value
 * config_type
 
+### `referral_links`
+
+* user_id
+* code
+* is_active
+
+### `referral_attributions`
+
+* referrer_user_id
+* referred_user_id
+* attributed_at
+
+### `referral_milestones`
+
+* referral_attribution_id
+* milestone_type
+* occurred_at
+
+### `referral_rewards`
+
+* referral_attribution_id
+* user_id
+* reward_type
+* granted_at
+
+### `growth_credits`
+
+* user_id
+* feature_key
+* credit_type
+* quantity_granted
+* quantity_used
+* status
+* granted_at
+
+### `goal_progress`
+
+* goal_id
+* user_id
+* completed_count
+* computed_at
+
+### `weekly_targets`
+
+* user_id
+* target_type
+* target_count
+* week_start
+* week_end
+
+### `momentum_states`
+
+* user_id
+* state_type
+* computed_at
+
+### `coaching_nudges`
+
+* user_id
+* nudge_type
+* status
+* title
+
+### `engagement_states`
+
+* user_id
+* state_type
+* computed_at
+
 ---
 
 ## 6. Important Indexes for MVP
@@ -1999,6 +2640,7 @@ These are the most important ones to include early.
 * `subscriptions(user_id, status)`
 * `plan_features(plan_id, feature_key)`
 * `usage_counters(user_id, feature_key, usage_period_start, usage_period_end)`
+* `growth_credits(user_id, feature_key, status)`
 
 ### Authentication Lookups
 
@@ -2035,6 +2677,25 @@ These are the most important ones to include early.
 * `capability_execution_logs(workspace_command_id)`
 * `connector_configurations(capability_provider_id, is_required)`
 
+### Growth and Referral Lookups
+
+* `referral_links(code)`
+* `referral_links(user_id, is_active)`
+* `referral_attributions(referred_user_id)`
+* `referral_attributions(referrer_user_id)`
+* `referral_milestones(referral_attribution_id, milestone_type)`
+* `referral_rewards(user_id, reward_type)`
+
+### Coaching and Momentum Lookups
+
+* `goal_progress(goal_id)`
+* `weekly_targets(user_id, week_start, target_type)`
+* `momentum_states(user_id, computed_at)`
+* `coaching_nudges(user_id, status, scheduled_for)`
+* `engagement_states(user_id, computed_at)`
+* `reactivation_triggers(user_id, detected_at)`
+* `motivation_events(user_id, occurred_at)`
+
 ---
 
 ## 7. Constraints and Business Rules
@@ -2066,6 +2727,15 @@ These are important even if some are enforced at application level instead of DB
 ### Usage Counters
 
 * one row per user + feature + time window
+* usage increments should be idempotent when capability execution retries are possible
+* effective allowance is base plan entitlement plus eligible growth credits
+
+### Capability Gating
+
+* backend services must call the capability gate before executing expensive or premium capabilities
+* the gate should return allow/block, current usage, remaining allowance, and upgrade reason metadata
+* `CapabilityGateService`, `CapabilityCheckResult`, and `WorkspaceState` are service/API concepts, not required persisted tables
+* AI, discovery, outreach, connector, workspace, and communication services should all use the same gating path
 
 ### Discovered Opportunity Promotion
 
@@ -2104,6 +2774,21 @@ These are important even if some are enforced at application level instead of DB
 * capability providers must implement the same interface defined by their capability type
 * connector configurations must validate required fields before connector activation
 * failed capability executions should trigger retry logic with exponential backoff
+
+### Growth and Referrals
+
+* referral clicks or shares do not directly create rewards
+* referral rewards are granted only after meaningful milestones
+* a referred user should have at most one canonical referral attribution
+* application logic should prevent self-referrals
+* growth credits created from rewards should expire or be consumed according to their grant terms
+
+### Coaching and Momentum
+
+* momentum state should be computed from durable activity, task, cycle, opportunity, and target data
+* coaching nudges should reference actionable context when possible
+* notification preferences should be checked before external notification delivery
+* reactivation triggers should resolve when the user completes the relevant action or the trigger becomes stale
 
 ---
 
@@ -2151,8 +2836,18 @@ These are the tables I recommend for the first real schema pass:
 * `connector_credentials`
 * `connector_sync_states`
 * `capability_execution_logs`
+* `connector_configurations`
+* `referral_links`
+* `referral_attributions`
+* `referral_milestones`
+* `referral_rewards`
+* `growth_credits`
+* `goal_progress`
+* `weekly_targets`
+* `momentum_states`
+* `coaching_nudges`
 
-That is a strong MVP backbone with first-class offering context, workspace orchestration, and capability-based integration architecture.
+That is a strong MVP backbone with first-class offering context, workspace orchestration, capability-based integration architecture, bounded free usage, referral rewards, and product-native momentum coaching.
 
 ---
 
@@ -2173,17 +2868,15 @@ These should come later:
 * `positioning_profiles`
 * `resume_variants`
 * `repositories`
-* `repository_analyses`
-* `project_evidence`
 * `opportunity_matches`
-* `application_sessions`
 * `application_fields`
 * `application_artifacts`
 * `application_audit_events`
-* `opportunity_recommendations`
-* persisted `workspace_recommendations`
-* `metric_snapshots`
-* `connector_configurations`
+* `referral_invites`
+* `engagement_states`
+* `notification_preferences`
+* `reactivation_triggers`
+* `motivation_events`
 
 ---
 
@@ -2235,6 +2928,16 @@ Models to include:
 - ConnectorCredential
 - ConnectorSyncState
 - CapabilityExecutionLog
+- ConnectorConfiguration
+- ReferralLink
+- ReferralAttribution
+- ReferralMilestone
+- ReferralReward
+- GrowthCredit
+- GoalProgress
+- WeeklyTarget
+- MomentumState
+- CoachingNudge
 
 Requirements:
 - Use UUID ids
@@ -2248,9 +2951,13 @@ Requirements:
 - Include workspace orchestration enums for cycle phase/status, workspace mode, signal status/importance, and command status
 - Include capability integration enums for capability type, connector status, and capability execution status
 - Keep authentication separate from commercial subscription state
+- Keep CapabilityGateService, CapabilityCheckResult, UpgradeReason, and WorkspaceState as service/API concepts unless there is a clear audit-log requirement to persist them
 - Model the capability-first architecture where UserConnectors link Capabilities to CapabilityProviders
 - Ensure WorkspaceCommands can route through UserConnectors to CapabilityProviders
 - Preserve offering context by adding optional offeringId references on Goal, StrategicCampaign, OpportunityCycle, AIConversation, AIContextSummary, and AITask
+- Include commercial gating tables needed for bounded free usage: Plan, PlanFeature, Subscription, UsageCounter, ModelAccessPolicy, and GrowthCredit
+- Include referral reward tables for milestone-based rewards: ReferralLink, ReferralAttribution, ReferralMilestone, ReferralReward
+- Include coaching tables for early momentum support: GoalProgress, WeeklyTarget, MomentumState, CoachingNudge
 - Do not overmodel deferred features yet
 
 Important modeling notes:
@@ -2264,10 +2971,15 @@ Important modeling notes:
 - Goal belongs to one User when authenticated, may reference one Offering, and has many StrategicCampaigns and OpportunityCycles
 - StrategicCampaign belongs to one Goal, may reference one Offering, and has many Opportunities and OpportunityCycles
 - PlanFeature and ModelAccessPolicy are scoped by Plan
+- CapabilityGateService evaluates active subscription, PlanFeature entitlement, UsageCounter consumption, GrowthCredit allowance, connector state, and feature flags
+- UpgradeReason is an enum/reason code used in API responses, not a persisted table
 - AuthenticationIdentity belongs to one User
 - AuthenticationSession belongs to one User and may optionally reference one AuthenticationIdentity
 - VerificationToken belongs to a User and/or AuthenticationIdentity depending on flow
 - UsageCounter is scoped by User + featureKey + billing period
+- GrowthCredit is scoped by User + featureKey and can extend effective allowance
+- Referral rewards are created only from meaningful milestones, not raw clicks
+- MomentumState and CoachingNudge are user-owned records that may optionally reference goals, offerings, campaigns, or other linked entities
 - WorkspaceSignal belongs to one User and may reference a source entity through sourceType + sourceId
 - AIConversation belongs to one User or guest session and may optionally reference Offering and Opportunity
 - AIContextSummary belongs to one User and may optionally reference AIConversation, Offering, and Opportunity

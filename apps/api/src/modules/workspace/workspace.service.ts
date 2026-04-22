@@ -15,6 +15,7 @@ import {
 } from '@opportunity-os/db';
 import { NextActionItem } from '../next-actions/interfaces/next-action.interface';
 import { NextActionsService } from '../next-actions/next-actions.service';
+import { CommercialService } from '../commercial/commercial.service';
 import { WorkspaceCommandDto } from './dto/workspace-command.dto';
 import {
   WorkspaceCycleSummary,
@@ -25,7 +26,10 @@ import {
 
 @Injectable()
 export class WorkspaceService {
-  constructor(private readonly nextActionsService: NextActionsService) {}
+  constructor(
+    private readonly nextActionsService: NextActionsService,
+    private readonly commercialService: CommercialService,
+  ) {}
 
   async getWorkspaceState(userId: string): Promise<WorkspaceState> {
     const nextActions = await this.nextActionsService.getNextActions(userId);
@@ -142,9 +146,27 @@ export class WorkspaceService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    const cycle =
-      existingCycle ??
-      (await this.createCycleFromSignal(userId, signal));
+    if (existingCycle) {
+      await prisma.workspaceSignal.update({
+        where: { id: signal.id },
+        data: {
+          status: WorkspaceSignalStatus.active,
+          consumedAt: new Date(),
+        },
+      });
+
+      return { cycle: this.toCycleSummary(existingCycle) };
+    }
+
+    const allowance = await this.commercialService.incrementUsage(userId, 'opportunity_cycles');
+    if (!allowance.allowed) {
+      return {
+        blocked: true,
+        ...allowance,
+      };
+    }
+
+    const cycle = await this.createCycleFromSignal(userId, signal);
 
     await prisma.workspaceSignal.update({
       where: { id: signal.id },

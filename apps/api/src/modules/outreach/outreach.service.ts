@@ -1,10 +1,22 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ActivityType, Prisma, prisma } from '@opportunity-os/db';
+import { CommercialService } from '../commercial/commercial.service';
 import { SendOutreachDto } from './dto/send-outreach.dto';
 
 @Injectable()
 export class OutreachService {
+  constructor(private readonly commercialService: CommercialService) {}
+
   async generateDraft(userId: string, opportunityId: string) {
+    const allowance = await this.commercialService.incrementUsage(userId, 'email_drafts');
+    if (!allowance.allowed) {
+      return {
+        success: false,
+        blocked: true,
+        ...allowance,
+      };
+    }
+
     const opportunity = await prisma.opportunity.findFirst({
       where: {
         id: opportunityId,
@@ -56,10 +68,16 @@ export class OutreachService {
 
     return {
       id: opportunity.id,
+      opportunityId: opportunity.id,
       subject,
       body,
       recipients,
       approvalRequired: true,
+      usage: {
+        featureKey: allowance.featureKey,
+        used: allowance.used,
+        remaining: allowance.remaining,
+      },
     };
   }
 
@@ -67,6 +85,15 @@ export class OutreachService {
     userId: string,
     draft: SendOutreachDto,
   ) {
+    const allowance = await this.commercialService.incrementUsage(userId, 'email_send');
+    if (!allowance.allowed) {
+      return {
+        success: false,
+        blocked: true,
+        ...allowance,
+      };
+    }
+
     const linkedRefs = await this.resolveLinkedRefs(userId, draft);
 
     const activity = await prisma.activity.create({
@@ -91,6 +118,11 @@ export class OutreachService {
       success: true,
       activity,
       sentAt: new Date().toISOString(),
+      usage: {
+        featureKey: allowance.featureKey,
+        used: allowance.used,
+        remaining: allowance.remaining,
+      },
     };
   }
 

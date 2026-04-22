@@ -307,6 +307,66 @@ enum CapabilityExecutionStatus {
   provider_error
 }
 
+enum UpgradeReason {
+  plan_does_not_include_capability
+  usage_limit_reached
+  connector_limit_reached
+  missing_required_connector
+  trial_expired
+  payment_required
+  feature_temporarily_disabled
+}
+
+enum ReferralMilestoneType {
+  signup
+  onboarding_completed
+  first_cycle_completed
+  first_outreach_sent
+  paid_conversion
+}
+
+enum RewardType {
+  ai_usage_credit
+  cycle_credit
+  discovery_scan_credit
+  connector_slot_credit
+  premium_trial_unlock
+  subscription_credit
+}
+
+enum GrowthCreditStatus {
+  available
+  partially_used
+  consumed
+  expired
+  revoked
+}
+
+enum MomentumStateType {
+  on_track
+  behind
+  stalled
+  recovering
+  strong_momentum
+}
+
+enum CoachingNudgeType {
+  complete_cycle
+  send_follow_up
+  review_signal
+  celebrate_progress
+  reactivate_opportunity
+  resume_onboarding
+}
+
+enum CoachingNudgeStatus {
+  pending
+  delivered
+  acted_on
+  dismissed
+  expired
+}
+
 model User {
   id              String    @id @default(uuid()) @db.Uuid
   email           String    @unique
@@ -324,25 +384,34 @@ model User {
   sessions           AuthenticationSession[]
   verificationTokens VerificationToken[]
 
-  companies         Company[]
-  people            Person[]
-  opportunities     Opportunity[]
-  activities        Activity[]
-  goals             Goal[]
-  campaigns         StrategicCampaign[]
-  tasks             Task[]
-  notes             Note[]
-  tags              Tag[]
-  searchProfiles    SearchProfile[]
-  offerings         Offering[]
-  conversations     AIConversation[]
-  summaries         AIContextSummary[]
-  aiTasks           AITask[]
-  assets            UserAsset[]
-  workspaceSignals  WorkspaceSignal[]
-  opportunityCycles OpportunityCycle[]
-  workspaceCommands WorkspaceCommand[]
-  userConnectors    UserConnector[]
+  companies                    Company[]
+  people                       Person[]
+  opportunities                Opportunity[]
+  activities                   Activity[]
+  goals                        Goal[]
+  campaigns                    StrategicCampaign[]
+  tasks                        Task[]
+  notes                        Note[]
+  tags                         Tag[]
+  searchProfiles               SearchProfile[]
+  offerings                    Offering[]
+  conversations                AIConversation[]
+  summaries                    AIContextSummary[]
+  aiTasks                      AITask[]
+  assets                       UserAsset[]
+  workspaceSignals             WorkspaceSignal[]
+  opportunityCycles            OpportunityCycle[]
+  workspaceCommands            WorkspaceCommand[]
+  userConnectors               UserConnector[]
+  referralLinks                ReferralLink[]
+  referralAttributionsGiven    ReferralAttribution[] @relation("ReferralReferrer")
+  referralAttributionsReceived ReferralAttribution[] @relation("ReferralReferred")
+  referralRewards              ReferralReward[]
+  growthCredits                GrowthCredit[]
+  goalProgress                 GoalProgress[]
+  weeklyTargets                WeeklyTarget[]
+  momentumStates               MomentumState[]
+  coachingNudges               CoachingNudge[]
 
   @@map("users")
 }
@@ -857,15 +926,17 @@ model Offering {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  positionings  OfferingPositioning[]
-  assets        OfferingAsset[]
-  goals         Goal[]
-  campaigns     StrategicCampaign[]
-  cycles        OpportunityCycle[]
-  conversations AIConversation[]
-  summaries     AIContextSummary[]    @relation("AIContextSummaryOffering")
-  aiTasks       AITask[]              @relation("AITaskOffering")
+  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  positionings   OfferingPositioning[]
+  assets         OfferingAsset[]
+  goals          Goal[]
+  campaigns      StrategicCampaign[]
+  cycles         OpportunityCycle[]
+  conversations  AIConversation[]
+  summaries      AIContextSummary[]    @relation("AIContextSummaryOffering")
+  aiTasks        AITask[]              @relation("AITaskOffering")
+  weeklyTargets  WeeklyTarget[]
+  momentumStates MomentumState[]
 
   @@index([userId])
   @@index([offeringType, status])
@@ -1112,6 +1183,9 @@ model Goal {
   offering          Offering?           @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   campaigns         StrategicCampaign[]
   opportunityCycles OpportunityCycle[]
+  progress          GoalProgress[]
+  weeklyTargets     WeeklyTarget[]
+  momentumStates    MomentumState[]
 
   @@index([userId])
   @@index([guestSessionId])
@@ -1139,6 +1213,7 @@ model StrategicCampaign {
   assets            CampaignAsset[]
   interactions      AssetInteraction[]
   opportunityCycles OpportunityCycle[]
+  momentumStates    MomentumState[]
 
   @@index([userId])
   @@index([goalId])
@@ -1261,9 +1336,9 @@ model WorkspaceCommand {
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
 
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  opportunityCycle OpportunityCycle? @relation(fields: [opportunityCycleId], references: [id], onDelete: SetNull)
-  aiConversation   AIConversation?   @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
+  user                    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunityCycle        OpportunityCycle?        @relation(fields: [opportunityCycleId], references: [id], onDelete: SetNull)
+  aiConversation          AIConversation?          @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
   capabilityExecutionLogs CapabilityExecutionLog[]
 
   @@index([userId])
@@ -1277,15 +1352,15 @@ model WorkspaceCommand {
 }
 
 model Capability {
-  id                    String              @id @default(uuid()) @db.Uuid
-  capabilityType        CapabilityType      @unique
+  id                    String         @id @default(uuid()) @db.Uuid
+  capabilityType        CapabilityType @unique
   name                  String
   description           String?
-  isActive              Boolean             @default(true)
+  isActive              Boolean        @default(true)
   supportedFeaturesJson Json?
   defaultConfigJson     Json?
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
 
   capabilityProviders CapabilityProvider[]
   userConnectors      UserConnector[]
@@ -1294,21 +1369,21 @@ model Capability {
 }
 
 model CapabilityProvider {
-  id                        String    @id @default(uuid()) @db.Uuid
-  capabilityId             String    @db.Uuid
-  providerName              String
+  id                       String   @id @default(uuid()) @db.Uuid
+  capabilityId             String   @db.Uuid
+  providerName             String
   displayName              String
-  description               String?
-  isActive                  Boolean   @default(true)
-  authType                  String
-  requiredScopesJson        Json?
-  rateLimitConfigJson       Json?
+  description              String?
+  isActive                 Boolean  @default(true)
+  authType                 String
+  requiredScopesJson       Json?
+  rateLimitConfigJson      Json?
   providerConfigSchemaJson Json?
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 
-  capability         Capability          @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
-  userConnectors     UserConnector[]
+  capability              Capability               @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  userConnectors          UserConnector[]
   connectorConfigurations ConnectorConfiguration[]
 
   @@unique([capabilityId, providerName])
@@ -1318,25 +1393,25 @@ model CapabilityProvider {
 }
 
 model UserConnector {
-  id                       String           @id @default(uuid()) @db.Uuid
-  userId                   String           @db.Uuid
-  capabilityId             String           @db.Uuid
-  capabilityProviderId     String           @db.Uuid
-  connectorName            String?
-  status                   ConnectorStatus   @default(pending_setup)
-  enabledFeaturesJson      Json?
-  lastSyncAt               DateTime?
-  lastSuccessAt            DateTime?
-  errorMessage             String?
-  metadataJson             Json?
-  createdAt                DateTime         @default(now())
-  updatedAt                DateTime         @updatedAt
+  id                   String          @id @default(uuid()) @db.Uuid
+  userId               String          @db.Uuid
+  capabilityId         String          @db.Uuid
+  capabilityProviderId String          @db.Uuid
+  connectorName        String?
+  status               ConnectorStatus @default(pending_setup)
+  enabledFeaturesJson  Json?
+  lastSyncAt           DateTime?
+  lastSuccessAt        DateTime?
+  errorMessage         String?
+  metadataJson         Json?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
-  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  capability             Capability          @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
-  capabilityProvider     CapabilityProvider  @relation(fields: [capabilityProviderId], references: [id], onDelete: Cascade)
-  connectorCredentials   ConnectorCredential?
-  connectorSyncStates    ConnectorSyncState[]
+  user                    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  capability              Capability               @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  capabilityProvider      CapabilityProvider       @relation(fields: [capabilityProviderId], references: [id], onDelete: Cascade)
+  connectorCredentials    ConnectorCredential?
+  connectorSyncStates     ConnectorSyncState[]
   capabilityExecutionLogs CapabilityExecutionLog[]
 
   @@unique([userId, capabilityId])
@@ -1348,15 +1423,15 @@ model UserConnector {
 }
 
 model ConnectorCredential {
-  id                String    @id @default(uuid()) @db.Uuid
-  userConnectorId    String    @unique @db.Uuid
-  credentialType     String
-  encryptedData      String
-  expiresAt          DateTime?
-  lastRefreshedAt    DateTime?
-  refreshStatus      String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id              String    @id @default(uuid()) @db.Uuid
+  userConnectorId String    @unique @db.Uuid
+  credentialType  String
+  encryptedData   String
+  expiresAt       DateTime?
+  lastRefreshedAt DateTime?
+  refreshStatus   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   userConnector UserConnector @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
 
@@ -1365,18 +1440,18 @@ model ConnectorCredential {
 }
 
 model ConnectorSyncState {
-  id                String    @id @default(uuid()) @db.Uuid
-  userConnectorId    String    @db.Uuid
-  syncType          String
-  providerCursor    String?
-  lastSyncAt        DateTime?
-  syncStatus        String
-  itemsSynced       Int       @default(0)
-  errorDetailsJson  Json?
-  retryCount        Int       @default(0)
-  nextRetryAt       DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id               String    @id @default(uuid()) @db.Uuid
+  userConnectorId  String    @db.Uuid
+  syncType         String
+  providerCursor   String?
+  lastSyncAt       DateTime?
+  syncStatus       String
+  itemsSynced      Int       @default(0)
+  errorDetailsJson Json?
+  retryCount       Int       @default(0)
+  nextRetryAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   userConnector UserConnector @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
 
@@ -1387,23 +1462,23 @@ model ConnectorSyncState {
 }
 
 model CapabilityExecutionLog {
-  id                    String                    @id @default(uuid()) @db.Uuid
-  userConnectorId        String                    @db.Uuid
-  workspaceCommandId     String?                   @db.Uuid
-  executionType          String
-  executionStatus        CapabilityExecutionStatus
-  inputPayloadJson       Json?
-  outputPayloadJson      Json?
-  errorDetailsJson       Json?
-  durationMs             Int?
-  providerResponseCode   String?
-  providerRequestId       String?
-  linkedEntityType       String?
-  linkedEntityId         String?                   @db.Uuid
-  executedAt             DateTime                  @default(now())
-  createdAt              DateTime                  @default(now())
+  id                   String                    @id @default(uuid()) @db.Uuid
+  userConnectorId      String                    @db.Uuid
+  workspaceCommandId   String?                   @db.Uuid
+  executionType        String
+  executionStatus      CapabilityExecutionStatus
+  inputPayloadJson     Json?
+  outputPayloadJson    Json?
+  errorDetailsJson     Json?
+  durationMs           Int?
+  providerResponseCode String?
+  providerRequestId    String?
+  linkedEntityType     String?
+  linkedEntityId       String?                   @db.Uuid
+  executedAt           DateTime                  @default(now())
+  createdAt            DateTime                  @default(now())
 
-  userConnector    UserConnector    @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
+  userConnector    UserConnector     @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
   workspaceCommand WorkspaceCommand? @relation(fields: [workspaceCommandId], references: [id], onDelete: SetNull)
 
   @@index([userConnectorId])
@@ -1416,17 +1491,17 @@ model CapabilityExecutionLog {
 }
 
 model ConnectorConfiguration {
-  id                       String    @id @default(uuid()) @db.Uuid
-  capabilityProviderId     String    @db.Uuid
-  configKey                String
-  configValue              Json
-  configType               String
-  isRequired               Boolean   @default(false)
-  isUserConfigurable       Boolean   @default(true)
-  description              String?
-  validationRulesJson      Json?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
+  id                   String   @id @default(uuid()) @db.Uuid
+  capabilityProviderId String   @db.Uuid
+  configKey            String
+  configValue          Json
+  configType           String
+  isRequired           Boolean  @default(false)
+  isUserConfigurable   Boolean  @default(true)
+  description          String?
+  validationRulesJson  Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   capabilityProvider CapabilityProvider @relation(fields: [capabilityProviderId], references: [id], onDelete: Cascade)
 
@@ -1434,4 +1509,219 @@ model ConnectorConfiguration {
   @@index([configType])
   @@index([isRequired])
   @@map("connector_configurations")
+}
+
+model ReferralLink {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @db.Uuid
+  code           String   @unique
+  label          String?
+  campaignSource String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attributions ReferralAttribution[]
+
+  @@index([userId])
+  @@index([userId, isActive])
+  @@map("referral_links")
+}
+
+model ReferralAttribution {
+  id                String   @id @default(uuid()) @db.Uuid
+  referralLinkId    String?  @db.Uuid
+  referrerUserId    String   @db.Uuid
+  referredUserId    String   @unique @db.Uuid
+  attributionSource String?
+  attributedAt      DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  referralLink ReferralLink?       @relation(fields: [referralLinkId], references: [id], onDelete: SetNull)
+  referrer     User                @relation("ReferralReferrer", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  referred     User                @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  milestones   ReferralMilestone[]
+  rewards      ReferralReward[]
+
+  @@index([referrerUserId])
+  @@index([referralLinkId])
+  @@map("referral_attributions")
+}
+
+model ReferralMilestone {
+  id                    String                @id @default(uuid()) @db.Uuid
+  referralAttributionId String                @db.Uuid
+  milestoneType         ReferralMilestoneType
+  occurredAt            DateTime              @default(now())
+  sourceEntityType      String?
+  sourceEntityId        String?               @db.Uuid
+  metadataJson          Json?
+  createdAt             DateTime              @default(now())
+
+  referralAttribution ReferralAttribution @relation(fields: [referralAttributionId], references: [id], onDelete: Cascade)
+  rewards             ReferralReward[]
+
+  @@unique([referralAttributionId, milestoneType])
+  @@index([milestoneType])
+  @@index([occurredAt])
+  @@map("referral_milestones")
+}
+
+model ReferralReward {
+  id                    String     @id @default(uuid()) @db.Uuid
+  referralAttributionId String     @db.Uuid
+  referralMilestoneId   String?    @db.Uuid
+  userId                String     @db.Uuid
+  rewardType            RewardType
+  featureKey            String?
+  quantity              Int?
+  status                String     @default("granted")
+  grantedAt             DateTime   @default(now())
+  expiresAt             DateTime?
+  metadataJson          Json?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  referralAttribution ReferralAttribution @relation(fields: [referralAttributionId], references: [id], onDelete: Cascade)
+  referralMilestone   ReferralMilestone?  @relation(fields: [referralMilestoneId], references: [id], onDelete: SetNull)
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  growthCredits       GrowthCredit[]
+
+  @@index([userId])
+  @@index([referralAttributionId])
+  @@index([referralMilestoneId])
+  @@index([userId, rewardType])
+  @@map("referral_rewards")
+}
+
+model GrowthCredit {
+  id               String             @id @default(uuid()) @db.Uuid
+  userId           String             @db.Uuid
+  referralRewardId String?            @db.Uuid
+  featureKey       String
+  creditType       RewardType
+  quantityGranted  Int
+  quantityUsed     Int                @default(0)
+  status           GrowthCreditStatus @default(available)
+  grantedAt        DateTime           @default(now())
+  expiresAt        DateTime?
+  metadataJson     Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referralReward ReferralReward? @relation(fields: [referralRewardId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([featureKey])
+  @@index([userId, featureKey, status])
+  @@index([expiresAt])
+  @@map("growth_credits")
+}
+
+model GoalProgress {
+  id              String    @id @default(uuid()) @db.Uuid
+  goalId          String    @db.Uuid
+  userId          String    @db.Uuid
+  periodStart     DateTime? @db.Date
+  periodEnd       DateTime? @db.Date
+  targetCount     Int?
+  completedCount  Int       @default(0)
+  progressPercent Int?
+  metadataJson    Json?
+  computedAt      DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+  @@index([userId])
+  @@index([userId, periodStart, periodEnd])
+  @@map("goal_progress")
+}
+
+model WeeklyTarget {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  goalId      String?  @db.Uuid
+  offeringId  String?  @db.Uuid
+  targetType  String
+  targetCount Int
+  weekStart   DateTime @db.Date
+  weekEnd     DateTime @db.Date
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal     Goal?     @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  offering Offering? @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([goalId])
+  @@index([offeringId])
+  @@index([userId, weekStart, targetType])
+  @@map("weekly_targets")
+}
+
+model MomentumState {
+  id                  String            @id @default(uuid()) @db.Uuid
+  userId              String            @db.Uuid
+  goalId              String?           @db.Uuid
+  offeringId          String?           @db.Uuid
+  strategicCampaignId String?           @db.Uuid
+  stateType           MomentumStateType
+  score               Int?
+  reason              String?
+  computedAt          DateTime          @default(now())
+  metadataJson        Json?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal              Goal?              @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  offering          Offering?          @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  strategicCampaign StrategicCampaign? @relation(fields: [strategicCampaignId], references: [id], onDelete: SetNull)
+  coachingNudges    CoachingNudge[]
+
+  @@index([userId])
+  @@index([goalId])
+  @@index([offeringId])
+  @@index([strategicCampaignId])
+  @@index([userId, computedAt])
+  @@map("momentum_states")
+}
+
+model CoachingNudge {
+  id               String              @id @default(uuid()) @db.Uuid
+  userId           String              @db.Uuid
+  momentumStateId  String?             @db.Uuid
+  nudgeType        CoachingNudgeType
+  status           CoachingNudgeStatus @default(pending)
+  title            String
+  body             String?
+  linkedEntityType String?
+  linkedEntityId   String?             @db.Uuid
+  scheduledFor     DateTime?
+  deliveredAt      DateTime?
+  actedOnAt        DateTime?
+  dismissedAt      DateTime?
+  expiresAt        DateTime?
+  metadataJson     Json?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  momentumState MomentumState? @relation(fields: [momentumStateId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([momentumStateId])
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([userId, status, scheduledFor])
+  @@index([linkedEntityType, linkedEntityId])
+  @@map("coaching_nudges")
 }
