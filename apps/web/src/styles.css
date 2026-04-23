@@ -47,10 +47,19 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
+  grid-template-columns: 420px minmax(0, 1fr);
   min-height: 100vh;
   background:
     linear-gradient(180deg, #f8fafc 0%, #eef3f8 100%);
+  transition: grid-template-columns 0.3s ease;
+}
+
+.app-shell.conductor-expanded {
+  grid-template-columns: var(--conductor-width, 420px) minmax(0, 1fr);
+}
+
+.app-shell.conductor-collapsed {
+  grid-template-columns: 60px minmax(0, 1fr);
 }
 
 .conductor-pane {
@@ -60,6 +69,18 @@ button:disabled {
   border-right: 1px solid var(--line);
   background: #ffffff;
   padding: 22px;
+  position: relative;
+  transition: width 0.3s ease, padding 0.3s ease;
+  min-width: 60px;
+  max-width: 600px;
+}
+
+.conductor-pane:not(.expanded) {
+  padding: 22px 8px;
+}
+
+.conductor-pane.resizing {
+  transition: none;
 }
 
 .conductor-header,
@@ -1027,6 +1048,47 @@ input:focus {
   }
 }
 
+/* Conductor Actions and Resize Handle */
+.conductor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resize-handle {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background-color 0.2s ease;
+  z-index: 10;
+}
+
+.resize-handle:hover {
+  background: rgba(11, 100, 216, 0.1);
+}
+
+.resize-handle:active {
+  background: rgba(11, 100, 216, 0.2);
+}
+
+.conductor-pane.collapsed .assistant-mark {
+  margin: 0 auto;
+}
+
+.conductor-pane.collapsed .conductor-header {
+  justify-content: center;
+}
+
+.conductor-pane.collapsed .conductor-actions {
+  position: absolute;
+  top: 22px;
+  right: 8px;
+}
+
 @media (max-width: 560px) {
   .conductor-pane,
   .workspace-pane,
@@ -1044,6 +1106,10 @@ input:focus {
 
   .composer {
     grid-template-columns: 1fr;
+  }
+
+  .resize-handle {
+    display: none;
   }
 
   .send-button {

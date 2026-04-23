@@ -168,6 +168,7 @@ export const useSubscriptionStore = create<SubscriptionStore>()(
 // UI Store for global UI state
 interface UIStore {
   sidebarOpen: boolean;
+  conductorExpanded: boolean;
   theme: 'light' | 'dark' | 'system';
   notifications: Array<{
     id: string;
@@ -181,6 +182,8 @@ interface UIStore {
   // Actions
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  toggleConductor: () => void;
+  setConductorExpanded: (expanded: boolean) => void;
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   addNotification: (notification: Omit<UIStore['notifications'][0], 'id' | 'timestamp'>) => void;
   removeNotification: (id: string) => void;
@@ -192,11 +195,14 @@ export const useUIStore = create<UIStore>()(
     persist(
       (set, get) => ({
         sidebarOpen: true,
+        conductorExpanded: true,
         theme: 'system',
         notifications: [],
 
         toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
         setSidebarOpen: (open) => set({ sidebarOpen: open }),
+        toggleConductor: () => set((state) => ({ conductorExpanded: !state.conductorExpanded })),
+        setConductorExpanded: (expanded) => set({ conductorExpanded: expanded }),
         setTheme: (theme) => set({ theme }),
         
         addNotification: (notification) => {
@@ -226,6 +232,7 @@ export const useUIStore = create<UIStore>()(
         name: 'ui-storage',
         partialize: (state) => ({
           sidebarOpen: state.sidebarOpen,
+          conductorExpanded: state.conductorExpanded,
           theme: state.theme,
         }),
       }

@@ -14,6 +14,7 @@
     "test:e2e": "node playwright/canvas-action-regression.cjs && node playwright/email-campaign-flow.cjs",
     "test:e2e:email-campaign": "node playwright/email-campaign-flow.cjs",
     "test:e2e:banana-republic": "node playwright/banana-republic-outreach.cjs",
+    "test:e2e:job-seeker-five-cycles": "node playwright/job-seeker-five-cycles.cjs",
     "clean": "rm -rf dist"
   },
   "dependencies": {
