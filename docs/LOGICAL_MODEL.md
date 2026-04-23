@@ -301,6 +301,53 @@ Values:
 * `completed`
 * `dismissed`
 
+### `campaign_status`
+
+Values:
+
+* `planning`
+* `active`
+* `paused`
+* `completed`
+* `archived`
+
+### `action_lane_type`
+
+Values:
+
+* `email`
+* `linkedin_messaging`
+* `linkedin_content`
+* `call_outreach`
+* `referral_warm_intro`
+* `event_webinar_outreach`
+* `application_proposal`
+* `local_reactivation`
+* `client_retention`
+* `content_leverage`
+* `other`
+
+### `action_lane_status`
+
+Values:
+
+* `active`
+* `paused`
+* `completed`
+* `archived`
+
+### `action_cycle_status`
+
+Values:
+
+* `surfaced`
+* `pursuing`
+* `executed`
+* `confirmed`
+* `queued`
+* `failed`
+* `dismissed`
+
 ### `opportunity_cycle_status`
 
 Values:
@@ -2349,6 +2396,172 @@ Purpose: product-native prompts that help users keep cycles moving.
 
 * Nudges should reference actionable product context whenever possible.
 * Notification delivery can be added later; this table represents the coaching decision.
+
+---
+
+### `campaigns`
+
+Purpose: strategic containers representing larger pursuit objectives that coordinate multiple execution streams.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `offering_id` UUID NULL FK -> `offerings.id`
+* `goal_id` UUID NULL FK -> `goals.id`
+* `title` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `objective` TEXT NULL
+* `success_definition` TEXT NULL
+* `timeframe_start` TIMESTAMP NULL
+* `timeframe_end` TIMESTAMP NULL
+* `status` `campaign_status` NOT NULL DEFAULT `planning`
+* `priority_score` INTEGER NOT NULL DEFAULT 50
+* `metrics_json` JSONB NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `offering_id`
+* index on `goal_id`
+* index on `status`
+* composite index on (`user_id`, `status`, `priority_score`)
+* index on `timeframe_start`
+* index on `timeframe_end`
+
+#### Notes
+
+* `offering_id` should be populated when the campaign promotes a specific offering
+* `goal_id` should be populated when the campaign advances a specific goal
+* `metrics_json` stores campaign-level performance and momentum data
+* Campaigns can exist without offering or goal for general pursuit objectives
+
+---
+
+### `action_lanes`
+
+Purpose: coordinated execution streams or channels within a campaign, representing specific modes of pursuit.
+
+#### Columns
+
+* `id` UUID PK
+* `campaign_id` UUID NOT NULL FK -> `campaigns.id`
+* `lane_type` `action_lane_type` NOT NULL
+* `title` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `strategy` TEXT NULL
+* `cadence_json` JSONB NULL
+* `target_criteria_json` JSONB NULL
+* `status` `action_lane_status` NOT NULL DEFAULT `active`
+* `priority_score` INTEGER NOT NULL DEFAULT 50
+* `metrics_json` JSONB NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `campaign_id`
+* index on `lane_type`
+* index on `status`
+* composite index on (`campaign_id`, `status`, `priority_score`)
+* index on `created_at`
+
+#### Notes
+
+* `cadence_json` stores timing rules, frequency settings, and scheduling preferences
+* `target_criteria_json` stores audience filters, segment definitions, and targeting rules
+* `metrics_json` stores lane-specific performance data and engagement metrics
+* Each lane operates independently but contributes to the overall campaign objective
+
+---
+
+### `action_cycles`
+
+Purpose: concrete execution units within ActionLanes, representing complete cycles of surfacing, pursuing, executing, and confirming.
+
+#### Columns
+
+* `id` UUID PK
+* `campaign_id` UUID NOT NULL FK -> `campaigns.id`
+* `action_lane_id` UUID NOT NULL FK -> `action_lanes.id`
+* `target_type` VARCHAR NOT NULL
+* `target_id` UUID NOT NULL
+* `action_type` VARCHAR NOT NULL
+* `status` `action_cycle_status` NOT NULL DEFAULT `surfaced`
+* `priority_score` INTEGER NOT NULL DEFAULT 50
+* `execution_data_json` JSONB NULL
+* `outcome_data_json` JSONB NULL
+* `metadata_json` JSONB NULL
+* `surfaced_at` TIMESTAMP NULL
+* `pursuing_at` TIMESTAMP NULL
+* `executed_at` TIMESTAMP NULL
+* `confirmed_at` TIMESTAMP NULL
+* `completed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `campaign_id`
+* index on `action_lane_id`
+* composite index on (`target_type`, `target_id`)
+* index on `status`
+* composite index on (`campaign_id`, `status`, `priority_score`)
+* index on `surfaced_at`
+* index on `executed_at`
+* index on `completed_at`
+
+#### Notes
+
+* `target_type` examples: `person`, `company`, `opportunity`, `discovered_target`
+* `execution_data_json` stores message content, channel details, and execution parameters
+* `outcome_data_json` stores results, responses, next actions, and follow-up requirements
+* Action cycles represent the atomic unit of work within a lane's execution stream
+
+---
+
+### `campaign_metrics`
+
+Purpose: performance and momentum tracking across campaigns and lanes for AI decision-making and user coaching.
+
+#### Columns
+
+* `id` UUID PK
+* `campaign_id` UUID NULL FK -> `campaigns.id`
+* `action_lane_id` UUID NULL FK -> `action_lanes.id`
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `metric_type` VARCHAR NOT NULL
+* `metric_value` NUMERIC NOT NULL
+* `metric_unit` VARCHAR NULL
+* `period_start` TIMESTAMP NULL
+* `period_end` TIMESTAMP NULL
+* `comparison_value` NUMERIC NULL
+* `trend_direction` VARCHAR NULL
+* `computed_at` TIMESTAMP NOT NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `campaign_id`
+* index on `action_lane_id`
+* index on `user_id`
+* index on `metric_type`
+* composite index on (`campaign_id`, `metric_type`, `period_start`)
+* composite index on (`action_lane_id`, `metric_type`, `period_start`)
+* index on `computed_at`
+
+#### Notes
+
+* `metric_type` examples: `conversion_rate`, `engagement_score`, `momentum_indicator`, `response_rate`
+* Either `campaign_id` or `action_lane_id` should be populated (not both null)
+* Metrics are used by AI for lane prioritization, campaign coaching, and strategic recommendations
+* `trend_direction` examples: `up`, `down`, `stable`, `volatile`
 
 ---
 
