@@ -16,8 +16,13 @@ import {
 import { NextActionItem } from '../next-actions/interfaces/next-action.interface';
 import { NextActionsService } from '../next-actions/next-actions.service';
 import { CommercialService } from '../commercial/commercial.service';
+import { DiscoveryService } from '../discovery/discovery.service';
+import { OfferingsService } from '../offerings/offerings.service';
 import { WorkspaceCommandDto } from './dto/workspace-command.dto';
 import {
+  CanvasAction,
+  CanvasCommand,
+  CanvasState,
   WorkspaceCycleSummary,
   WorkspaceMode,
   WorkspaceSignalSummary,
@@ -29,36 +34,52 @@ export class WorkspaceService {
   constructor(
     private readonly nextActionsService: NextActionsService,
     private readonly commercialService: CommercialService,
+    private readonly discoveryService: DiscoveryService,
+    private readonly offeringsService: OfferingsService,
   ) {}
 
   async getWorkspaceState(userId: string): Promise<WorkspaceState> {
     const nextActions = await this.nextActionsService.getNextActions(userId);
     await this.ensureSignalsFromNextActions(userId, nextActions);
 
-    const [activeCycle, signals, activeConversation, velocity] = await Promise.all([
+    const [activeCycle, signals, activeConversation, velocity, pendingOfferingProposal, activeOffering] = await Promise.all([
       this.findActiveCycle(userId),
       this.findSignals(userId),
       this.findActiveConversation(userId),
       this.getVelocity(userId),
+      this.offeringsService.findPendingProposal(userId),
+      this.offeringsService.getActiveOfferingContext(userId),
     ]);
 
     const recommendation = nextActions[0] ?? null;
     const activeCycleSummary = activeCycle ? this.toCycleSummary(activeCycle) : null;
     const mode = activeCycleSummary?.workspaceMode ?? this.workspaceModeFromRecommendation(recommendation);
     const allowedActions = activeCycleSummary?.allowedActions ?? this.allowedActionsForMode(mode, recommendation);
+    const canvas = this.buildCanvasState(
+      activeCycleSummary,
+      recommendation,
+      mode,
+      allowedActions,
+      pendingOfferingProposal,
+      activeOffering,
+    );
 
     return {
       conductor: {
         activeConversationId: activeConversation?.id ?? null,
-        suggestedPrompts: this.buildSuggestedPrompts(activeCycleSummary, recommendation),
-        currentReasoningSummary: activeCycleSummary?.whyItMatters ?? recommendation?.reason ?? null,
+        suggestedPrompts: this.buildSuggestedPrompts(activeCycleSummary, recommendation, pendingOfferingProposal, activeOffering),
+        currentReasoningSummary:
+          activeCycleSummary?.whyItMatters ??
+          recommendation?.reason ??
+          this.offeringReasoningSummary(pendingOfferingProposal, activeOffering),
       },
       activeCycle: activeCycleSummary,
       activeWorkspace: {
         mode,
         allowedActions,
-        entity: this.buildActiveEntity(activeCycleSummary, recommendation),
+        entity: this.buildActiveEntity(activeCycleSummary, recommendation, pendingOfferingProposal, activeOffering),
       },
+      canvas,
       signals: signals.map((signal) => this.toSignalSummary(signal)),
       recommendation,
       velocity,
@@ -108,6 +129,20 @@ export class WorkspaceService {
 
   private async runCommand(userId: string, dto: WorkspaceCommandDto) {
     switch (dto.type) {
+      case 'confirm_offering':
+        return this.confirmOfferingFromCommand(userId, dto);
+      case 'adjust_offering':
+        return this.adjustOfferingFromCommand(userId, dto);
+      case 'reject_offering':
+        return this.rejectOfferingFromCommand(userId, dto);
+      case 'start_discovery_scan':
+        return this.startDiscoveryScanFromCommand(userId, dto);
+      case 'accept_discovery_target':
+        return this.acceptDiscoveryTargetFromCommand(userId, dto);
+      case 'reject_discovery_target':
+        return this.rejectDiscoveryTargetFromCommand(userId, dto);
+      case 'promote_discovery_targets':
+        return this.promoteDiscoveryTargetsFromCommand(userId, dto);
       case 'activate_signal':
         return this.activateSignal(userId, dto.signalId);
       case 'dismiss_signal':
@@ -123,6 +158,86 @@ export class WorkspaceService {
       default:
         return assertNever(dto.type);
     }
+  }
+
+  private async confirmOfferingFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const proposalId = await this.resolveOfferingProposalId(userId, dto);
+    return this.offeringsService.confirmProposal(proposalId, userId, dto.input ?? {});
+  }
+
+  private async adjustOfferingFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const proposalId = await this.resolveOfferingProposalId(userId, dto);
+    return {
+      proposal: await this.offeringsService.updateProposal(proposalId, userId, dto.input ?? {}),
+    };
+  }
+
+  private async rejectOfferingFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const proposalId = await this.resolveOfferingProposalId(userId, dto);
+    return {
+      proposal: await this.offeringsService.rejectProposal(proposalId, userId),
+    };
+  }
+
+  private async startDiscoveryScanFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const input = dto.input ?? {};
+    const query = typeof input['query'] === 'string' ? input['query'] : undefined;
+    if (!query) {
+      throw new NotFoundException('Discovery query is required');
+    }
+
+    return this.discoveryService.createScan(userId, {
+      query,
+      scanType: typeof input['scanType'] === 'string' ? input['scanType'] as any : 'mixed',
+      targetSegment: typeof input['targetSegment'] === 'string' ? input['targetSegment'] : undefined,
+      campaignId: typeof input['campaignId'] === 'string' ? input['campaignId'] : undefined,
+      offeringId: typeof input['offeringId'] === 'string' ? input['offeringId'] : undefined,
+      goalId: typeof input['goalId'] === 'string' ? input['goalId'] : undefined,
+      maxTargets: typeof input['maxTargets'] === 'number' ? input['maxTargets'] : undefined,
+      context: typeof input['context'] === 'object' && input['context'] !== null ? input['context'] as Record<string, unknown> : undefined,
+    });
+  }
+
+  private async acceptDiscoveryTargetFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const targetId = this.stringInput(dto, 'discoveryTargetId');
+    if (!targetId) {
+      throw new NotFoundException('discoveryTargetId is required');
+    }
+    return this.discoveryService.acceptTarget(userId, targetId);
+  }
+
+  private async rejectDiscoveryTargetFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const targetId = this.stringInput(dto, 'discoveryTargetId');
+    if (!targetId) {
+      throw new NotFoundException('discoveryTargetId is required');
+    }
+    return this.discoveryService.rejectTarget(userId, targetId, this.stringInput(dto, 'reason'));
+  }
+
+  private async promoteDiscoveryTargetsFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const scanId = this.stringInput(dto, 'discoveryScanId');
+    if (!scanId) {
+      throw new NotFoundException('discoveryScanId is required');
+    }
+    return this.discoveryService.promoteAcceptedTargets(userId, scanId);
+  }
+
+  private async resolveOfferingProposalId(userId: string, dto: WorkspaceCommandDto) {
+    const inputProposalId = typeof dto.input?.['offeringProposalId'] === 'string' ? dto.input['offeringProposalId'] : undefined;
+    if (inputProposalId) {
+      return inputProposalId;
+    }
+
+    const pendingProposal = await this.offeringsService.findPendingProposal(userId);
+    if (!pendingProposal) {
+      throw new NotFoundException('Offering proposal not found');
+    }
+    return pendingProposal.id;
+  }
+
+  private stringInput(dto: WorkspaceCommandDto, key: string) {
+    const value = dto.input?.[key];
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
   }
 
   private async activateSignal(userId: string, signalId?: string) {
@@ -192,6 +307,10 @@ export class WorkspaceService {
         priorityScore: signal.priorityScore,
         workspaceMode: signal.recommendedWorkspaceMode,
         allowedActionsJson: this.toJson(this.allowedActionsForMode(signal.recommendedWorkspaceMode as WorkspaceMode)),
+        stateJson: this.toJson({
+          canvas: this.canvasActionFromWorkspaceMode(signal.recommendedWorkspaceMode as WorkspaceMode),
+          source: 'activate_signal',
+        }),
         ...refs,
       },
     });
@@ -540,7 +659,19 @@ export class WorkspaceService {
     };
   }
 
-  private buildSuggestedPrompts(cycle: WorkspaceCycleSummary | null, recommendation: NextActionItem | null): string[] {
+  private buildSuggestedPrompts(
+    cycle: WorkspaceCycleSummary | null,
+    recommendation: NextActionItem | null,
+    pendingOfferingProposal: any,
+    activeOffering: any,
+  ): string[] {
+    if (pendingOfferingProposal) {
+      return [
+        `Refine the ${pendingOfferingProposal.title} offering.`,
+        'What audience should this offering target first?',
+        'What asset would strengthen this outreach?',
+      ];
+    }
     if (cycle) {
       return [
         `Why does "${cycle.title}" matter?`,
@@ -555,17 +686,225 @@ export class WorkspaceService {
         'Show me what needs attention.',
       ];
     }
+    if (activeOffering) {
+      return [
+        `Create a campaign for ${activeOffering.title}.`,
+        'What asset should support this offering?',
+        'Find the next opportunity for this offering.',
+      ];
+    }
     return ['What should I focus on next?', 'Show my current momentum.', 'Find the next opportunity cycle.'];
   }
 
-  private buildActiveEntity(cycle: WorkspaceCycleSummary | null, recommendation: NextActionItem | null) {
+  private buildActiveEntity(
+    cycle: WorkspaceCycleSummary | null,
+    recommendation: NextActionItem | null,
+    pendingOfferingProposal: any,
+    activeOffering: any,
+  ) {
     if (cycle) {
       return { type: 'cycle', refs: cycle.refs };
+    }
+    if (pendingOfferingProposal) {
+      return { type: 'offering_proposal', proposal: this.toOfferingProposalContext(pendingOfferingProposal) };
     }
     if (recommendation) {
       return { type: recommendation.type, recommendation };
     }
+    if (activeOffering) {
+      return { type: 'offering', offering: this.toOfferingContext(activeOffering) };
+    }
     return null;
+  }
+
+  private buildCanvasState(
+    cycle: WorkspaceCycleSummary | null,
+    recommendation: NextActionItem | null,
+    mode: WorkspaceMode,
+    allowedActions: string[],
+    pendingOfferingProposal: any,
+    activeOffering: any,
+  ): CanvasState {
+    const action = !cycle && pendingOfferingProposal ? 'confirm_offering' : this.canvasActionFromWorkspaceMode(mode, recommendation);
+    const refs = cycle?.refs ?? this.refsFromOfferingProposal(pendingOfferingProposal) ?? this.refsFromRecommendation(recommendation);
+    const canvasActions = this.canvasCommandsForAction(action, allowedActions, recommendation);
+    const title = this.canvasTitleForAction(action, cycle, recommendation, pendingOfferingProposal);
+
+    return {
+      action,
+      title,
+      explanation: this.canvasExplanationForAction(action, cycle, recommendation, pendingOfferingProposal, activeOffering),
+      phase: cycle?.phase ?? (pendingOfferingProposal ? 'proposed' : recommendation ? 'surfaced' : 'idle'),
+      refs,
+      allowedActions: canvasActions,
+      primaryAction: canvasActions[0] ?? null,
+      context: this.canvasContextForAction(action, cycle, recommendation, pendingOfferingProposal, activeOffering),
+    };
+  }
+
+  private canvasActionFromWorkspaceMode(mode: WorkspaceMode, recommendation?: NextActionItem | null): CanvasAction {
+    if (mode === 'empty') return 'idle';
+    if (mode === 'goal_planning') return 'confirm_goal';
+    if (mode === 'campaign_review') return 'confirm_campaign';
+    if (mode === 'discovery_review') return 'review_discovery_targets';
+    if (mode === 'opportunity_review') return 'review_opportunity';
+    if (mode === 'draft_edit') return 'draft_email';
+    if (mode === 'asset_review') return 'review_asset';
+    if (mode === 'execution_confirm') return recommendation?.type === 'task' ? 'complete_cycle' : 'confirm_send';
+    if (mode === 'progress_summary') return 'complete_cycle';
+    return 'review_opportunity';
+  }
+
+  private canvasCommandsForAction(
+    action: CanvasAction,
+    allowedWorkspaceActions: string[],
+    recommendation: NextActionItem | null,
+  ): CanvasCommand[] {
+    const commands: CanvasCommand[] = [];
+    if (action === 'idle') return [];
+    if (action === 'confirm_offering') commands.push('confirm', 'adjust', 'skip');
+    if (action === 'upload_asset') commands.push('upload_asset', 'skip');
+    if (action === 'review_asset') commands.push('continue', 'create_task');
+    if (action === 'confirm_goal' || action === 'confirm_campaign') commands.push('confirm', 'adjust');
+    if (action === 'run_discovery') commands.push('start_discovery_scan');
+    if (action === 'review_discovery_targets') commands.push('accept_discovery_target', 'reject_discovery_target', 'promote_discovery_targets');
+    if (action === 'review_opportunity') commands.push('generate_draft');
+    if (action === 'draft_email') commands.push('send_email');
+    if (action === 'confirm_send') commands.push('send_email', 'complete_cycle');
+    if (action === 'complete_cycle') commands.push('complete_cycle');
+
+    if (allowedWorkspaceActions.includes('activate_signal')) commands.push('activate_signal');
+    if (allowedWorkspaceActions.includes('dismiss_signal')) commands.push('dismiss_signal');
+    if (allowedWorkspaceActions.includes('create_task')) commands.push('create_task');
+    if (allowedWorkspaceActions.includes('advance_opportunity') || recommendation?.opportunityId) commands.push('advance_opportunity');
+    if (allowedWorkspaceActions.includes('complete_cycle')) commands.push('complete_cycle');
+
+    return Array.from(new Set(commands));
+  }
+
+  private canvasTitleForAction(
+    action: CanvasAction,
+    cycle: WorkspaceCycleSummary | null,
+    recommendation: NextActionItem | null,
+    pendingOfferingProposal?: any,
+  ): string {
+    if (action === 'idle') return 'Ready for the next guided action';
+    if (action === 'confirm_offering') return pendingOfferingProposal?.title ?? 'Confirm the offering';
+    if (action === 'upload_asset') return 'Upload supporting asset';
+    if (action === 'review_asset') return 'Review asset leverage';
+    if (action === 'confirm_goal') return 'Confirm the goal';
+    if (action === 'confirm_campaign') return 'Confirm the campaign';
+    if (action === 'run_discovery') return 'Run discovery scan';
+    if (action === 'review_discovery_targets') return 'Review discovery targets';
+    if (action === 'review_opportunity') return cycle?.title ?? recommendation?.title ?? 'Review opportunity';
+    if (action === 'draft_email') return 'Draft email';
+    if (action === 'confirm_send') return 'Confirm send';
+    if (action === 'complete_cycle') return 'Complete cycle';
+    return cycle?.title ?? recommendation?.title ?? 'Guided action';
+  }
+
+  private canvasExplanationForAction(
+    action: CanvasAction,
+    cycle: WorkspaceCycleSummary | null,
+    recommendation: NextActionItem | null,
+    pendingOfferingProposal?: any,
+    activeOffering?: any,
+  ): string {
+    if (cycle?.whyItMatters) return cycle.whyItMatters;
+    if (action === 'confirm_offering' && pendingOfferingProposal) {
+      return 'The Conductor has inferred an offering from the conversation. Confirm or adjust the structured fields before using it for campaigns.';
+    }
+    if (recommendation?.aiExplanation) return recommendation.aiExplanation;
+    if (recommendation?.reason) return recommendation.reason;
+
+    if (action === 'idle') return 'The Conductor can define the next offering, goal, or opportunity cycle.';
+    if (action === 'confirm_offering') return 'The Conductor has inferred an offering. Confirm or adjust the structured version.';
+    if (action === 'upload_asset') return 'Add a file that can support positioning, credibility, or outreach.';
+    if (action === 'review_asset') return 'Review how this asset can be used as leverage.';
+    if (action === 'confirm_goal') return 'Confirm the strategic goal before the system creates campaign structure.';
+    if (action === 'confirm_campaign') return 'Confirm the campaign angle and first motion.';
+    if (action === 'run_discovery') return 'Start a focused scan for targets that match the current offering and campaign.';
+    if (action === 'review_discovery_targets') return 'Review the discovered targets, accept the strongest prospects, and promote them into the campaign workflow.';
+    if (action === 'review_opportunity') return 'Review this opportunity before taking the next execution step.';
+    if (action === 'draft_email') return 'Review and edit the email before execution.';
+    if (action === 'confirm_send') return 'Confirm the execution channel and send readiness.';
+    if (activeOffering) return `The current offering context is ${activeOffering.title}.`;
+    return 'Close the current cycle and move to the next best action.';
+  }
+
+  private canvasContextForAction(
+    action: CanvasAction,
+    cycle: WorkspaceCycleSummary | null,
+    recommendation: NextActionItem | null,
+    pendingOfferingProposal?: any,
+    activeOffering?: any,
+  ): Record<string, unknown> | null {
+    return {
+      action,
+      recommendedAction: cycle?.recommendedAction ?? recommendation?.recommendedAction,
+      recommendationType: recommendation?.type,
+      priorityScore: cycle?.priorityScore ?? recommendation?.priorityScore,
+      offeringRelevance: recommendation?.offeringRelevance,
+      offeringProposal: pendingOfferingProposal ? this.toOfferingProposalContext(pendingOfferingProposal) : undefined,
+      activeOffering: activeOffering ? this.toOfferingContext(activeOffering) : undefined,
+    };
+  }
+
+  private refsFromRecommendation(recommendation: NextActionItem | null): CanvasState['refs'] {
+    if (!recommendation) return {};
+    return {
+      opportunityId: recommendation.opportunityId,
+      taskId: recommendation.taskId,
+      discoveredOpportunityId: recommendation.discoveredOpportunityId ?? recommendation.contentOpportunityId,
+    };
+  }
+
+  private offeringReasoningSummary(pendingOfferingProposal: any, activeOffering: any) {
+    if (pendingOfferingProposal) {
+      return `Confirm the inferred offering: ${pendingOfferingProposal.title}.`;
+    }
+    if (activeOffering) {
+      return `Current offering context: ${activeOffering.title}.`;
+    }
+    return null;
+  }
+
+  private refsFromOfferingProposal(proposal: any): CanvasState['refs'] | null {
+    if (!proposal) return null;
+    return {
+      offeringProposalId: proposal.id,
+      conversationId: proposal.aiConversationId ?? undefined,
+    };
+  }
+
+  private toOfferingProposalContext(proposal: any) {
+    return {
+      id: proposal.id,
+      title: proposal.title,
+      description: proposal.description,
+      offeringType: proposal.offeringType,
+      status: proposal.status,
+      targetAudiences: this.arrayFromJson(proposal.targetAudiencesJson) ?? [],
+      problemSolved: proposal.problemSolved,
+      outcomeCreated: proposal.outcomeCreated,
+      credibility: proposal.credibility,
+      bestOutreachAngle: proposal.bestOutreachAngle,
+      suggestedAssets: this.arrayFromJson(proposal.suggestedAssetsJson) ?? [],
+      positioning: proposal.positioningJson ?? null,
+      metadata: proposal.metadataJson ?? null,
+    };
+  }
+
+  private toOfferingContext(offering: any) {
+    return {
+      id: offering.id,
+      title: offering.title,
+      description: offering.description,
+      offeringType: offering.offeringType,
+      status: offering.status,
+      positionings: offering.positionings ?? [],
+      assets: offering.assets ?? [],
+    };
   }
 
   private sourceFromNextAction(action: NextActionItem) {
@@ -582,6 +921,9 @@ export class WorkspaceService {
     if (signal.sourceType === 'opportunity') return this.refsFromOpportunity(userId, signal.sourceId);
     if (signal.sourceType === 'discovered_opportunity' || signal.sourceType === 'content_opportunity') {
       return { discoveredOpportunityId: signal.sourceId };
+    }
+    if (signal.sourceType === 'discovery_scan') {
+      return { discoveryScanId: signal.sourceId };
     }
     return {};
   }
@@ -648,7 +990,7 @@ export class WorkspaceService {
     if (!action) return 'empty';
     if (action.type === 'task') return 'execution_confirm';
     if (action.type === 'opportunity' || action.type === 'follow_up') return 'opportunity_review';
-    if (action.type === 'discovery') return 'signal_review';
+    if (action.type === 'discovery') return 'discovery_review';
     return 'signal_review';
   }
 
@@ -656,6 +998,7 @@ export class WorkspaceService {
     if (mode === 'empty') return [];
     const actions = ['dismiss_signal'];
     if (mode === 'signal_review') actions.push('activate_signal');
+    if (mode === 'discovery_review') actions.push('activate_signal');
     if (mode === 'opportunity_review') actions.push('create_task', 'advance_opportunity', 'dismiss_cycle');
     if (mode === 'execution_confirm') actions.push('complete_cycle', 'create_task');
     if (mode === 'draft_edit') actions.push('complete_cycle');

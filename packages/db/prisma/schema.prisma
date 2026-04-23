@@ -112,6 +112,51 @@ enum SearchProfileType {
   mixed
 }
 
+enum DiscoveryScanType {
+  companies
+  people
+  university_professors
+  content_signals
+  mixed
+}
+
+enum DiscoveryScanStatus {
+  requested
+  running
+  completed
+  failed
+  cancelled
+}
+
+enum DiscoveryTargetType {
+  company
+  person
+  university_professor
+  content_signal
+  opportunity
+}
+
+enum DiscoveryTargetStatus {
+  proposed
+  accepted
+  rejected
+  promoted
+  duplicate
+  archived
+}
+
+enum DiscoveryEvidenceType {
+  website
+  linkedin
+  publication
+  article
+  profile
+  directory
+  search_result
+  uploaded_content
+  other
+}
+
 enum OfferingType {
   product
   service
@@ -125,6 +170,13 @@ enum OfferingStatus {
   active
   inactive
   archived
+}
+
+enum OfferingProposalStatus {
+  proposed
+  confirmed
+  rejected
+  superseded
 }
 
 enum OfferingAssetType {
@@ -248,6 +300,7 @@ enum WorkspaceMode {
   signal_review
   goal_planning
   campaign_review
+  discovery_review
   opportunity_review
   draft_edit
   asset_review
@@ -394,7 +447,10 @@ model User {
   notes                        Note[]
   tags                         Tag[]
   searchProfiles               SearchProfile[]
+  discoveryScans               DiscoveryScan[]
+  discoveryTargets             DiscoveryTarget[]
   offerings                    Offering[]
+  offeringProposals            OfferingProposal[]
   conversations                AIConversation[]
   summaries                    AIContextSummary[]
   aiTasks                      AITask[]
@@ -621,6 +677,7 @@ model Company {
   activities              Activity[]
   tasks                   Task[]
   discoveredOpportunities DiscoveredOpportunity[]
+  discoveryTargets        DiscoveryTarget[]
 
   @@index([userId])
   @@index([name])
@@ -655,6 +712,7 @@ model Person {
   activities           Activity[]
   tasks                Task[]
   assetInteractions    AssetInteraction[]
+  discoveryTargets     DiscoveryTarget[]
 
   @@index([userId])
   @@index([companyId])
@@ -700,6 +758,7 @@ model Opportunity {
   aiTasks           AITask[]            @relation("AITaskOpportunity")
   assetInteractions AssetInteraction[]
   opportunityCycles OpportunityCycle[]
+  discoveryTargets  DiscoveryTarget[]
 
   @@index([userId])
   @@index([companyId])
@@ -916,6 +975,121 @@ model DiscoveredOpportunity {
   @@map("discovered_opportunities")
 }
 
+model DiscoveryScan {
+  id                 String              @id @default(uuid()) @db.Uuid
+  userId             String              @db.Uuid
+  offeringId         String?             @db.Uuid
+  campaignId         String?             @db.Uuid
+  goalId             String?             @db.Uuid
+  scanType           DiscoveryScanType   @default(mixed)
+  status             DiscoveryScanStatus @default(requested)
+  providerKey        String              @default("local_mock")
+  query              String
+  targetSegment      String?
+  maxTargets         Int                 @default(10)
+  acceptedCount      Int                 @default(0)
+  rejectedCount      Int                 @default(0)
+  promotedCount      Int                 @default(0)
+  startedAt          DateTime?
+  completedAt        DateTime?
+  failedAt           DateTime?
+  failureReason      String?
+  requestContextJson Json?
+  providerResultJson Json?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering Offering?          @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  campaign StrategicCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  goal     Goal?              @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  targets  DiscoveryTarget[]
+
+  @@index([userId])
+  @@index([offeringId])
+  @@index([campaignId])
+  @@index([goalId])
+  @@index([status])
+  @@index([scanType])
+  @@index([userId, status, createdAt])
+  @@map("discovery_scans")
+}
+
+model DiscoveryTarget {
+  id                 String                @id @default(uuid()) @db.Uuid
+  userId             String                @db.Uuid
+  scanId             String                @db.Uuid
+  targetType         DiscoveryTargetType   @default(person)
+  status             DiscoveryTargetStatus @default(proposed)
+  title              String
+  companyName        String?
+  personName         String?
+  roleTitle          String?
+  email              String?
+  phone              String?
+  website            String?
+  linkedinUrl        String?
+  location           String?
+  sourceUrl          String?
+  dedupeKey          String?
+  confidenceScore    Int                   @default(50)
+  relevanceScore     Int                   @default(50)
+  qualificationScore Int?
+  whyThisTarget      String?
+  recommendedAction  String?
+  rejectionReason    String?
+  acceptedAt         DateTime?
+  rejectedAt         DateTime?
+  promotedAt         DateTime?
+  companyId          String?               @db.Uuid
+  personId           String?               @db.Uuid
+  opportunityId      String?               @db.Uuid
+  metadataJson       Json?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scan        DiscoveryScan       @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  company     Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  person      Person?             @relation(fields: [personId], references: [id], onDelete: SetNull)
+  opportunity Opportunity?        @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  evidence    DiscoveryEvidence[]
+
+  @@index([userId])
+  @@index([scanId])
+  @@index([status])
+  @@index([targetType])
+  @@index([companyId])
+  @@index([personId])
+  @@index([opportunityId])
+  @@index([relevanceScore])
+  @@index([confidenceScore])
+  @@index([userId, status, relevanceScore])
+  @@index([dedupeKey])
+  @@map("discovery_targets")
+}
+
+model DiscoveryEvidence {
+  id                String                @id @default(uuid()) @db.Uuid
+  discoveryTargetId String                @db.Uuid
+  evidenceType      DiscoveryEvidenceType @default(other)
+  title             String
+  sourceUrl         String?
+  sourceName        String?
+  snippet           String?
+  publishedAt       DateTime?
+  confidenceScore   Int                   @default(50)
+  metadataJson      Json?
+  createdAt         DateTime              @default(now())
+
+  target DiscoveryTarget @relation(fields: [discoveryTargetId], references: [id], onDelete: Cascade)
+
+  @@index([discoveryTargetId])
+  @@index([evidenceType])
+  @@index([sourceUrl])
+  @@map("discovery_evidence")
+}
+
 model Offering {
   id           String         @id @default(uuid()) @db.Uuid
   userId       String         @db.Uuid
@@ -927,11 +1101,13 @@ model Offering {
   updatedAt    DateTime       @updatedAt
 
   user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposals      OfferingProposal[]
   positionings   OfferingPositioning[]
   assets         OfferingAsset[]
   goals          Goal[]
   campaigns      StrategicCampaign[]
   cycles         OpportunityCycle[]
+  discoveryScans DiscoveryScan[]
   conversations  AIConversation[]
   summaries      AIContextSummary[]    @relation("AIContextSummaryOffering")
   aiTasks        AITask[]              @relation("AITaskOffering")
@@ -942,6 +1118,40 @@ model Offering {
   @@index([offeringType, status])
   @@index([createdAt])
   @@map("offerings")
+}
+
+model OfferingProposal {
+  id                  String                 @id @default(uuid()) @db.Uuid
+  userId              String                 @db.Uuid
+  aiConversationId    String?                @db.Uuid
+  confirmedOfferingId String?                @db.Uuid
+  title               String
+  description         String?
+  offeringType        OfferingType
+  status              OfferingProposalStatus @default(proposed)
+  targetAudiencesJson Json?
+  problemSolved       String?
+  outcomeCreated      String?
+  credibility         String?
+  bestOutreachAngle   String?
+  suggestedAssetsJson Json?
+  positioningJson     Json?
+  metadataJson        Json?
+  confirmedAt         DateTime?
+  rejectedAt          DateTime?
+  supersededAt        DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  aiConversation    AIConversation? @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
+  confirmedOffering Offering?       @relation(fields: [confirmedOfferingId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([aiConversationId])
+  @@index([confirmedOfferingId])
+  @@index([status, updatedAt])
+  @@map("offering_proposals")
 }
 
 model OfferingPositioning {
@@ -1002,6 +1212,7 @@ model AIConversation {
   offering          Offering?               @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   opportunity       Opportunity?            @relation("AIConversationOpportunity", fields: [opportunityId], references: [id], onDelete: SetNull)
   messages          AIConversationMessage[]
+  offeringProposals OfferingProposal[]
   summaries         AIContextSummary[]
   tasks             AITask[]
   opportunityCycles OpportunityCycle[]
@@ -1182,6 +1393,7 @@ model Goal {
   user              User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
   offering          Offering?           @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   campaigns         StrategicCampaign[]
+  discoveryScans    DiscoveryScan[]
   opportunityCycles OpportunityCycle[]
   progress          GoalProgress[]
   weeklyTargets     WeeklyTarget[]
@@ -1211,6 +1423,7 @@ model StrategicCampaign {
   offering          Offering?          @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   opportunities     Opportunity[]
   assets            CampaignAsset[]
+  discoveryScans    DiscoveryScan[]
   interactions      AssetInteraction[]
   opportunityCycles OpportunityCycle[]
   momentumStates    MomentumState[]

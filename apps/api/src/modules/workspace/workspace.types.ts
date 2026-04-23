@@ -5,11 +5,69 @@ export type WorkspaceMode =
   | 'signal_review'
   | 'goal_planning'
   | 'campaign_review'
+  | 'discovery_review'
   | 'opportunity_review'
   | 'draft_edit'
   | 'asset_review'
   | 'execution_confirm'
   | 'progress_summary';
+
+export type CanvasAction =
+  | 'idle'
+  | 'confirm_offering'
+  | 'upload_asset'
+  | 'review_asset'
+  | 'confirm_goal'
+  | 'confirm_campaign'
+  | 'run_discovery'
+  | 'review_discovery_targets'
+  | 'review_opportunity'
+  | 'draft_email'
+  | 'confirm_send'
+  | 'complete_cycle';
+
+export type CanvasCommand =
+  | 'confirm'
+  | 'adjust'
+  | 'continue'
+  | 'skip'
+  | 'upload_asset'
+  | 'activate_signal'
+  | 'dismiss_signal'
+  | 'generate_draft'
+  | 'start_discovery_scan'
+  | 'accept_discovery_target'
+  | 'reject_discovery_target'
+  | 'promote_discovery_targets'
+  | 'send_email'
+  | 'complete_cycle'
+  | 'create_task'
+  | 'advance_opportunity';
+
+export interface CanvasState {
+  action: CanvasAction;
+  title: string;
+  explanation: string;
+  phase: string;
+  refs: {
+    signalId?: string;
+    offeringProposalId?: string;
+    offeringId?: string;
+    goalId?: string;
+    campaignId?: string;
+    opportunityId?: string;
+    taskId?: string;
+    discoveredOpportunityId?: string;
+    discoveryScanId?: string;
+    discoveryTargetId?: string;
+    conversationId?: string;
+    draftId?: string;
+    assetId?: string;
+  };
+  allowedActions: CanvasCommand[];
+  primaryAction: CanvasCommand | null;
+  context: Record<string, unknown> | null;
+}
 
 export interface WorkspaceSignalSummary {
   id: string;
@@ -73,6 +131,7 @@ export interface WorkspaceState {
     allowedActions: string[];
     entity: Record<string, unknown> | null;
   };
+  canvas: CanvasState;
   signals: WorkspaceSignalSummary[];
   recommendation: NextActionItem | null;
   velocity: WorkspaceVelocitySummary;

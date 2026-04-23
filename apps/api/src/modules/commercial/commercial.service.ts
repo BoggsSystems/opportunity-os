@@ -1,5 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { FeatureAccessLevel, GrowthCreditStatus, Prisma, prisma } from '@opportunity-os/db';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  FeatureAccessLevel,
+  GrowthCreditStatus,
+  Prisma,
+  ReferralMilestoneType,
+  RewardType,
+  SubscriptionStatus,
+  prisma,
+} from '@opportunity-os/db';
 
 const UpgradeReason = {
   plan_does_not_include_capability: 'plan_does_not_include_capability',
@@ -34,11 +42,56 @@ type CapabilityCheckResult = {
   remaining: number | null;
   upgradeReason?: UpgradeReason;
   upgradeHint?: string;
+  bypassed?: boolean;
 };
 
 @Injectable()
 export class CommercialService {
   private readonly freePlanCode = 'free_explorer';
+
+  async getAccountState(userId: string) {
+    const [subscription, entitlements, usage, referral] = await Promise.all([
+      this.getSubscription(userId),
+      this.getEntitlements(userId),
+      this.getUsage(userId),
+      this.getOrCreateReferralLink(userId),
+    ]);
+
+    return {
+      subscription,
+      entitlements,
+      usage,
+      referral,
+      billing: {
+        provider: process.env['BILLING_PROVIDER'] || 'local',
+        checkoutConfigured: Boolean(process.env['BILLING_CHECKOUT_URL']),
+      },
+      bypass: await this.getBypassState(userId),
+    };
+  }
+
+  async listPlans() {
+    const plans = await prisma.plan.findMany({
+      where: { isActive: true },
+      include: { planFeatures: true },
+      orderBy: { monthlyPriceCents: 'asc' },
+    });
+    return plans.map((plan) => ({
+      id: plan.id,
+      code: plan.code,
+      name: plan.name,
+      description: plan.description,
+      monthlyPriceCents: plan.monthlyPriceCents,
+      annualPriceCents: plan.annualPriceCents,
+      currency: plan.currency,
+      features: plan.planFeatures.map((feature) => ({
+        key: feature.featureKey,
+        accessLevel: feature.accessLevel,
+        config: feature.configJson,
+        limit: this.extractLimit(feature.configJson),
+      })),
+    }));
+  }
 
   async getSubscription(userId: string) {
     const subscription = await this.resolveActiveSubscription(userId);
@@ -98,6 +151,7 @@ export class CommercialService {
   }
 
   async getUsage(userId: string) {
+    const entitlements = await this.getEntitlements(userId).catch(() => null);
     const usageCounters = await prisma.usageCounter.findMany({
       where: {
         userId: userId,
@@ -121,6 +175,15 @@ export class CommercialService {
     });
 
     return {
+      planCode: entitlements?.planCode,
+      planName: entitlements?.planName,
+      usage: entitlements?.entitlements?.map((entitlement: any) => ({
+        featureKey: entitlement.key,
+        enabled: entitlement.accessLevel !== FeatureAccessLevel.disabled,
+        limit: entitlement.usage.limit,
+        used: entitlement.usage.used,
+        remaining: entitlement.usage.remaining,
+      })) ?? [],
       usageCounters: usageCounters.map(counter => ({
         key: counter.featureKey,
         value: counter.usedCount,
@@ -133,10 +196,12 @@ export class CommercialService {
       growthCredits: growthCredits.map(credit => ({
         id: credit.id,
         key: credit.featureKey,
+        featureKey: credit.featureKey,
         creditType: credit.creditType,
         granted: credit.quantityGranted,
         used: credit.quantityUsed,
         remaining: Math.max(credit.quantityGranted - credit.quantityUsed, 0),
+        remainingQuantity: Math.max(credit.quantityGranted - credit.quantityUsed, 0),
         expiresAt: credit.expiresAt,
       })),
     };
@@ -144,6 +209,21 @@ export class CommercialService {
 
   async checkCapability(userId: string, input: CapabilityCheckInput): Promise<CapabilityCheckResult> {
     const requestedQuantity = Math.max(input.quantity ?? 1, 1);
+    if (await this.isBypassUser(userId)) {
+      return {
+        allowed: true,
+        featureKey: input.featureKey,
+        requestedQuantity,
+        accessLevel: FeatureAccessLevel.enabled,
+        plan: { code: 'founder_bypass', name: 'Founder / Dev Bypass' },
+        limit: null,
+        used: 0,
+        credited: 0,
+        remaining: null,
+        bypassed: true,
+      };
+    }
+
     const subscription = await this.resolveActiveSubscription(userId);
 
     if (!subscription) {
@@ -233,6 +313,9 @@ export class CommercialService {
     if (!check.allowed) {
       return check;
     }
+    if (check.bypassed) {
+      return check;
+    }
 
     const previousUsed = check.used;
     const baseLimit = check.limit;
@@ -282,6 +365,147 @@ export class CommercialService {
       credited: creditedRemaining,
       creditsConsumed,
       remaining: check.limit === null ? null : Math.max(check.limit + creditedRemaining - counter.usedCount, 0),
+    };
+  }
+
+  async createCheckoutSession(userId: string, planCode: string, interval: 'monthly' | 'annual' = 'monthly') {
+    const plan = await prisma.plan.findUnique({ where: { code: planCode } });
+    if (!plan || !plan.isActive) {
+      throw new NotFoundException('Plan not found');
+    }
+    if (plan.code === this.freePlanCode) {
+      throw new BadRequestException('Free plan does not require checkout');
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    const configuredUrl = process.env['BILLING_CHECKOUT_URL'];
+    const successUrl = process.env['BILLING_SUCCESS_URL'] || 'http://localhost:5173/?billing=success';
+    const cancelUrl = process.env['BILLING_CANCEL_URL'] || 'http://localhost:5173/?billing=cancelled';
+    const checkoutUrl = configuredUrl
+      ? this.withQuery(configuredUrl, { plan: plan.code, interval, email: user?.email ?? '', success_url: successUrl, cancel_url: cancelUrl })
+      : this.withQuery('http://localhost:5173/billing/local-checkout', { plan: plan.code, interval });
+
+    return {
+      provider: process.env['BILLING_PROVIDER'] || 'local',
+      plan: { code: plan.code, name: plan.name, monthlyPriceCents: plan.monthlyPriceCents, annualPriceCents: plan.annualPriceCents },
+      interval,
+      checkoutUrl,
+      mode: configuredUrl ? 'provider_redirect' : 'local_pending',
+    };
+  }
+
+  async activatePlanForDev(userId: string, planCode: string) {
+    if (!(await this.isBypassUser(userId))) {
+      throw new BadRequestException('Dev plan activation is only available to founder/dev bypass users.');
+    }
+    const plan = await prisma.plan.findUnique({ where: { code: planCode } });
+    if (!plan) {
+      throw new NotFoundException('Plan not found');
+    }
+    const { start, end } = this.currentMonthlyWindow();
+    await prisma.subscription.updateMany({
+      where: { userId, status: SubscriptionStatus.active },
+      data: { status: SubscriptionStatus.canceled },
+    });
+    return prisma.subscription.create({
+      data: {
+        userId,
+        planId: plan.id,
+        status: SubscriptionStatus.active,
+        provider: 'dev_bypass',
+        billingInterval: 'monthly',
+        startedAt: new Date(),
+        currentPeriodStart: start,
+        currentPeriodEnd: end,
+      },
+      include: { plan: true },
+    });
+  }
+
+  async getOrCreateReferralLink(userId: string) {
+    let link = await prisma.referralLink.findFirst({
+      where: { userId, isActive: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!link) {
+      link = await prisma.referralLink.create({
+        data: {
+          userId,
+          code: await this.uniqueReferralCode(userId),
+          label: 'Default referral link',
+          campaignSource: 'product',
+        },
+      });
+    }
+    return {
+      id: link.id,
+      code: link.code,
+      label: link.label,
+      url: this.referralUrl(link.code),
+      campaignSource: link.campaignSource,
+    };
+  }
+
+  async applyReferralCode(referredUserId: string, code: string) {
+    const link = await prisma.referralLink.findFirst({
+      where: { code, isActive: true },
+    });
+    if (!link) {
+      throw new NotFoundException('Referral link not found');
+    }
+    if (link.userId === referredUserId) {
+      throw new BadRequestException('Users cannot refer themselves');
+    }
+    const attribution = await prisma.referralAttribution.upsert({
+      where: { referredUserId },
+      create: {
+        referralLinkId: link.id,
+        referrerUserId: link.userId,
+        referredUserId,
+        attributionSource: 'referral_code',
+      },
+      update: {
+        referralLinkId: link.id,
+        referrerUserId: link.userId,
+        attributionSource: 'referral_code',
+      },
+    });
+    await this.recordReferralMilestone(referredUserId, ReferralMilestoneType.signup);
+    return attribution;
+  }
+
+  async recordReferralMilestone(referredUserId: string, milestoneType: ReferralMilestoneType, source?: { entityType?: string; entityId?: string }) {
+    const attribution = await prisma.referralAttribution.findUnique({
+      where: { referredUserId },
+      include: { milestones: true },
+    });
+    if (!attribution) {
+      return { recorded: false, reason: 'no_referral_attribution' };
+    }
+    const milestone = await prisma.referralMilestone.upsert({
+      where: {
+        referralAttributionId_milestoneType: {
+          referralAttributionId: attribution.id,
+          milestoneType,
+        },
+      },
+      create: {
+        referralAttributionId: attribution.id,
+        milestoneType,
+        sourceEntityType: source?.entityType,
+        sourceEntityId: source?.entityId,
+      },
+      update: {},
+    });
+
+    const rewards = await this.grantReferralRewards(attribution.id, milestone.id, attribution.referrerUserId, attribution.referredUserId, milestoneType);
+    return { recorded: true, milestone, rewards };
+  }
+
+  async getBypassState(userId: string) {
+    return {
+      enabled: await this.isBypassUser(userId),
+      source: (await this.isBypassUser(userId)) ? 'env_or_user_metadata' : null,
     };
   }
 
@@ -441,6 +665,109 @@ export class CommercialService {
     const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
     const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
     return { start, end };
+  }
+
+  private async grantReferralRewards(
+    referralAttributionId: string,
+    referralMilestoneId: string,
+    referrerUserId: string,
+    referredUserId: string,
+    milestoneType: ReferralMilestoneType,
+  ) {
+    const rewardConfig = this.rewardForMilestone(milestoneType);
+    if (!rewardConfig) return [];
+
+    const rewards = [];
+    for (const userId of [referrerUserId, referredUserId]) {
+      const existing = await prisma.referralReward.findFirst({
+        where: { referralAttributionId, referralMilestoneId, userId, featureKey: rewardConfig.featureKey },
+      });
+      if (existing) {
+        rewards.push(existing);
+        continue;
+      }
+
+      const reward = await prisma.referralReward.create({
+        data: {
+          referralAttributionId,
+          referralMilestoneId,
+          userId,
+          rewardType: rewardConfig.rewardType,
+          featureKey: rewardConfig.featureKey,
+          quantity: rewardConfig.quantity,
+          expiresAt: rewardConfig.expiresAt,
+          metadataJson: this.toJson({ milestoneType }),
+        },
+      });
+      await prisma.growthCredit.create({
+        data: {
+          userId,
+          referralRewardId: reward.id,
+          featureKey: rewardConfig.featureKey,
+          creditType: rewardConfig.rewardType,
+          quantityGranted: rewardConfig.quantity,
+          expiresAt: rewardConfig.expiresAt,
+          metadataJson: this.toJson({ referralAttributionId, referralMilestoneId, milestoneType }),
+        },
+      });
+      rewards.push(reward);
+    }
+    return rewards;
+  }
+
+  private rewardForMilestone(milestoneType: ReferralMilestoneType) {
+    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    if (milestoneType === ReferralMilestoneType.signup || milestoneType === ReferralMilestoneType.onboarding_completed) {
+      return { rewardType: RewardType.ai_usage_credit, featureKey: 'ai_requests', quantity: 25, expiresAt };
+    }
+    if (milestoneType === ReferralMilestoneType.first_cycle_completed) {
+      return { rewardType: RewardType.cycle_credit, featureKey: 'opportunity_cycles', quantity: 5, expiresAt };
+    }
+    if (milestoneType === ReferralMilestoneType.first_outreach_sent) {
+      return { rewardType: RewardType.discovery_scan_credit, featureKey: 'discovery_scans', quantity: 5, expiresAt };
+    }
+    if (milestoneType === ReferralMilestoneType.paid_conversion) {
+      return { rewardType: RewardType.subscription_credit, featureKey: 'subscription_credit', quantity: 1000, expiresAt };
+    }
+    return null;
+  }
+
+  private async uniqueReferralCode(userId: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
+    const prefix = (user?.email?.split('@')[0] ?? 'user').replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase() || 'user';
+    for (let index = 0; index < 5; index += 1) {
+      const code = `${prefix}${Math.random().toString(36).slice(2, 8)}`;
+      const existing = await prisma.referralLink.findUnique({ where: { code } });
+      if (!existing) return code;
+    }
+    return `${prefix}${Date.now().toString(36)}`;
+  }
+
+  private referralUrl(code: string) {
+    const base = process.env['WEB_APP_URL'] || 'http://localhost:5173';
+    return this.withQuery(base, { ref: code });
+  }
+
+  private withQuery(url: string, params: Record<string, string>) {
+    const next = new URL(url);
+    for (const [key, value] of Object.entries(params)) {
+      if (value) next.searchParams.set(key, value);
+    }
+    return next.toString();
+  }
+
+  private async isBypassUser(userId: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, fullName: true } });
+    if (!user) return false;
+    const ids = (process.env['FOUNDER_USER_IDS'] || process.env['DEV_BYPASS_USER_IDS'] || '').split(',').map((value) => value.trim()).filter(Boolean);
+    const emails = (process.env['FOUNDER_EMAILS'] || process.env['DEV_BYPASS_EMAILS'] || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
+    if (ids.includes(userId)) return true;
+    if (user.email && emails.includes(user.email.toLowerCase())) return true;
+    return process.env['DEV_BYPASS_ALL_USERS'] === 'true' && process.env['NODE_ENV'] !== 'production';
+  }
+
+  private toJson(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
   }
 
   private blocked(

@@ -19,8 +19,16 @@ import {
 import { ApiClient, ApiError } from './lib/api';
 import type {
   AuthResponse,
+  CanvasAction,
+  CanvasState,
+  CampaignWorkspace,
+  CampaignProspectSummary,
+  CommercialState,
   ConversationMessage,
+  DiscoveryTargetSummary,
+  EmailReadiness,
   OutreachDraft,
+  PlanSummary,
   StrategicPlanResult,
   SubscriptionSummary,
   UsageSummary,
@@ -44,6 +52,25 @@ interface Notice {
   tone: 'info' | 'success' | 'warning' | 'error';
 }
 
+interface UpgradePromptState {
+  featureKey: string;
+  reason?: string | undefined;
+  hint?: string | undefined;
+}
+
+type OutreachExecutionState = 'idle' | 'blocked' | 'sent';
+
+interface WorkspaceViewState {
+  action: CanvasAction;
+  title: string;
+  explanation: string;
+  phase: string;
+  cycleId: string | null;
+  refs: CanvasState['refs'];
+  allowedActions: Set<string>;
+  primaryAction: string | null;
+}
+
 const emptyVelocity = {
   activeGoalCount: 0,
   activeCampaignCount: 0,
@@ -60,14 +87,20 @@ export function App() {
   const [session, setSession] = useState<StoredSession | null>(() => readSession());
   const api = useMemo(() => new ApiClient(session?.accessToken ?? null), [session?.accessToken]);
   const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
+  const [campaignWorkspace, setCampaignWorkspace] = useState<CampaignWorkspace | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [commercialState, setCommercialState] = useState<CommercialState | null>(null);
+  const [plans, setPlans] = useState<PlanSummary[]>([]);
+  const [emailReadiness, setEmailReadiness] = useState<EmailReadiness | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [draft, setDraft] = useState<OutreachDraft | null>(null);
+  const [outreachExecutionState, setOutreachExecutionState] = useState<OutreachExecutionState>('idle');
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [pendingStrategicSessionId, setPendingStrategicSessionId] = useState<string | null>(null);
   const [strategicPreview, setStrategicPreview] = useState<StrategicPlanResult | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [upgradePrompt, setUpgradePrompt] = useState<UpgradePromptState | null>(null);
   const [isBooting, setIsBooting] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
 
@@ -80,10 +113,21 @@ export function App() {
         api.getSubscription(),
         api.getUsage(),
       ]);
+      const emailState = await api.getEmailReadiness().catch(() => null);
+      const commercial = await api.getCommercialState().catch(() => null);
+      const availablePlans = await api.listPlans().catch(() => []);
+      const campaignId = workspaceState.activeCycle?.refs.campaignId;
+      const campaignState = campaignId
+        ? await api.getCampaignWorkspace(campaignId).catch(() => null)
+        : await api.getCurrentCampaignWorkspace().catch(() => null);
       setWorkspace(workspaceState);
+      setCampaignWorkspace(campaignState);
       setActiveConversationId((current) => current ?? workspaceState.conductor.activeConversationId);
       setSubscription(subscriptionState);
       setUsage(usageState);
+      setCommercialState(commercial);
+      setPlans(availablePlans);
+      setEmailReadiness(emailState);
       setMessages((current) => {
         if (current.length > 0) return current;
         const summary = workspaceState.conductor.currentReasoningSummary;
@@ -109,6 +153,25 @@ export function App() {
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
+
+  const workspaceView = useMemo(
+    () => buildWorkspaceView(workspace, draft, pendingStrategicSessionId),
+    [workspace, draft, pendingStrategicSessionId],
+  );
+
+  useEffect(() => {
+    if (!session) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set('canvas', workspaceView.action);
+    params.delete('mode');
+    if (workspaceView.cycleId) {
+      params.set('cycle', workspaceView.cycleId);
+    } else {
+      params.delete('cycle');
+    }
+    const nextUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
+    window.history.replaceState(null, '', nextUrl);
+  }, [session, workspaceView.action, workspaceView.cycleId]);
 
   function commitSession(auth: AuthResponse) {
     const stored = {
@@ -150,13 +213,19 @@ export function App() {
     localStorage.removeItem(STORAGE_KEY);
     setSession(null);
     setWorkspace(null);
+    setCampaignWorkspace(null);
     setMessages([]);
     setDraft(null);
+    setOutreachExecutionState('idle');
     setActiveConversationId(null);
     setPendingStrategicSessionId(null);
     setStrategicPreview(null);
     setSubscription(null);
     setUsage(null);
+    setCommercialState(null);
+    setPlans([]);
+    setEmailReadiness(null);
+    setUpgradePrompt(null);
   }
 
   async function runCommand(body: Record<string, unknown>, success: string) {
@@ -193,7 +262,7 @@ export function App() {
       }
       if (workspace) {
         conversationInput.context = {
-          workspaceState: workspace.activeWorkspace.mode,
+          canvasAction: workspace.canvas?.action ?? actionFromMode(workspace.activeWorkspace.mode),
           activeCycle: workspace.activeCycle,
         };
       }
@@ -202,6 +271,11 @@ export function App() {
       setActiveConversationId(result.sessionId);
 
       if (result.blocked) {
+        setUpgradePrompt({
+          featureKey: result.upgradeReason ?? result.suggestedAction ?? 'ai_requests',
+          reason: result.upgradeReason,
+          hint: result.upgradeHint,
+        });
         setNotice({
           title: 'Capability blocked',
           detail: result.upgradeHint ?? result.upgradeReason ?? 'This action is not available on the current plan.',
@@ -223,7 +297,7 @@ export function App() {
         setStrategicPreview(null);
         setNotice({
           title: 'Goal proposal ready',
-          detail: 'Review the proposed goal and campaign in the Active Workspace.',
+          detail: 'Review the proposed goal and campaign in the Canvas.',
           tone: 'info',
         });
       }
@@ -324,12 +398,219 @@ export function App() {
     try {
       const generated = await api.generateDraft(opportunityId);
       setDraft({ ...generated, opportunityId: generated.opportunityId ?? opportunityId });
-      setNotice({ title: 'Draft generated', detail: 'The outreach draft is ready in the Active Workspace.', tone: 'success' });
+      setOutreachExecutionState('idle');
+      setNotice({ title: 'Draft generated', detail: 'The outreach draft is ready in the Canvas.', tone: 'success' });
       await loadWorkspace();
     } catch (error) {
       setNotice({
         title: 'Draft failed',
         detail: error instanceof Error ? error.message : 'The backend could not create a draft.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function generateDraftForOpportunity(opportunityId: string, kind: 'initial' | 'follow_up' = 'initial') {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const generated = kind === 'follow_up' ? await api.generateFollowUpDraft(opportunityId) : await api.generateDraft(opportunityId);
+      setDraft({ ...generated, opportunityId: generated.opportunityId ?? opportunityId });
+      setOutreachExecutionState('idle');
+      setNotice({
+        title: kind === 'follow_up' ? 'Follow-up draft generated' : 'Draft generated',
+        detail: 'The outreach draft is ready in the Canvas.',
+        tone: 'success',
+      });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Draft failed',
+        detail: error instanceof Error ? error.message : 'The backend could not create a draft.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function startDiscoveryScan() {
+    const campaign = campaignWorkspace?.campaign;
+    const query =
+      campaign?.targetSegment ??
+      campaign?.strategicAngle ??
+      workspace?.canvas?.title ??
+      'relevant prospects for the current campaign';
+
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const scanInput: {
+        query: string;
+        scanType: string;
+        campaignId?: string;
+        offeringId?: string;
+        goalId?: string;
+        targetSegment?: string;
+        maxTargets: number;
+      } = {
+        query,
+        scanType: query.toLowerCase().includes('professor') ? 'university_professors' : 'mixed',
+        maxTargets: 5,
+      };
+      if (campaign?.id) scanInput.campaignId = campaign.id;
+      const offeringId = campaign?.offeringId ?? workspace?.canvas?.refs.offeringId;
+      if (offeringId) scanInput.offeringId = offeringId;
+      if (campaign?.goalId) scanInput.goalId = campaign.goalId;
+      if (campaign?.targetSegment) scanInput.targetSegment = campaign.targetSegment;
+
+      const result = await api.createDiscoveryScan(scanInput);
+      setNotice({
+        title: 'Discovery scan complete',
+        detail: `${result.targets.length} targets are ready for review.`,
+        tone: 'success',
+      });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Discovery failed',
+        detail: error instanceof Error ? error.message : 'The backend could not run discovery.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function acceptDiscoveryTarget(targetId: string) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      await api.acceptDiscoveryTarget(targetId);
+      setNotice({ title: 'Target accepted', detail: 'This target is ready for campaign promotion.', tone: 'success' });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Accept failed',
+        detail: error instanceof Error ? error.message : 'The target could not be accepted.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function rejectDiscoveryTarget(targetId: string) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      await api.rejectDiscoveryTarget(targetId, 'Rejected in Canvas review');
+      setNotice({ title: 'Target rejected', detail: 'The discovery list has been updated.', tone: 'success' });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Reject failed',
+        detail: error instanceof Error ? error.message : 'The target could not be rejected.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function promoteDiscoveryTargets(scanId: string) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const result = await api.promoteDiscoveryTargets(scanId);
+      setNotice({
+        title: 'Targets promoted',
+        detail: `${result.promoted} accepted targets were added to the campaign workflow.`,
+        tone: 'success',
+      });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Promotion failed',
+        detail: error instanceof Error ? error.message : 'Accepted targets could not be promoted.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function connectEmail(providerName: 'gmail' | 'outlook', accessToken: string, emailAddress?: string) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const readiness = await api.setupEmailConnector({
+        providerName,
+        connectorName: providerName === 'gmail' ? 'Gmail' : 'Outlook',
+        accessToken,
+        ...(emailAddress ? { emailAddress } : {}),
+      });
+      setEmailReadiness(readiness);
+      setNotice({
+        title: readiness.ready ? 'Email connected' : 'Email connector pending',
+        detail: readiness.ready ? 'Real outreach can now be sent through this provider.' : readiness.upgradeHint ?? 'Connector setup needs a valid access token.',
+        tone: readiness.ready ? 'success' : 'warning',
+      });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Connector setup failed',
+        detail: error instanceof Error ? error.message : 'The email connector could not be configured.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function syncEmail() {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const result = await api.syncEmail();
+      setNotice({
+        title: 'Email synced',
+        detail: `${result.synced} messages checked, ${result.linkedReplies} replies linked to opportunities.`,
+        tone: 'success',
+      });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Email sync failed',
+        detail: error instanceof Error ? error.message : 'The connected inbox could not be synced.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function startCheckout(planCode: string) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const checkout = await api.createCheckout(planCode);
+      setNotice({
+        title: checkout.mode === 'local_pending' ? 'Checkout session prepared' : 'Opening checkout',
+        detail: checkout.mode === 'local_pending'
+          ? `${checkout.plan.name} is ready for billing provider wiring.`
+          : `Continue to ${checkout.provider} checkout for ${checkout.plan.name}.`,
+        tone: 'info',
+      });
+      if (checkout.mode !== 'local_pending') {
+        window.location.assign(checkout.checkoutUrl);
+      }
+    } catch (error) {
+      setNotice({
+        title: 'Checkout failed',
+        detail: error instanceof Error ? error.message : 'The checkout session could not be created.',
         tone: 'error',
       });
     } finally {
@@ -344,6 +625,12 @@ export function App() {
     try {
       const result = await api.sendDraft(draft);
       if ('blocked' in result && result.blocked) {
+        setOutreachExecutionState('blocked');
+        setUpgradePrompt({
+          featureKey: result.featureKey ?? 'email_send',
+          reason: result.upgradeReason,
+          hint: result.upgradeHint,
+        });
         setNotice({
           title: 'Send blocked',
           detail: result.upgradeHint ?? result.upgradeReason ?? 'Email send is not available on the current plan.',
@@ -351,11 +638,20 @@ export function App() {
         });
         return;
       }
+      setOutreachExecutionState('sent');
       setNotice({ title: 'Email recorded', detail: 'The outreach activity was linked back to the opportunity.', tone: 'success' });
-      setDraft(null);
       await loadWorkspace();
     } catch (error) {
       const blocked = error instanceof ApiError && error.status === 402;
+      if (blocked) {
+        setOutreachExecutionState('blocked');
+        const payload = error instanceof ApiError && error.payload && typeof error.payload === 'object' ? error.payload as any : null;
+        setUpgradePrompt({
+          featureKey: payload?.featureKey ?? 'email_send',
+          reason: payload?.upgradeReason,
+          hint: payload?.upgradeHint,
+        });
+      }
       setNotice({
         title: blocked ? 'Send blocked' : 'Send failed',
         detail: error instanceof Error ? error.message : 'The email could not be sent.',
@@ -364,6 +660,22 @@ export function App() {
     } finally {
       setIsWorking(false);
     }
+  }
+
+  async function completeActiveCycle() {
+    const cycleId = workspace?.activeCycle?.id;
+    if (!cycleId) {
+      setNotice({
+        title: 'No active cycle',
+        detail: 'There is no active cycle to complete yet.',
+        tone: 'warning',
+      });
+      return;
+    }
+
+    setDraft(null);
+    setOutreachExecutionState('idle');
+    await runCommand({ type: 'complete_cycle', cycleId }, 'Cycle completed');
   }
 
   if (!session) {
@@ -399,18 +711,40 @@ export function App() {
         />
 
         {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
+        {upgradePrompt ? (
+          <UpgradePrompt
+            prompt={upgradePrompt}
+            plans={plans}
+            commercialState={commercialState}
+            isWorking={isWorking}
+            onCheckout={startCheckout}
+            onDismiss={() => setUpgradePrompt(null)}
+          />
+        ) : null}
 
         <div className="workspace-grid">
           <ActiveWorkspace
             workspace={workspace}
+            campaignWorkspace={campaignWorkspace}
+            emailReadiness={emailReadiness}
+            view={workspaceView}
             draft={draft}
+            outreachExecutionState={outreachExecutionState}
             pendingStrategicSessionId={pendingStrategicSessionId}
             strategicPreview={strategicPreview}
             isWorking={isWorking}
             onCommand={runCommand}
             onGenerateDraft={generateDraft}
+            onGenerateDraftForOpportunity={generateDraftForOpportunity}
+            onStartDiscoveryScan={startDiscoveryScan}
+            onAcceptDiscoveryTarget={acceptDiscoveryTarget}
+            onRejectDiscoveryTarget={rejectDiscoveryTarget}
+            onPromoteDiscoveryTargets={promoteDiscoveryTargets}
+            onConnectEmail={connectEmail}
+            onSyncEmail={syncEmail}
             onDraftChange={setDraft}
             onSendDraft={sendDraft}
+            onCompleteCycle={completeActiveCycle}
             onPreviewStrategicPlan={previewStrategicPlan}
             onFinalizeStrategicGoal={finalizeStrategicGoal}
           />
@@ -623,7 +957,7 @@ function WorkspaceTopBar(props: {
   return (
     <header className="workspace-topbar">
       <div>
-        <p className="eyebrow">Active Workspace</p>
+        <p className="eyebrow">Canvas</p>
         <h1>{props.workspace?.activeCycle?.title ?? 'Opportunity cycle engine'}</h1>
       </div>
       <div className="topbar-actions">
@@ -644,50 +978,74 @@ function WorkspaceTopBar(props: {
 
 function ActiveWorkspace(props: {
   workspace: WorkspaceState | null;
+  campaignWorkspace: CampaignWorkspace | null;
+  emailReadiness: EmailReadiness | null;
+  view: WorkspaceViewState;
   draft: OutreachDraft | null;
+  outreachExecutionState: OutreachExecutionState;
   pendingStrategicSessionId: string | null;
   strategicPreview: StrategicPlanResult | null;
   isWorking: boolean;
   onCommand: (body: Record<string, unknown>, success: string) => Promise<void>;
   onGenerateDraft: () => Promise<void>;
+  onGenerateDraftForOpportunity: (opportunityId: string, kind?: 'initial' | 'follow_up') => Promise<void>;
+  onStartDiscoveryScan: () => Promise<void>;
+  onAcceptDiscoveryTarget: (targetId: string) => Promise<void>;
+  onRejectDiscoveryTarget: (targetId: string) => Promise<void>;
+  onPromoteDiscoveryTargets: (scanId: string) => Promise<void>;
+  onConnectEmail: (providerName: 'gmail' | 'outlook', accessToken: string, emailAddress?: string) => Promise<void>;
+  onSyncEmail: () => Promise<void>;
   onDraftChange: (draft: OutreachDraft) => void;
   onSendDraft: () => Promise<void>;
+  onCompleteCycle: () => Promise<void>;
   onPreviewStrategicPlan: () => Promise<void>;
   onFinalizeStrategicGoal: () => Promise<void>;
 }) {
-  const mode = props.draft ? 'draft_edit' : props.pendingStrategicSessionId ? 'goal_planning' : props.workspace?.activeWorkspace.mode ?? 'empty';
   const cycle = props.workspace?.activeCycle ?? null;
   const recommendation = props.workspace?.recommendation ?? null;
+  const showTimeline = props.view.action !== 'idle';
+  const hasCycleContext = Boolean(cycle || recommendation);
 
   return (
     <section className="active-workspace">
-      <div className="workspace-mode-header">
+      <div className="canvas-action-header">
         <div>
-          <p className="label">Workspace mode</p>
-          <h2>{modeLabel(mode)}</h2>
+          <p className="label">Canvas action</p>
+          <h2>{actionLabel(props.view.action)}</h2>
         </div>
-        <StatusBadge label={cycle?.phase ?? recommendation?.type ?? 'ready'} />
+        <StatusBadge label={props.view.phase} />
       </div>
 
-      {mode === 'empty' ? (
+      <CanvasActionSummary view={props.view} />
+
+      {showTimeline ? (
+        <CycleTimeline phase={props.view.phase} />
+      ) : null}
+
+      {props.view.action === 'idle' ? (
         <EmptyWorkspace />
       ) : null}
 
-      {mode === 'signal_review' ? (
-        <SignalReview cycle={cycle} recommendation={recommendation} onGenerateDraft={props.onGenerateDraft} />
+      {props.view.action === 'review_opportunity' ? (
+        hasCycleContext ? (
+          <CycleWorkspace
+            cycle={cycle}
+            recommendation={recommendation}
+            campaignWorkspace={props.campaignWorkspace}
+            isWorking={props.isWorking}
+            onCommand={props.onCommand}
+            onGenerateDraft={props.onGenerateDraft}
+            onGenerateDraftForOpportunity={props.onGenerateDraftForOpportunity}
+          />
+        ) : (
+          <CanvasEmptyState
+            title="No opportunity selected"
+            detail="Activate a signal or ask the Conductor to surface the next opportunity before reviewing."
+          />
+        )
       ) : null}
 
-      {mode === 'opportunity_review' || mode === 'execution_confirm' || mode === 'progress_summary' ? (
-        <CycleWorkspace
-          cycle={cycle}
-          recommendation={recommendation}
-          isWorking={props.isWorking}
-          onCommand={props.onCommand}
-          onGenerateDraft={props.onGenerateDraft}
-        />
-      ) : null}
-
-      {mode === 'goal_planning' || mode === 'campaign_review' || mode === 'asset_review' ? (
+      {props.view.action === 'confirm_goal' || props.view.action === 'confirm_campaign' ? (
         props.pendingStrategicSessionId ? (
           <StrategicPlanWorkspace
             preview={props.strategicPreview}
@@ -695,20 +1053,116 @@ function ActiveWorkspace(props: {
             onPreview={props.onPreviewStrategicPlan}
             onFinalize={props.onFinalizeStrategicGoal}
           />
-        ) : (
+        ) : hasCycleContext ? (
           <PlanningWorkspace cycle={cycle} recommendation={recommendation} />
+        ) : (
+          <CanvasEmptyState
+            title={props.view.action === 'confirm_goal' ? 'No goal proposal ready' : 'No campaign ready'}
+            detail="Use the Conductor to define the next objective, then the Canvas will show the confirmation step."
+          />
         )
       ) : null}
 
-      {mode === 'draft_edit' && props.draft ? (
-        <DraftWorkspace
-          draft={props.draft}
+      {props.view.action === 'confirm_offering' ? (
+        <OfferingConfirmCanvas />
+      ) : null}
+
+      {props.view.action === 'run_discovery' || props.view.action === 'review_discovery_targets' ? (
+        <DiscoveryCanvas
+          campaignWorkspace={props.campaignWorkspace}
           isWorking={props.isWorking}
-          onChange={props.onDraftChange}
-          onSend={props.onSendDraft}
+          onStartScan={props.onStartDiscoveryScan}
+          onAcceptTarget={props.onAcceptDiscoveryTarget}
+          onRejectTarget={props.onRejectDiscoveryTarget}
+          onPromoteTargets={props.onPromoteDiscoveryTargets}
         />
       ) : null}
+
+      {props.view.action === 'upload_asset' ? (
+        <AssetUploadCanvas />
+      ) : null}
+
+      {props.view.action === 'review_asset' ? (
+        <AssetReviewCanvas cycle={cycle} recommendation={recommendation} />
+      ) : null}
+
+      {props.view.action === 'draft_email' ? (
+        props.draft ? (
+          <DraftWorkspace
+            draft={props.draft}
+            cycle={cycle}
+            emailReadiness={props.emailReadiness}
+            isWorking={props.isWorking}
+            executionState={props.outreachExecutionState}
+            onChange={props.onDraftChange}
+            onSend={props.onSendDraft}
+            onCompleteCycle={props.onCompleteCycle}
+            onConnectEmail={props.onConnectEmail}
+            onSyncEmail={props.onSyncEmail}
+          />
+        ) : (
+          <CanvasEmptyState
+            title="No draft loaded"
+            detail="Generate an outreach draft from an active opportunity before editing or sending."
+          />
+        )
+      ) : null}
+
+      {props.view.action === 'confirm_send' || props.view.action === 'complete_cycle' ? (
+        hasCycleContext ? (
+          <CycleWorkspace
+            cycle={cycle}
+            recommendation={recommendation}
+            campaignWorkspace={props.campaignWorkspace}
+            isWorking={props.isWorking}
+            onCommand={props.onCommand}
+            onGenerateDraft={props.onGenerateDraft}
+            onGenerateDraftForOpportunity={props.onGenerateDraftForOpportunity}
+          />
+        ) : (
+          <CanvasEmptyState
+            title="No active cycle"
+            detail="There is no cycle to confirm yet. Ask the Conductor what should move next."
+          />
+        )
+      ) : null}
     </section>
+  );
+}
+
+function CanvasActionSummary(props: { view: WorkspaceViewState }) {
+  return (
+    <div className="canvas-summary">
+      <div>
+        <p className="label">Current action</p>
+        <strong>{props.view.title}</strong>
+        <p>{props.view.explanation}</p>
+      </div>
+      <span>{props.view.primaryAction ? `Next: ${actionLabel(props.view.primaryAction)}` : `${props.view.allowedActions.size} actions available`}</span>
+    </div>
+  );
+}
+
+function CanvasEmptyState(props: { title: string; detail: string }) {
+  return (
+    <div className="empty-workspace compact">
+      <Target size={30} />
+      <h3>{props.title}</h3>
+      <p>{props.detail}</p>
+    </div>
+  );
+}
+
+function CycleTimeline(props: { phase: string }) {
+  return (
+    <div className="cycle-steps timeline" aria-label="Cycle timeline">
+      {['surfaced', 'pursued', 'executed', 'confirmed'].map((step, index) => (
+        <div key={step} className={stepClass(props.phase, step, index)}>
+          <span>{index + 1}</span>
+          <p>{step}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -777,35 +1231,14 @@ function EmptyWorkspace() {
   );
 }
 
-function SignalReview(props: {
-  cycle: WorkspaceState['activeCycle'];
-  recommendation: WorkspaceState['recommendation'];
-  onGenerateDraft: () => Promise<void>;
-}) {
-  const title = props.cycle?.title ?? props.recommendation?.title ?? 'Review the surfaced signal';
-  const detail = props.cycle?.whyItMatters ?? props.recommendation?.aiExplanation ?? props.recommendation?.reason;
-
-  return (
-    <div className="execution-surface">
-      <div className="surface-card priority">
-        <p className="label">Why it matters</p>
-        <h3>{title}</h3>
-        <p>{detail ?? 'The system has surfaced this item as the next useful signal to evaluate.'}</p>
-      </div>
-      <button className="primary-button" onClick={() => void props.onGenerateDraft()} type="button">
-        <Mail size={16} />
-        Generate outreach draft
-      </button>
-    </div>
-  );
-}
-
 function CycleWorkspace(props: {
   cycle: WorkspaceState['activeCycle'];
   recommendation: WorkspaceState['recommendation'];
+  campaignWorkspace: CampaignWorkspace | null;
   isWorking: boolean;
   onCommand: (body: Record<string, unknown>, success: string) => Promise<void>;
   onGenerateDraft: () => Promise<void>;
+  onGenerateDraftForOpportunity: (opportunityId: string, kind?: 'initial' | 'follow_up') => Promise<void>;
 }) {
   const cycle = props.cycle;
   const allowed = new Set(cycle?.allowedActions ?? []);
@@ -816,15 +1249,6 @@ function CycleWorkspace(props: {
         <p className="label">Current cycle</p>
         <h3>{cycle?.title ?? props.recommendation?.title ?? 'Highest leverage next move'}</h3>
         <p>{cycle?.whyItMatters ?? props.recommendation?.aiExplanation ?? props.recommendation?.reason ?? 'The assistant has identified this as the next action to move momentum forward.'}</p>
-      </div>
-
-      <div className="cycle-steps">
-        {['surfaced', 'pursued', 'executed', 'confirmed'].map((step, index) => (
-          <div key={step} className={stepClass(cycle?.phase, step, index)}>
-            <span>{index + 1}</span>
-            <p>{step}</p>
-          </div>
-        ))}
       </div>
 
       <div className="action-grid">
@@ -870,6 +1294,258 @@ function CycleWorkspace(props: {
           Complete cycle
         </button>
       </div>
+
+      {props.campaignWorkspace ? (
+        <CampaignWorkspacePanel
+          campaignWorkspace={props.campaignWorkspace}
+          isWorking={props.isWorking}
+          onGenerateDraft={props.onGenerateDraftForOpportunity}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function CampaignWorkspacePanel(props: {
+  campaignWorkspace: CampaignWorkspace;
+  isWorking: boolean;
+  onGenerateDraft: (opportunityId: string, kind?: 'initial' | 'follow_up') => Promise<void>;
+}) {
+  const { campaignWorkspace } = props;
+  const visibleProspects = campaignWorkspace.prospects.slice(0, 6);
+
+  return (
+    <div className="campaign-workspace">
+      <div className="campaign-header">
+        <div>
+          <p className="label">Campaign workspace</p>
+          <h3>{campaignWorkspace.campaign.title}</h3>
+          <p>{campaignWorkspace.campaign.targetSegment ?? campaignWorkspace.campaign.strategicAngle}</p>
+        </div>
+        <div className="campaign-metrics">
+          <Metric label="Prospects" value={campaignWorkspace.metrics.prospectCount} tone="blue" />
+          <Metric label="Drafts" value={campaignWorkspace.metrics.draftQueueCount} tone="amber" />
+          <Metric label="Follow-ups" value={campaignWorkspace.metrics.followUpQueueCount} tone="green" />
+        </div>
+      </div>
+
+      <div className="prospect-table" role="table" aria-label="Campaign prospects">
+        <div className="prospect-row header" role="row">
+          <span>Prospect</span>
+          <span>Stage</span>
+          <span>Next</span>
+          <span>Action</span>
+        </div>
+        {visibleProspects.map((prospect) => (
+          <ProspectRow
+            key={prospect.id}
+            prospect={prospect}
+            isWorking={props.isWorking}
+            onGenerateDraft={props.onGenerateDraft}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProspectRow(props: {
+  prospect: CampaignProspectSummary;
+  isWorking: boolean;
+  onGenerateDraft: (opportunityId: string, kind?: 'initial' | 'follow_up') => Promise<void>;
+}) {
+  const needsFollowUp = Boolean(props.prospect.lastEmailAt && !props.prospect.openFollowUpTask);
+  return (
+    <div className="prospect-row" role="row">
+      <span>
+        <strong>{props.prospect.companyName}</strong>
+        <small>{props.prospect.primaryPersonName ?? props.prospect.title}</small>
+      </span>
+      <span><StatusBadge label={props.prospect.stage} /></span>
+      <span>{props.prospect.nextAction ?? (needsFollowUp ? 'Follow up' : 'Draft outreach')}</span>
+      <span>
+        <button
+          className="secondary-button compact"
+          disabled={props.isWorking}
+          onClick={() => void props.onGenerateDraft(props.prospect.id, needsFollowUp ? 'follow_up' : 'initial')}
+          type="button"
+        >
+          <Mail size={15} />
+          {needsFollowUp ? 'Follow up' : 'Draft'}
+        </button>
+      </span>
+    </div>
+  );
+}
+
+function DiscoveryCanvas(props: {
+  campaignWorkspace: CampaignWorkspace | null;
+  isWorking: boolean;
+  onStartScan: () => Promise<void>;
+  onAcceptTarget: (targetId: string) => Promise<void>;
+  onRejectTarget: (targetId: string) => Promise<void>;
+  onPromoteTargets: (scanId: string) => Promise<void>;
+}) {
+  const scan = props.campaignWorkspace?.discovery?.scans?.[0] ?? null;
+  const targets = scan?.targets?.slice(0, 6) ?? [];
+  const acceptedCount = targets.filter((target) => target.status === 'accepted').length;
+
+  return (
+    <div className="execution-surface discovery-canvas">
+      <div className="surface-card priority">
+        <p className="label">Discovery</p>
+        <h3>{scan ? scan.query : 'Find campaign targets'}</h3>
+        <p>
+          {scan
+            ? 'Review the strongest targets, keep the ones that fit, and promote accepted targets into the campaign.'
+            : 'Run a focused scan using the current offering and campaign context.'}
+        </p>
+      </div>
+
+      <div className="action-grid">
+        <button className="primary-button" disabled={props.isWorking} onClick={() => void props.onStartScan()} type="button">
+          {props.isWorking ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+          Run scan
+        </button>
+        <button
+          className="secondary-button"
+          disabled={props.isWorking || !scan || acceptedCount === 0}
+          onClick={() => scan && void props.onPromoteTargets(scan.id)}
+          type="button"
+        >
+          <CheckCircle2 size={16} />
+          Promote accepted
+        </button>
+      </div>
+
+      {scan ? (
+        <div className="discovery-results">
+          <div className="campaign-header compact">
+            <div>
+              <p className="label">Latest scan</p>
+              <h3>{scan.targetCount} targets found</h3>
+            </div>
+            <div className="campaign-metrics">
+              <Metric label="Accepted" value={scan.acceptedCount} tone="green" />
+              <Metric label="Promoted" value={scan.promotedCount} tone="blue" />
+              <Metric label="Rejected" value={scan.rejectedCount} tone="amber" />
+            </div>
+          </div>
+
+          {targets.length > 0 ? (
+            <div className="target-list">
+              {targets.map((target) => (
+                <DiscoveryTargetCard
+                  key={target.id}
+                  target={target}
+                  isWorking={props.isWorking}
+                  onAccept={props.onAcceptTarget}
+                  onReject={props.onRejectTarget}
+                />
+              ))}
+            </div>
+          ) : (
+            <CanvasEmptyState title="No targets returned" detail="Run a scan or adjust the campaign query to produce reviewable targets." />
+          )}
+        </div>
+      ) : (
+        <CanvasEmptyState title="No discovery scan yet" detail="Run the first scan to produce explainable campaign targets." />
+      )}
+    </div>
+  );
+}
+
+function DiscoveryTargetCard(props: {
+  target: DiscoveryTargetSummary;
+  isWorking: boolean;
+  onAccept: (targetId: string) => Promise<void>;
+  onReject: (targetId: string) => Promise<void>;
+}) {
+  const evidence = props.target.evidence?.[0];
+  const isLocked = props.target.status === 'promoted' || props.target.status === 'rejected';
+
+  return (
+    <article className="target-card">
+      <div className="target-card-main">
+        <div className="target-icon">
+          <UserRound size={18} />
+        </div>
+        <div>
+          <div className="target-title-row">
+            <h4>{props.target.title}</h4>
+            <StatusBadge label={props.target.status} />
+          </div>
+          <p>{props.target.whyThisTarget ?? 'This target matched the discovery scan.'}</p>
+          {evidence ? <small>{evidence.sourceName ?? evidence.evidenceType}: {evidence.snippet ?? evidence.title}</small> : null}
+        </div>
+      </div>
+      <div className="target-score-row">
+        <Metric label="Relevance" value={props.target.relevanceScore} tone="blue" />
+        <Metric label="Confidence" value={props.target.confidenceScore} tone="green" />
+        <div className="target-actions">
+          <button
+            className="secondary-button compact"
+            disabled={props.isWorking || isLocked || props.target.status === 'accepted'}
+            onClick={() => void props.onAccept(props.target.id)}
+            type="button"
+          >
+            <CheckCircle2 size={15} />
+            Accept
+          </button>
+          <button
+            className="secondary-button compact"
+            disabled={props.isWorking || isLocked}
+            onClick={() => void props.onReject(props.target.id)}
+            type="button"
+          >
+            <X size={15} />
+            Reject
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function OfferingConfirmCanvas() {
+  return (
+    <div className="execution-surface">
+      <div className="surface-card priority">
+        <p className="label">Offering</p>
+        <h3>Define the offer through the Conductor</h3>
+        <p>The Canvas will stay focused on confirmation, uploads, and review steps while the conversation captures positioning.</p>
+      </div>
+    </div>
+  );
+}
+
+function AssetUploadCanvas() {
+  return (
+    <div className="execution-surface">
+      <div className="surface-card priority">
+        <p className="label">Supporting asset</p>
+        <h3>Upload source material</h3>
+        <p>Attach the file that supports the current offering or campaign. The Conductor can use it as leverage in later cycles.</p>
+      </div>
+      <div className="draft-warning">
+        <strong>Upload control pending</strong>
+        <p>The backend upload path exists; this Canvas action is ready for the file picker implementation.</p>
+      </div>
+    </div>
+  );
+}
+
+function AssetReviewCanvas(props: {
+  cycle: WorkspaceState['activeCycle'];
+  recommendation: WorkspaceState['recommendation'];
+}) {
+  return (
+    <div className="execution-surface">
+      <div className="surface-card priority">
+        <p className="label">Asset review</p>
+        <h3>{props.cycle?.title ?? props.recommendation?.title ?? 'Review supporting material'}</h3>
+        <p>{props.recommendation?.recommendedAction ?? 'Confirm whether this material should be used in the current cycle.'}</p>
+      </div>
     </div>
   );
 }
@@ -889,13 +1565,82 @@ function PlanningWorkspace(props: {
   );
 }
 
+function EmailReadinessPanel(props: {
+  readiness: EmailReadiness | null;
+  isWorking: boolean;
+  onConnectEmail: (providerName: 'gmail' | 'outlook', accessToken: string, emailAddress?: string) => Promise<void>;
+  onSyncEmail: () => Promise<void>;
+}) {
+  const [providerName, setProviderName] = useState<'gmail' | 'outlook'>('gmail');
+  const [accessToken, setAccessToken] = useState('');
+  const [emailAddress, setEmailAddress] = useState('');
+  const ready = props.readiness?.ready === true;
+
+  return (
+    <div className={`send-readiness ${ready ? 'ready' : 'blocked'}`}>
+      <div>
+        <p className="label">Send readiness</p>
+        <strong>{ready ? `${props.readiness?.connector?.providerDisplayName ?? 'Email'} connected` : 'Email connector required'}</strong>
+        <p>
+          {ready
+            ? 'Real outreach will send through the connected provider. Sync can detect replies and link them to opportunities.'
+            : props.readiness?.upgradeHint ?? 'Connect Gmail or Outlook before sending real outreach.'}
+        </p>
+      </div>
+
+      {ready ? (
+        <button className="secondary-button compact" disabled={props.isWorking} onClick={() => void props.onSyncEmail()} type="button">
+          <RefreshCw size={15} />
+          Sync replies
+        </button>
+      ) : (
+        <div className="connector-form">
+          <select value={providerName} onChange={(event) => setProviderName(event.target.value as 'gmail' | 'outlook')}>
+            <option value="gmail">Gmail</option>
+            <option value="outlook">Outlook</option>
+          </select>
+          <input
+            value={emailAddress}
+            onChange={(event) => setEmailAddress(event.target.value)}
+            placeholder="email address"
+            type="email"
+          />
+          <input
+            value={accessToken}
+            onChange={(event) => setAccessToken(event.target.value)}
+            placeholder="OAuth access token"
+            type="password"
+          />
+          <button
+            className="secondary-button compact"
+            disabled={props.isWorking || !accessToken}
+            onClick={() => void props.onConnectEmail(providerName, accessToken, emailAddress || undefined)}
+            type="button"
+          >
+            <CheckCircle2 size={15} />
+            Connect
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DraftWorkspace(props: {
   draft: OutreachDraft;
+  cycle: WorkspaceState['activeCycle'];
+  emailReadiness: EmailReadiness | null;
   isWorking: boolean;
+  executionState: OutreachExecutionState;
   onChange: (draft: OutreachDraft) => void;
   onSend: () => Promise<void>;
+  onCompleteCycle: () => Promise<void>;
+  onConnectEmail: (providerName: 'gmail' | 'outlook', accessToken: string, emailAddress?: string) => Promise<void>;
+  onSyncEmail: () => Promise<void>;
 }) {
   const primaryRecipient = props.draft.recipients[0];
+  const bodyWordCount = props.draft.body.trim() ? props.draft.body.trim().split(/\s+/).length : 0;
+  const canComplete = props.executionState === 'blocked' || props.executionState === 'sent';
 
   return (
     <div className="draft-workspace">
@@ -908,6 +1653,20 @@ function DraftWorkspace(props: {
         <StatusBadge label={primaryRecipient?.email ? 'ready to send' : 'missing email'} />
       </div>
 
+      {!primaryRecipient?.email ? (
+        <div className="draft-warning">
+          <strong>Recipient email is missing</strong>
+          <p>This draft can be reviewed, but real provider send will need a resolved email address.</p>
+        </div>
+      ) : null}
+
+      <EmailReadinessPanel
+        readiness={props.emailReadiness}
+        isWorking={props.isWorking}
+        onConnectEmail={props.onConnectEmail}
+        onSyncEmail={props.onSyncEmail}
+      />
+
       <label>
         Subject
         <input
@@ -917,7 +1676,7 @@ function DraftWorkspace(props: {
       </label>
 
       <label>
-        Body
+        Body <span className="field-hint">{bodyWordCount} words</span>
         <textarea
           rows={14}
           value={props.draft.body}
@@ -928,9 +1687,25 @@ function DraftWorkspace(props: {
       <div className="draft-actions">
         <button className="primary-button" disabled={props.isWorking} onClick={() => void props.onSend()} type="button">
           {props.isWorking ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
-          Send outreach
+          {props.emailReadiness?.ready ? 'Send outreach' : 'Check send readiness'}
         </button>
+        {canComplete ? (
+          <button className="secondary-button" disabled={props.isWorking || !props.cycle} onClick={() => void props.onCompleteCycle()} type="button">
+            <CheckCircle2 size={16} />
+            Complete cycle
+          </button>
+        ) : null}
       </div>
+      {canComplete ? (
+        <div className={`execution-result ${props.executionState}`}>
+          <strong>{props.executionState === 'blocked' ? 'Execution boundary reached' : 'Outreach recorded'}</strong>
+          <p>
+            {props.executionState === 'blocked'
+              ? 'The send step was blocked by plan rules. You can still close this guided cycle and continue to the next action.'
+              : 'The outreach step has been recorded. Complete the cycle to move the workspace forward.'}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -962,11 +1737,12 @@ function SignalsPanel(props: {
               <StatusBadge label={signal.importance} />
               <span>{signal.priorityScore}</span>
             </div>
+            <p className="label">Recommended: {actionLabel(actionFromMode(signal.recommendedWorkspaceMode))}</p>
             <h3>{signal.title}</h3>
             <p>{signal.summary ?? signal.reason ?? signal.recommendedAction}</p>
             <div className="signal-actions">
               <button disabled={props.isWorking} onClick={() => props.onActivate(signal)} type="button">
-                Activate
+                Activate in Canvas
                 <ChevronRight size={15} />
               </button>
               <button disabled={props.isWorking} onClick={() => props.onDismiss(signal)} type="button">
@@ -996,6 +1772,49 @@ function NoticeBanner(props: { notice: Notice; compact?: boolean; onDismiss?: ()
   );
 }
 
+function UpgradePrompt(props: {
+  prompt: UpgradePromptState;
+  plans: PlanSummary[];
+  commercialState: CommercialState | null;
+  isWorking: boolean;
+  onCheckout: (planCode: string) => Promise<void>;
+  onDismiss: () => void;
+}) {
+  const paidPlans = props.plans.filter((plan) => plan.monthlyPriceCents > 0).slice(0, 3);
+  const currentPlan = props.commercialState?.subscription.plan.name ?? 'current plan';
+  const referral = props.commercialState?.referral;
+
+  return (
+    <section className="upgrade-panel">
+      <div>
+        <p className="label">Upgrade moment</p>
+        <h3>{upgradeTitle(props.prompt.reason)}</h3>
+        <p>{props.prompt.hint ?? `This capability is not available on ${currentPlan}.`}</p>
+        {referral ? (
+          <p className="referral-line">Referral rewards are active: share <strong>{referral.code}</strong> to earn extra credits after meaningful milestones.</p>
+        ) : null}
+      </div>
+      <div className="upgrade-options">
+        {paidPlans.map((plan) => (
+          <button
+            key={plan.code}
+            className="secondary-button compact"
+            disabled={props.isWorking}
+            onClick={() => void props.onCheckout(plan.code)}
+            type="button"
+          >
+            {plan.name}
+            <span>{formatPrice(plan.monthlyPriceCents)}</span>
+          </button>
+        ))}
+        <button className="icon-button" onClick={props.onDismiss} title="Dismiss upgrade prompt" type="button">
+          <X size={16} />
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function Metric(props: { label: string; value: number; tone: 'blue' | 'green' | 'amber' }) {
   return (
     <div className={`metric ${props.tone}`}>
@@ -1009,8 +1828,8 @@ function StatusBadge(props: { label: string }) {
   return <span className="status-badge">{props.label.replaceAll('_', ' ')}</span>;
 }
 
-function modeLabel(mode: WorkspaceMode) {
-  return mode.replaceAll('_', ' ');
+function actionLabel(action: string) {
+  return action.replaceAll('_', ' ');
 }
 
 function formatRemaining(item: { remaining?: number | null } | undefined) {
@@ -1019,14 +1838,74 @@ function formatRemaining(item: { remaining?: number | null } | undefined) {
   return `${item.remaining} AI left`;
 }
 
+function formatPrice(cents: number) {
+  if (cents <= 0) return 'Free';
+  return `$${Math.round(cents / 100)}/mo`;
+}
+
+function upgradeTitle(reason?: string) {
+  if (reason === 'missing_required_connector') return 'Connect a provider to continue';
+  if (reason === 'usage_limit_reached') return 'Usage limit reached';
+  if (reason === 'plan_does_not_include_capability') return 'Upgrade to unlock this capability';
+  if (reason === 'payment_required') return 'Choose a plan to continue';
+  return 'Capability blocked';
+}
+
 function stepClass(phase: string | undefined, step: string, index: number) {
   const phaseText = phase ?? '';
   const active =
     phaseText.includes(step) ||
+    (phaseText === 'active' && index === 1) ||
     (phaseText === 'proposed' && index === 0) ||
+    (phaseText === 'pursued' && index <= 1) ||
     (phaseText === 'executed' && index <= 2) ||
     (phaseText === 'completed' && index <= 3);
   return `cycle-step ${active ? 'active' : ''}`;
+}
+
+function buildWorkspaceView(
+  workspace: WorkspaceState | null,
+  draft: OutreachDraft | null,
+  pendingStrategicSessionId: string | null,
+): WorkspaceViewState {
+  const backendCanvas = workspace?.canvas;
+  const mode = draft ? 'draft_edit' : pendingStrategicSessionId ? 'goal_planning' : workspace?.activeWorkspace.mode ?? 'empty';
+  const cycle = workspace?.activeCycle ?? null;
+  const recommendation = workspace?.recommendation ?? null;
+  const action = draft ? 'draft_email' : pendingStrategicSessionId ? 'confirm_goal' : backendCanvas?.action ?? actionFromMode(mode);
+  return {
+    action,
+    title:
+      draft?.subject ??
+      (pendingStrategicSessionId ? 'Goal proposal is ready' : undefined) ??
+      backendCanvas?.title ??
+      cycle?.title ??
+      recommendation?.title ??
+      (mode === 'goal_planning' ? 'Goal proposal' : 'Opportunity cycle engine'),
+    explanation:
+      backendCanvas?.explanation ??
+      cycle?.whyItMatters ??
+      recommendation?.aiExplanation ??
+      recommendation?.reason ??
+      'The Conductor will guide the next step and the Canvas will keep the current action focused.',
+    phase: draft ? 'executed' : cycle?.phase ?? backendCanvas?.phase ?? (pendingStrategicSessionId ? 'pursued' : recommendation?.type ?? 'ready'),
+    cycleId: cycle?.id ?? null,
+    refs: backendCanvas?.refs ?? cycle?.refs ?? {},
+    allowedActions: new Set(backendCanvas?.allowedActions ?? cycle?.allowedActions ?? workspace?.activeWorkspace.allowedActions ?? []),
+    primaryAction: backendCanvas?.primaryAction ?? null,
+  };
+}
+
+function actionFromMode(mode: WorkspaceMode): CanvasAction {
+  if (mode === 'empty') return 'idle';
+  if (mode === 'goal_planning') return 'confirm_goal';
+  if (mode === 'campaign_review') return 'confirm_campaign';
+  if (mode === 'discovery_review') return 'review_discovery_targets';
+  if (mode === 'opportunity_review' || mode === 'signal_review') return 'review_opportunity';
+  if (mode === 'draft_edit') return 'draft_email';
+  if (mode === 'asset_review') return 'review_asset';
+  if (mode === 'execution_confirm') return 'confirm_send';
+  return 'complete_cycle';
 }
 
 function readSession(): StoredSession | null {

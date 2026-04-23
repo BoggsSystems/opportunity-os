@@ -1,7 +1,21 @@
 import type {
   AuthResponse,
   CapabilityCheckResult,
+  CampaignWorkspace,
+  CheckoutSession,
+  CommercialState,
+  ContentUploadResult,
+  DiscoveryContentSummary,
+  DiscoveryScanSummary,
+  DiscoveryTargetSummary,
+  EmailReadiness,
+  OfferingAssetSummary,
+  OfferingPositioningSummary,
+  OfferingSummary,
+  OfferingType,
   OutreachDraft,
+  PlanSummary,
+  ReferralLinkSummary,
   StrategicPlanResult,
   SubscriptionSummary,
   UsageSummary,
@@ -9,6 +23,7 @@ import type {
 } from '../types';
 
 const API_URL = import.meta.env['VITE_API_URL'] ?? 'http://localhost:3002';
+const EMAIL_STUB_KEY = 'opportunity-os-email-stub';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -56,6 +71,98 @@ export class ApiClient {
     return this.request<WorkspaceState>('/workspace');
   }
 
+  async getCurrentCampaignWorkspace() {
+    return this.request<CampaignWorkspace | null>('/campaigns/current/workspace');
+  }
+
+  async getCampaignWorkspace(campaignId: string) {
+    return this.request<CampaignWorkspace>(`/campaigns/${encodeURIComponent(campaignId)}/workspace`);
+  }
+
+  async listOfferings() {
+    return this.request<OfferingSummary[]>('/offerings');
+  }
+
+  async createOffering(input: { title: string; description?: string; offeringType: OfferingType }) {
+    const body: { title: string; description?: string; offeringType: OfferingType } = {
+      title: input.title,
+      offeringType: input.offeringType,
+    };
+    if (input.description) body.description = input.description;
+    return this.request<OfferingSummary>('/offerings', {
+      method: 'POST',
+      body,
+    });
+  }
+
+  async updateOffering(id: string, input: Partial<Pick<OfferingSummary, 'title' | 'description' | 'offeringType' | 'status'>>) {
+    return this.request<OfferingSummary>(`/offerings/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: input,
+    });
+  }
+
+  async listOfferingPositioning(offeringId: string) {
+    return this.request<OfferingPositioningSummary[]>(`/offerings/${encodeURIComponent(offeringId)}/positioning`);
+  }
+
+  async listOfferingAssets(offeringId: string) {
+    return this.request<OfferingAssetSummary[]>(`/offerings/${encodeURIComponent(offeringId)}/assets`);
+  }
+
+  async listDiscoveryContent() {
+    return this.request<DiscoveryContentSummary[]>('/discovery/content');
+  }
+
+  async createDiscoveryScan(input: {
+    query: string;
+    scanType?: string;
+    campaignId?: string;
+    offeringId?: string;
+    goalId?: string;
+    targetSegment?: string;
+    maxTargets?: number;
+  }) {
+    return this.request<{ scan: DiscoveryScanSummary; targets: DiscoveryTargetSummary[] }>('/discovery/scans', {
+      method: 'POST',
+      body: input,
+    });
+  }
+
+  async acceptDiscoveryTarget(targetId: string) {
+    return this.request<{ target: DiscoveryTargetSummary }>(`/discovery/targets/${encodeURIComponent(targetId)}/accept`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+
+  async rejectDiscoveryTarget(targetId: string, reason?: string) {
+    return this.request<{ target: DiscoveryTargetSummary }>(`/discovery/targets/${encodeURIComponent(targetId)}/reject`, {
+      method: 'POST',
+      body: reason ? { reason } : {},
+    });
+  }
+
+  async promoteDiscoveryTargets(scanId: string) {
+    return this.request<{ promoted: number; targets: DiscoveryTargetSummary[] }>(
+      `/discovery/scans/${encodeURIComponent(scanId)}/promote-accepted`,
+      {
+        method: 'POST',
+        body: {},
+      },
+    );
+  }
+
+  async uploadContent(input: { file: File; offeringId?: string; title?: string; source?: string; notes?: string }) {
+    const formData = new FormData();
+    formData.append('file', input.file);
+    if (input.offeringId) formData.append('offeringId', input.offeringId);
+    if (input.title) formData.append('title', input.title);
+    if (input.source) formData.append('source', input.source);
+    if (input.notes) formData.append('notes', input.notes);
+    return this.requestForm<ContentUploadResult>('/discovery/content/upload', formData);
+  }
+
   async executeWorkspaceCommand(body: Record<string, unknown>) {
     return this.request<unknown>('/workspace/commands', {
       method: 'POST',
@@ -100,12 +207,67 @@ export class ApiClient {
     return this.request<UsageSummary>('/me/usage');
   }
 
+  async getCommercialState() {
+    return this.request<CommercialState>('/me/commercial-state');
+  }
+
+  async listPlans() {
+    return this.request<PlanSummary[]>('/me/plans');
+  }
+
+  async createCheckout(planCode: string, interval: 'monthly' | 'annual' = 'monthly') {
+    return this.request<CheckoutSession>('/me/billing/checkout', {
+      method: 'POST',
+      body: { planCode, interval },
+    });
+  }
+
+  async getReferralLink() {
+    return this.request<ReferralLinkSummary>('/me/referral-link');
+  }
+
+  async applyReferral(code: string) {
+    return this.request<unknown>('/me/referrals/apply', {
+      method: 'POST',
+      body: { code },
+    });
+  }
+
+  async getEmailReadiness() {
+    return this.request<EmailReadiness>('/connectors/email/readiness');
+  }
+
+  async setupEmailConnector(input: {
+    providerName: 'gmail' | 'outlook';
+    connectorName?: string;
+    emailAddress?: string;
+    accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: string;
+  }) {
+    return this.request<EmailReadiness>('/connectors/email/setup', {
+      method: 'POST',
+      body: input,
+    });
+  }
+
+  async syncEmail() {
+    return this.request<{ success: true; synced: number; linkedReplies: number; replies: unknown[] }>('/connectors/email/sync', {
+      method: 'POST',
+      body: {},
+    });
+  }
+
   async checkCapability(featureKey: string) {
     return this.request<CapabilityCheckResult>(`/me/capabilities/${encodeURIComponent(featureKey)}/check`);
   }
 
   async generateDraft(opportunityId: string) {
     return this.request<OutreachDraft>(`/outreach/draft/${encodeURIComponent(opportunityId)}`);
+  }
+
+  async generateFollowUpDraft(opportunityId: string) {
+    return this.request<OutreachDraft>(`/outreach/follow-up/${encodeURIComponent(opportunityId)}`);
   }
 
   async sendDraft(draft: OutreachDraft) {
@@ -119,8 +281,12 @@ export class ApiClient {
     if (draft.companyId) body.companyId = draft.companyId;
     if (draft.personId) body.personId = draft.personId;
 
+    if (emailStubEnabled()) {
+      return buildStubbedSendResponse(body);
+    }
+
     return this.request<
-      | { success: true; activity: unknown; opportunity: unknown }
+      | { success: true; activity: unknown; opportunity?: unknown; stubbed?: boolean; sentAt?: string; usage?: unknown }
       | ({ success: false; blocked: true } & CapabilityCheckResult)
     >('/outreach/send', {
       method: 'POST',
@@ -134,10 +300,12 @@ export class ApiClient {
       method?: string;
       body?: unknown;
       authenticated?: boolean;
+      headers?: Record<string, string> | undefined;
     } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      ...(options.headers ?? {}),
     };
 
     if (options.authenticated !== false && this.accessToken) {
@@ -163,6 +331,52 @@ export class ApiClient {
 
     return payload as T;
   }
+
+  private async requestForm<T>(path: string, body: FormData): Promise<T> {
+    const headers: Record<string, string> = {};
+    if (this.accessToken) {
+      headers['Authorization'] = `Bearer ${this.accessToken}`;
+    }
+
+    const response = await fetch(`${API_URL}${path}`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+
+    const text = await response.text();
+    const payload = text ? parseJson(text) : null;
+
+    if (!response.ok) {
+      throw new ApiError(response.status, payload);
+    }
+
+    return payload as T;
+  }
+}
+
+function emailStubEnabled() {
+  return typeof localStorage !== 'undefined' && localStorage.getItem(EMAIL_STUB_KEY) === 'true';
+}
+
+function buildStubbedSendResponse(draft: OutreachDraft) {
+  const now = new Date().toISOString();
+  return Promise.resolve({
+    success: true as const,
+    stubbed: true,
+    sentAt: now,
+    activity: {
+      id: `stubbed-email-${Date.now()}`,
+      activityType: 'email',
+      subject: draft.subject,
+      bodySummary: draft.body.slice(0, 500),
+      opportunityId: draft.opportunityId ?? null,
+      companyId: draft.companyId ?? null,
+      personId: draft.personId ?? null,
+      occurredAt: now,
+    },
+    usage: null,
+  });
 }
 
 function parseJson(text: string): unknown {

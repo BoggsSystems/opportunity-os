@@ -11,7 +11,9 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
+    "test:e2e": "node playwright/canvas-action-regression.cjs && node playwright/email-campaign-flow.cjs",
     "test:e2e:email-campaign": "node playwright/email-campaign-flow.cjs",
+    "test:e2e:banana-republic": "node playwright/banana-republic-outreach.cjs",
     "clean": "rm -rf dist"
   },
   "dependencies": {

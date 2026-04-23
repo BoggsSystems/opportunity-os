@@ -24,10 +24,19 @@ async function clickAndWaitForApi(page, buttonName, path) {
   return responsePromise;
 }
 
+async function readCanvasAction(page) {
+  return page.locator('.canvas-action-header h2').innerText();
+}
+
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const events = [];
+  const coveredCanvasActions = new Set();
+
+  await page.addInitScript(() => {
+    localStorage.setItem('opportunity-os-email-stub', 'true');
+  });
 
   page.on('console', (message) => events.push(`console:${message.type()}:${message.text()}`));
   page.on('pageerror', (error) => events.push(`pageerror:${error.message}`));
@@ -56,6 +65,7 @@ async function main() {
   }
 
   await page.waitForSelector('text=Goal proposal is ready', { timeout: 20000 });
+  coveredCanvasActions.add(await readCanvasAction(page));
 
   const previewResponse = await clickAndWaitForApi(page, 'Preview plan', '/ai/preview-strategic-plan');
   const previewJson = await previewResponse.json();
@@ -64,33 +74,50 @@ async function main() {
   const finalizeResponse = await clickAndWaitForApi(page, 'Confirm goal', '/ai/finalize-strategic-goal');
   const finalizeJson = await finalizeResponse.json();
   await page.waitForSelector('text=Goal and campaign created', { timeout: 20000 });
-  await page.waitForSelector('text=Opportunity Review', { timeout: 20000 });
+  await page.waitForSelector('text=Review Opportunity', { timeout: 20000 });
+  coveredCanvasActions.add(await readCanvasAction(page));
+  await page.waitForSelector('.signal-card', { timeout: 20000 });
+
+  const activateResponsePromise = page.waitForResponse(
+    (response) => response.url().includes('/workspace/commands'),
+    { timeout: 70000 },
+  );
+  await page.locator('.signal-card').first().getByRole('button', { name: /Activate in Canvas/ }).click();
+  const activateResponse = await activateResponsePromise;
+  await page.waitForSelector('text=Signal activated', { timeout: 20000 });
+  await page.waitForSelector('text=Review Opportunity', { timeout: 20000 });
+  coveredCanvasActions.add(await readCanvasAction(page));
 
   const draftResponse = await clickAndWaitForApi(page, 'Draft outreach', '/outreach/draft/');
   const draftJson = await draftResponse.json();
   await page.waitForSelector('text=Send outreach', { timeout: 20000 });
+  coveredCanvasActions.add(await readCanvasAction(page));
 
-  const sendResponse = await clickAndWaitForApi(page, 'Send outreach', '/outreach/send');
-  const sendJson = await sendResponse.json();
+  await page.getByRole('button', { name: 'Send outreach' }).click();
+  await page.waitForSelector('text=Email recorded', { timeout: 20000 });
+  coveredCanvasActions.add(await readCanvasAction(page));
   await page.waitForTimeout(1000);
   const sendNotices = await page.locator('.notice').allInnerTexts();
-  const sendBlockedVisible = sendNotices.some((notice) => notice.includes('Send blocked'));
   const sendRecordedVisible = sendNotices.some((notice) => notice.includes('Email recorded'));
-  if (sendJson.blocked === true && !sendBlockedVisible) {
+  if (!sendRecordedVisible) {
     await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
-    throw new Error(`Send was blocked by API but no blocked notice was visible. Notices: ${JSON.stringify(sendNotices)}`);
-  }
-  if (sendJson.blocked !== true && !sendRecordedVisible) {
-    await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
-    throw new Error(`Send response was not blocked but no success notice was visible. Response: ${JSON.stringify(sendJson)} Notices: ${JSON.stringify(sendNotices)}`);
+    throw new Error(`Stubbed send did not show the success notice. Notices: ${JSON.stringify(sendNotices)}`);
   }
 
-  const mode = await page.locator('.workspace-mode-header h2').innerText();
-  const subject = await page.locator('.draft-workspace input').inputValue();
-  const recipient = await page.locator('.draft-meta h3').innerText();
+  await page.waitForSelector('text=Complete cycle', { timeout: 20000 });
+  const completeResponse = await clickAndWaitForApi(page, 'Complete cycle', '/workspace/commands');
+  const completeJson = await completeResponse.json();
+  await page.waitForSelector('text=Cycle completed', { timeout: 20000 });
+  await page.locator('.draft-workspace').waitFor({ state: 'detached', timeout: 20000 }).catch(() => undefined);
+  coveredCanvasActions.add(await readCanvasAction(page));
+
+  const canvasAction = await readCanvasAction(page);
+  const subject = await page.locator('.draft-workspace input').inputValue().catch(() => '');
+  const recipient = await page.locator('.draft-meta h3').innerText().catch(() => '');
   const notices = await page.locator('.notice').allInnerTexts();
   const metrics = await page.locator('.metric').allInnerTexts();
   const signalCards = await page.locator('.signal-card').count();
+  const timelineSteps = await page.locator('.cycle-step').allInnerTexts();
 
   await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
   await browser.close();
@@ -104,14 +131,18 @@ async function main() {
     finalizeStatus: finalizeResponse.status(),
     finalizedGoal: finalizeJson.goal?.title,
     finalizedCampaign: finalizeJson.campaign?.title,
+    activateStatus: activateResponse.status(),
     draftStatus: draftResponse.status(),
     draftSubject: draftJson.subject,
     visibleSubject: subject,
     recipient,
-    sendStatus: sendResponse.status(),
-    sendBlocked: sendJson.blocked === true,
-    sendUpgradeReason: sendJson.upgradeReason,
-    mode,
+    sendStatus: 'stubbed',
+    sendStubbed: true,
+    completeStatus: completeResponse.status(),
+    completedCycleStatus: completeJson.status,
+    canvasAction,
+    coveredCanvasActions: Array.from(coveredCanvasActions),
+    timelineSteps,
     signalCards,
     metrics,
     notices,

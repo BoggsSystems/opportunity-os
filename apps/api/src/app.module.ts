@@ -6,6 +6,7 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { CommercialModule } from './modules/commercial/commercial.module';
+import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { PeopleModule } from './modules/people/people.module';
 import { OfferingsModule } from './modules/offerings/offerings.module';
@@ -23,6 +24,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { AssetModule } from './modules/asset/asset.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { GoalsModule } from './modules/goals/goals.module';
+import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { DevContextInterceptor } from './common/dev-context.interceptor';
 
@@ -36,6 +38,7 @@ import { DevContextInterceptor } from './common/dev-context.interceptor';
     AuthModule,
     UsersModule,
     CommercialModule,
+    ConnectorsModule,
     CompaniesModule,
     PeopleModule,
     OfferingsModule,
@@ -53,6 +56,7 @@ import { DevContextInterceptor } from './common/dev-context.interceptor';
     AiModule,
     AnalyticsModule,
     GoalsModule,
+    CampaignsModule,
     WorkspaceModule,
   ],
   controllers: [TestValidationController],

@@ -597,6 +597,70 @@ Relationships:
 
 MVP: yes
 
+**Discovery Scan**
+
+A first-class research run created from an offering, campaign, goal, or explicit user request.
+
+Represents:
+
+* the discovery intent
+* the provider or tool used
+* the query and target segment
+* the bounded scan request
+* the reviewable result set
+
+Relationships:
+
+* belongs to one User
+* may belong to one Offering
+* may belong to one Goal
+* may belong to one StrategicCampaign
+* produces many Discovery Targets
+
+MVP: yes
+
+**Discovery Target**
+
+An explainable prospect, company, person, professor, content signal, or opportunity candidate discovered before CRM promotion.
+
+Represents:
+
+* who or what was found
+* confidence and relevance scoring
+* dedupe identity
+* why the target matters
+* recommended next action
+* accept/reject/promote review state
+
+Relationships:
+
+* belongs to one User
+* belongs to one Discovery Scan
+* may link to one Company after promotion
+* may link to one Person after promotion
+* may link to one Opportunity after promotion
+* has many Discovery Evidence records
+
+MVP: yes
+
+**Discovery Evidence**
+
+The source material supporting a discovered target.
+
+Represents:
+
+* source URL or provider result
+* snippet or explanation
+* source type
+* confidence
+* publication or retrieval context
+
+Relationships:
+
+* belongs to one Discovery Target
+
+MVP: yes
+
 **Company Watch**
 
 A strategic watch on a company even if there is no active role.
@@ -1147,12 +1211,33 @@ Represents:
 Relationships:
 
 * a User has many Offerings
+* an Offering may be confirmed from one or more OfferingProposals
 * an Offering has many OfferingPositionings
 * an Offering has many OfferingAssets
 * an Offering may have many Goals
 * an Offering may have many StrategicCampaigns
 * an Offering may have many OpportunityCycles
 * an Offering can be matched to many Opportunities
+
+MVP: yes
+
+**OfferingProposal**
+
+An AI-inferred, user-reviewable offering structure extracted from conversation before it becomes a durable Offering.
+
+Represents:
+
+* the Conductor's current understanding of what the user wants to promote, sell, teach, or create opportunities around
+* the editable structured proposal shown in the `confirm_offering` Canvas
+* target audiences, problem solved, outcome created, credibility, outreach angle, and suggested supporting assets
+* the approval boundary between conversational inference and durable business context
+
+Relationships:
+
+* belongs to one User
+* may belong to one AIConversation
+* may be confirmed into one Offering
+* can be rejected, superseded, or confirmed without polluting durable Offerings with unapproved AI guesses
 
 MVP: yes
 
@@ -2000,6 +2085,11 @@ MVP: later
 * A Search Profile has many Search Runs.
 * A Search Run produces many Discovered Opportunities.
 * A Discovered Opportunity may be promoted to an Opportunity.
+* A Discovery Scan belongs to a User and may reference an Offering, Goal, and StrategicCampaign.
+* A Discovery Scan produces many Discovery Targets.
+* A Discovery Target has many Discovery Evidence records.
+* A Discovery Target may be accepted, rejected, marked duplicate, or promoted.
+* A promoted Discovery Target may link to Company, Person, and Opportunity records.
 
 ### Commercial Relationships
 
@@ -2032,6 +2122,10 @@ MVP: later
 ### Offerings Relationships
 
 * A User has many Offerings.
+* A User has many OfferingProposals.
+* An OfferingProposal may belong to one AIConversation.
+* An OfferingProposal may be confirmed into one Offering.
+* An Offering may be confirmed from OfferingProposals.
 * An Offering has many OfferingPositionings.
 * An Offering has many OfferingAssets.
 * An Offering may have many Goals.
@@ -2384,6 +2478,10 @@ Examples:
 * Search Profile
 * Search Run
 * Discovered Opportunity
+* Discovery Scan
+* Discovery Target
+* Discovery Evidence
+* OfferingProposal
 * Offering
 * Goal
 * StrategicCampaign
@@ -2468,7 +2566,7 @@ The platform revolves around a **User** who owns a set of **Companies**, **Peopl
 
 The platform operates through a **capability-first, provider-abstracted integration architecture** where **User Connectors** link **Capabilities** (Email, Calendar, Messaging, Discovery) to **Capability Providers** (Gmail, Outlook, Twilio, Firecrawl). Capability services consult the **Capability Gate** before executing cost-bearing or premium operations, returning structured **Capability Check Results** and **Upgrade Reasons** that frontend clients can use for plan-aware experiences.
 
-New potential opportunities enter the system through **Search Profiles**, **Search Runs**, and **Discovered Opportunities** (often via Discovery capabilities), and can be promoted into the CRM core. The **Offerings** domain represents the user's marketable value propositions. **Goals** define the outcomes the user wants for those offerings, and **StrategicCampaigns** define the tactical motions used to advance them. Persistent **AI Conversation/Context** maintains working memory across sessions and may recommend capability-based actions.
+New potential opportunities enter the system through **Discovery Scans**, **Discovery Targets**, **Discovery Evidence**, and the legacy **Search Profiles/Search Runs/Discovered Opportunities** path. Discovery is its own provider-abstracted intelligence module: it researches targets, stores evidence, scores relevance, supports accept/reject review, and only promotes accepted targets into the CRM core. The **Offerings** domain represents the user's marketable value propositions. **Goals** define the outcomes the user wants for those offerings, and **StrategicCampaigns** define the tactical motions used to advance them. Persistent **AI Conversation/Context** maintains working memory across sessions and may recommend capability-based actions.
 
 The **Workspace Orchestration** domain turns CRM records, discovery results, AI insight, tasks, activities, offerings, goals, and campaigns into focused **Opportunity Cycles** so the web app can show what matters now, why it matters, which offering is being advanced, what the AI recommends, what the active workspace should display, and which execution actions are allowed. **Coaching, Momentum, and Engagement** concepts turn those cycles into targets, nudges, progress, and reactivation moments.
 

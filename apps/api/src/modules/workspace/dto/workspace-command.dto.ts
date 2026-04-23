@@ -7,6 +7,13 @@ import {
 } from 'class-validator';
 
 export const WORKSPACE_COMMAND_TYPES = [
+  'confirm_offering',
+  'adjust_offering',
+  'reject_offering',
+  'start_discovery_scan',
+  'accept_discovery_target',
+  'reject_discovery_target',
+  'promote_discovery_targets',
   'activate_signal',
   'dismiss_signal',
   'dismiss_cycle',

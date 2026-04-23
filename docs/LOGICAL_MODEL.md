@@ -161,6 +161,61 @@ Values:
 * `people`
 * `mixed`
 
+### `discovery_scan_type`
+
+Values:
+
+* `companies`
+* `people`
+* `university_professors`
+* `content_signals`
+* `mixed`
+
+### `discovery_scan_status`
+
+Values:
+
+* `requested`
+* `running`
+* `completed`
+* `failed`
+* `cancelled`
+
+### `discovery_target_type`
+
+Values:
+
+* `company`
+* `person`
+* `university_professor`
+* `content_signal`
+* `opportunity`
+
+### `discovery_target_status`
+
+Values:
+
+* `proposed`
+* `accepted`
+* `rejected`
+* `promoted`
+* `duplicate`
+* `archived`
+
+### `discovery_evidence_type`
+
+Values:
+
+* `website`
+* `linkedin`
+* `publication`
+* `article`
+* `profile`
+* `directory`
+* `search_result`
+* `uploaded_content`
+* `other`
+
 ### `offering_type`
 
 Values:
@@ -1152,6 +1207,133 @@ Purpose: scanned opportunities before promotion into CRM.
 
 ---
 
+### `discovery_scans`
+
+Purpose: first-class discovery runs created from an offering, campaign, goal, or explicit Conductor request.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `offering_id` UUID NULL FK -> `offerings.id`
+* `campaign_id` UUID NULL FK -> `strategic_campaigns.id`
+* `goal_id` UUID NULL FK -> `goals.id`
+* `scan_type` `discovery_scan_type` NOT NULL DEFAULT `mixed`
+* `status` `discovery_scan_status` NOT NULL DEFAULT `requested`
+* `provider_key` VARCHAR NOT NULL DEFAULT `local_mock`
+* `query` TEXT NOT NULL
+* `target_segment` TEXT NULL
+* `max_targets` INTEGER NOT NULL DEFAULT 10
+* `accepted_count` INTEGER NOT NULL DEFAULT 0
+* `rejected_count` INTEGER NOT NULL DEFAULT 0
+* `promoted_count` INTEGER NOT NULL DEFAULT 0
+* `started_at` TIMESTAMP NULL
+* `completed_at` TIMESTAMP NULL
+* `failed_at` TIMESTAMP NULL
+* `failure_reason` TEXT NULL
+* `request_context_json` JSONB NULL
+* `provider_result_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `offering_id`
+* index on `campaign_id`
+* index on `goal_id`
+* index on `status`
+* index on `scan_type`
+* composite index on (`user_id`, `status`, `created_at`)
+
+#### Notes
+
+* Discovery is provider-abstracted; `provider_key` identifies the implementation used for the run.
+* Scans are durable even when no targets are promoted, because the user may review evidence later.
+
+---
+
+### `discovery_targets`
+
+Purpose: explainable candidate prospects or signals produced by discovery before promotion into CRM.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `scan_id` UUID NOT NULL FK -> `discovery_scans.id`
+* `target_type` `discovery_target_type` NOT NULL DEFAULT `person`
+* `status` `discovery_target_status` NOT NULL DEFAULT `proposed`
+* `title` VARCHAR NOT NULL
+* `company_name` VARCHAR NULL
+* `person_name` VARCHAR NULL
+* `role_title` VARCHAR NULL
+* `email` VARCHAR NULL
+* `phone` VARCHAR NULL
+* `website` TEXT NULL
+* `linkedin_url` TEXT NULL
+* `location` VARCHAR NULL
+* `source_url` TEXT NULL
+* `dedupe_key` VARCHAR NULL
+* `confidence_score` INTEGER NOT NULL DEFAULT 50
+* `relevance_score` INTEGER NOT NULL DEFAULT 50
+* `qualification_score` INTEGER NULL
+* `why_this_target` TEXT NULL
+* `recommended_action` TEXT NULL
+* `rejection_reason` TEXT NULL
+* `accepted_at` TIMESTAMP NULL
+* `rejected_at` TIMESTAMP NULL
+* `promoted_at` TIMESTAMP NULL
+* `company_id` UUID NULL FK -> `companies.id`
+* `person_id` UUID NULL FK -> `people.id`
+* `opportunity_id` UUID NULL FK -> `opportunities.id`
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `scan_id`
+* index on `status`
+* index on `target_type`
+* index on `company_id`, `person_id`, and `opportunity_id`
+* indexes on `relevance_score`, `confidence_score`, and `dedupe_key`
+* composite index on (`user_id`, `status`, `relevance_score`)
+
+#### Notes
+
+* Targets are reviewed before promotion; campaigns consume promoted CRM records, not raw provider payloads.
+* `why_this_target` and evidence records are required for explainability in the Canvas.
+
+---
+
+### `discovery_evidence`
+
+Purpose: source-level proof or context behind a discovered target.
+
+#### Columns
+
+* `id` UUID PK
+* `discovery_target_id` UUID NOT NULL FK -> `discovery_targets.id`
+* `evidence_type` `discovery_evidence_type` NOT NULL DEFAULT `other`
+* `title` VARCHAR NOT NULL
+* `source_url` TEXT NULL
+* `source_name` VARCHAR NULL
+* `snippet` TEXT NULL
+* `published_at` TIMESTAMP NULL
+* `confidence_score` INTEGER NOT NULL DEFAULT 50
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `discovery_target_id`
+* index on `evidence_type`
+* index on `source_url`
+
+---
+
 ### `offerings`
 
 Purpose: structured packages of value that users can take to market.
@@ -1177,6 +1359,52 @@ Purpose: structured packages of value that users can take to market.
 
 * An active offering is the commercial context the Conductor should use when ranking next actions.
 * Offerings may be advanced by goals, strategic campaigns, opportunities, and opportunity cycles.
+* Offerings should be created from confirmed `offering_proposals` when the source is conversational AI inference.
+
+---
+
+### `offering_proposals`
+
+Purpose: AI-inferred offering structures awaiting user confirmation before they become durable offerings.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `ai_conversation_id` UUID NULL FK -> `ai_conversations.id`
+* `confirmed_offering_id` UUID NULL FK -> `offerings.id`
+* `title` VARCHAR NOT NULL
+* `description` TEXT NULL
+* `offering_type` `offering_type` NOT NULL
+* `status` `offering_proposal_status` NOT NULL DEFAULT `proposed`
+* `target_audiences_json` JSONB NULL
+* `problem_solved` TEXT NULL
+* `outcome_created` TEXT NULL
+* `credibility` TEXT NULL
+* `best_outreach_angle` TEXT NULL
+* `suggested_assets_json` JSONB NULL
+* `positioning_json` JSONB NULL
+* `metadata_json` JSONB NULL
+* `confirmed_at` TIMESTAMP NULL
+* `rejected_at` TIMESTAMP NULL
+* `superseded_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `ai_conversation_id`
+* index on `confirmed_offering_id`
+* index on (`status`, `updated_at`)
+
+#### Notes
+
+* This table is the approval boundary between conversational inference and durable business context.
+* The `confirm_offering` Canvas should read and edit one proposed record at a time.
+* Confirming a proposal creates or links a durable `offering`, links the conversation to that offering, and marks the proposal `confirmed`.
+* Rejecting or skipping a proposal marks it `rejected`; a newer proposal for the same conversation may mark older open proposals `superseded`.
+* JSON columns intentionally preserve flexible AI-inferred structure without forcing premature schema decisions around every positioning field.
 
 ---
 
@@ -2318,10 +2546,20 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `search_runs` -> many `discovered_opportunities`
 * `discovered_opportunities` -> optional `companies`
 * `discovered_opportunities` -> optional promoted `opportunities`
+* `users` -> many `discovery_scans`
+* `offerings` -> many optional `discovery_scans`
+* `goals` -> many optional `discovery_scans`
+* `strategic_campaigns` -> many optional `discovery_scans`
+* `discovery_scans` -> many `discovery_targets`
+* `discovery_targets` -> many `discovery_evidence`
+* `discovery_targets` -> optional `companies`, `people`, and `opportunities` after promotion
 
 ### Offerings, Goals, and Campaigns
 
 * `users` -> many `offerings`
+* `users` -> many `offering_proposals`
+* `ai_conversations` -> many optional `offering_proposals`
+* `offering_proposals` -> optional confirmed `offerings`
 * `offerings` -> many `offering_positionings`
 * `offerings` -> many `offering_assets`
 * `offering_positionings` -> many optional `offering_assets`
@@ -2610,6 +2848,7 @@ These are the most important ones to include early.
 * `people(user_id)`
 * `opportunities(user_id)`
 * `offerings(user_id)`
+* `offering_proposals(user_id)`
 * `goals(user_id)`
 * `strategic_campaigns(user_id)`
 * `ai_conversations(user_id)`
@@ -2910,6 +3149,9 @@ Models to include:
 - SearchProfile
 - SearchRun
 - DiscoveredOpportunity
+- DiscoveryScan
+- DiscoveryTarget
+- DiscoveryEvidence
 - Offering
 - OfferingPositioning
 - OfferingAsset

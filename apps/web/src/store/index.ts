@@ -22,7 +22,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()(
   devtools(
     persist(
-      (set, get) => ({
+      (set) => ({
         user: null,
         accessToken: null,
         refreshToken: null,
@@ -91,7 +91,7 @@ interface WorkspaceStore {
 
 export const useWorkspaceStore = create<WorkspaceStore>()(
   devtools(
-    (set, get) => ({
+    (set) => ({
       workspaceState: null,
       signals: [],
       isLoading: false,
@@ -141,7 +141,7 @@ interface SubscriptionStore {
 export const useSubscriptionStore = create<SubscriptionStore>()(
   devtools(
     persist(
-      (set, get) => ({
+      (set) => ({
         subscription: null,
         usage: null,
         isLoading: false,
