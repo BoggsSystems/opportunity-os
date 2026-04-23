@@ -1,10 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   CampaignStatus,
-  ActionLaneType,
   ActionLaneStatus,
   ActionCycleStatus,
-  Prisma,
   prisma,
 } from '@opportunity-os/db';
 import {
@@ -146,13 +144,6 @@ export class CampaignOrchestrationService {
         campaign: { select: { id: true, userId: true, title: true } },
         actionCycles: {
           orderBy: { priorityScore: 'desc' },
-          include: {
-            campaignMetrics: {
-              where: { metricType: 'conversion_rate' },
-              orderBy: { computedAt: 'desc' },
-              take: 5,
-            },
-          },
         },
         campaignMetrics: {
           orderBy: { computedAt: 'desc' },
@@ -176,7 +167,7 @@ export class CampaignOrchestrationService {
       // Verify campaign ownership
       await this.findCampaign(userId, campaignId);
     } else {
-      where.campaign = { userId };
+      where.campaign = { is: { userId } };
     }
     
     if (status) {
@@ -198,7 +189,7 @@ export class CampaignOrchestrationService {
   }
 
   async updateActionLane(userId: string, actionLaneId: string, data: UpdateActionLaneDto) {
-    const actionLane = await this.getActionLane(userId, actionLaneId);
+    await this.getActionLane(userId, actionLaneId);
     
     return prisma.actionLane.update({
       where: { id: actionLaneId },
@@ -222,15 +213,11 @@ export class CampaignOrchestrationService {
 
   // ACTION CYCLE OPERATIONS
   async createActionCycle(userId: string, data: CreateActionCycleDto) {
-    // Verify campaign ownership through lane
-    const actionLane = await this.getActionLane(data.actionLaneId);
-    if (actionLane.campaign.userId !== userId) {
-      throw new NotFoundException('Action lane not found');
-    }
+    const actionLane = await this.verifyActionLaneOwnership(userId, data.actionLaneId);
 
     return prisma.actionCycle.create({
       data: {
-        campaignId: data.campaignId,
+        campaignId: actionLane.campaignId,
         actionLaneId: data.actionLaneId,
         targetType: data.targetType,
         targetId: data.targetId,
@@ -273,10 +260,10 @@ export class CampaignOrchestrationService {
     } else if (actionLaneId) {
       where.actionLaneId = actionLaneId;
       // Verify lane ownership
-      const actionLane = await this.getActionLane(userId, actionLaneId);
+      const actionLane = await this.verifyActionLaneOwnership(userId, actionLaneId);
       where.campaignId = actionLane.campaignId;
     } else {
-      where.campaign = { userId };
+      where.campaign = { is: { userId } };
     }
     
     if (status) {
@@ -294,7 +281,7 @@ export class CampaignOrchestrationService {
   }
 
   async updateActionCycle(userId: string, actionCycleId: string, data: UpdateActionCycleDto) {
-    const actionCycle = await this.getActionCycle(userId, actionCycleId);
+    await this.getActionCycle(userId, actionCycleId);
     
     const updateData: any = {
       ...data,
@@ -312,9 +299,6 @@ export class CampaignOrchestrationService {
           break;
         case ActionCycleStatus.confirmed:
           updateData.confirmedAt = new Date();
-          break;
-        case ActionCycleStatus.completed:
-          updateData.completedAt = new Date();
           break;
       }
     }
@@ -341,7 +325,7 @@ export class CampaignOrchestrationService {
   async getNextBestAction(userId: string, campaignId: string) {
     const campaign = await this.getCampaign(userId, campaignId);
     
-    // Get all active lanes with their cycles
+    // Get all active lanes with their execution records
     const lanesWithCycles = await prisma.actionLane.findMany({
       where: { 
         campaignId,
@@ -366,18 +350,18 @@ export class CampaignOrchestrationService {
     // AI decision logic for lane prioritization
     const laneScores = lanesWithCycles.map(lane => {
       const recentConversionRate = lane.campaignMetrics[0]?.metricValue.toNumber() || 0;
-      const activeCycleCount = lane.actionCycles.length;
+      const activeExecutionCount = lane.actionCycles.length;
       const lanePriority = lane.priorityScore;
       
       // Score based on performance, capacity, and priority
       const performanceScore = recentConversionRate * 0.4;
-      const capacityScore = activeCycleCount < 3 ? 0.3 : 0; // Prefer lanes with capacity
+      const capacityScore = activeExecutionCount < 3 ? 0.3 : 0; // Prefer lanes with capacity
       const priorityScore = (lanePriority / 100) * 0.3;
       
       return {
         lane,
         totalScore: performanceScore + capacityScore + priorityScore,
-        recommendation: this.generateLaneRecommendation(lane, activeCycleCount, recentConversionRate),
+        recommendation: this.generateLaneRecommendation(lane, activeExecutionCount, recentConversionRate),
       };
     });
 
@@ -389,14 +373,14 @@ export class CampaignOrchestrationService {
       return { recommendation: 'No active lanes available for action', nextAction: null };
     }
 
-    const nextCycle = bestLane.lane.actionCycles[0];
+    const nextExecution = bestLane.lane.actionCycles[0];
     
     return {
       recommendation: bestLane.recommendation,
       nextAction: {
         campaign,
         actionLane: bestLane.lane,
-        actionCycle: nextCycle,
+        actionCycle: nextExecution,
         confidence: bestLane.totalScore,
         alternativeLanes: laneScores.slice(1, 3).map(ls => ({
           lane: ls.lane,
@@ -423,7 +407,7 @@ export class CampaignOrchestrationService {
   }
 
   async updateLaneMetrics(userId: string, actionLaneId: string, metricType: string, value: number) {
-    const actionLane = await this.getActionLane(userId, actionLaneId);
+    await this.getActionLane(userId, actionLaneId);
     
     return prisma.campaignMetric.create({
       data: {
@@ -464,11 +448,26 @@ export class CampaignOrchestrationService {
     return campaign;
   }
 
-  private generateLaneRecommendation(lane: any, activeCycleCount: number, conversionRate: number): string {
+  private async verifyActionLaneOwnership(userId: string, actionLaneId: string) {
+    const actionLane = await prisma.actionLane.findFirst({
+      where: { id: actionLaneId },
+      include: {
+        campaign: { select: { id: true, userId: true } },
+      },
+    });
+
+    if (!actionLane || actionLane.campaign.userId !== userId) {
+      throw new NotFoundException('Action lane not found');
+    }
+
+    return actionLane;
+  }
+
+  private generateLaneRecommendation(lane: any, activeExecutionCount: number, conversionRate: number): string {
     const laneType = lane.laneType.replace('_', ' ');
     
-    if (activeCycleCount === 0) {
-      return `${laneType} lane is idle - consider surfacing new targets or adjusting strategy`;
+    if (activeExecutionCount === 0) {
+      return `${laneType} lane is idle - consider surfacing new targets or refining strategy`;
     }
     
     if (conversionRate > 0.3) {

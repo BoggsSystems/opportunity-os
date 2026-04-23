@@ -325,7 +325,7 @@ Return only valid JSON with this structure:
 {
   "title": "short offering name",
   "description": "1-2 sentence description",
-  "offeringType": "product | service | consulting | job_profile | other",
+  "offeringType": "product | service | consulting | advisory_program | book | content_series | software | platform | event | role_candidacy | other",
   "targetAudiences": ["audience"],
   "problemSolved": "problem this offering solves",
   "outcomeCreated": "outcome it creates",
@@ -367,12 +367,37 @@ ${transcript || 'No transcript available.'}
     const lower = transcript.toLowerCase();
     const isBook = lower.includes('book');
     const isConsulting = lower.includes('consulting') || lower.includes('audit') || lower.includes('transformation');
+    const isRoleCandidacy =
+      lower.includes('job') ||
+      lower.includes('role') ||
+      lower.includes('position') ||
+      lower.includes('recruiter') ||
+      lower.includes('hiring');
+    const isPlatform = lower.includes('platform') || lower.includes('software');
     return {
-      title: isBook ? 'AI-Native Software Engineering Book' : 'AI-Native SDLC Offering',
+      title: isBook
+        ? 'AI-Native Software Engineering Book'
+        : isRoleCandidacy
+          ? 'AI-Native Engineering Role Candidacy'
+          : isPlatform
+            ? 'AI-Native Software Platform'
+            : 'AI-Native SDLC Offering',
       description: isBook
         ? 'A book and related point of view about AI-native software engineering.'
-        : 'A practical offering around AI-native software engineering and delivery transformation.',
-      offeringType: isConsulting ? OfferingType.consulting : OfferingType.product,
+        : isRoleCandidacy
+          ? 'A professional value proposition for roles focused on AI-native software engineering and delivery.'
+          : isPlatform
+            ? 'A software platform offering built around AI-native software engineering workflows.'
+            : 'A practical offering around AI-native software engineering and delivery transformation.',
+      offeringType: isBook
+        ? OfferingType.book
+        : isConsulting
+          ? OfferingType.consulting
+          : isRoleCandidacy
+            ? OfferingType.role_candidacy
+            : isPlatform
+              ? OfferingType.platform
+              : OfferingType.product,
       targetAudiences: lower.includes('professor') ? ['Software engineering professors'] : ['Software engineering leaders'],
       problemSolved: 'Helps the audience understand and act on the shift toward AI-native software engineering.',
       outcomeCreated: 'Creates a clearer path to adopting AI-native engineering practices.',
@@ -384,9 +409,27 @@ ${transcript || 'No transcript available.'}
   }
 
   private normalizeOfferingType(value: unknown): OfferingType {
-    if (typeof value === 'string' && Object.values(OfferingType).includes(value as OfferingType)) {
-      return value as OfferingType;
+    if (typeof value !== 'string') {
+      return OfferingType.other;
     }
+
+    const normalized = value.trim().toLowerCase();
+    const aliases: Record<string, OfferingType> = {
+      job: OfferingType.role_candidacy,
+      job_profile: OfferingType.role_candidacy,
+      role: OfferingType.role_candidacy,
+      candidacy: OfferingType.role_candidacy,
+      book_offer: OfferingType.book,
+      content: OfferingType.content_series,
+      saas: OfferingType.software,
+      app: OfferingType.software,
+    };
+
+    const resolved = aliases[normalized] ?? normalized;
+    if (Object.values(OfferingType).includes(resolved as OfferingType)) {
+      return resolved as OfferingType;
+    }
+
     return OfferingType.other;
   }
 

@@ -181,7 +181,19 @@ export interface CheckoutSession {
   mode: string;
 }
 
-export type OfferingType = 'product' | 'service' | 'consulting' | 'content' | 'other';
+export type OfferingType =
+  | 'product'
+  | 'service'
+  | 'consulting'
+  | 'advisory_program'
+  | 'book'
+  | 'content_series'
+  | 'software'
+  | 'platform'
+  | 'event'
+  | 'job_profile'
+  | 'role_candidacy'
+  | 'other';
 export type OfferingStatus = 'draft' | 'active' | 'archived';
 
 export interface OfferingSummary {

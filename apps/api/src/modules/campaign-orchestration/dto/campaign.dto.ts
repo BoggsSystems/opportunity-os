@@ -109,7 +109,7 @@ export class UpdateCampaignDto {
 export class CreateActionLaneDto {
   @ApiProperty({ description: 'Campaign ID' })
   @IsString()
-  campaignId: string;
+  campaignId?: string;
 
   @ApiProperty({ description: 'Lane type', enum: ActionLaneType })
   @IsEnum(ActionLaneType)
@@ -193,7 +193,8 @@ export class UpdateActionLaneDto {
 
 // ACTION CYCLE DTOs
 export class CreateActionCycleDto {
-  @ApiProperty({ description: 'Campaign ID' })
+  @ApiPropertyOptional({ description: 'Campaign ID. Optional compatibility field; the canonical campaign is derived from the action lane.' })
+  @IsOptional()
   @IsString()
   campaignId: string;
 
@@ -209,7 +210,7 @@ export class CreateActionCycleDto {
   @IsString()
   targetId: string;
 
-  @ApiProperty({ description: 'Action type' })
+  @ApiProperty({ description: 'Execution action type' })
   @IsString()
   actionType: string;
 
@@ -227,7 +228,7 @@ export class CreateActionCycleDto {
 }
 
 export class UpdateActionCycleDto {
-  @ApiPropertyOptional({ description: 'Cycle status', enum: ActionCycleStatus })
+  @ApiPropertyOptional({ description: 'Execution record status', enum: ActionCycleStatus })
   @IsOptional()
   @IsEnum(ActionCycleStatus)
   status?: ActionCycleStatus;

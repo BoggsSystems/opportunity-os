@@ -1,17 +1,7 @@
-import { 
-  Controller, 
-  Get, 
-  Post, 
-  Put, 
-  Delete, 
-  Body, 
-  Param, 
-  Query,
-  UseGuards,
-  Request 
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AuthenticatedUser } from '../auth/auth.types';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { CampaignOrchestrationService } from './campaign-orchestration.service';
 import { 
   CreateCampaignDto, 
@@ -19,12 +9,10 @@ import {
   CreateActionLaneDto,
   UpdateActionLaneDto,
   CreateActionCycleDto,
-  UpdateActionCycleDto,
-  UpdateMetricsDto
+  UpdateActionCycleDto
 } from './dto/campaign.dto';
 
 @ApiTags('campaign-orchestration')
-@UseGuards(JwtAuthGuard)
 @Controller('campaign-orchestration')
 export class CampaignOrchestrationController {
   constructor(private readonly campaignOrchestrationService: CampaignOrchestrationService) {}
@@ -33,64 +21,71 @@ export class CampaignOrchestrationController {
   @Post('campaigns')
   @ApiOperation({ summary: 'Create a new campaign' })
   @ApiResponse({ status: 201, description: 'Campaign created successfully' })
-  async createCampaign(@Request() req, @Body() createCampaignDto: CreateCampaignDto) {
-    return this.campaignOrchestrationService.createCampaign(req.user.userId, createCampaignDto);
+  async createCampaign(@Body() createCampaignDto: CreateCampaignDto, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.createCampaign(user.id, createCampaignDto);
   }
 
   @Get('campaigns')
   @ApiOperation({ summary: 'List user campaigns' })
   @ApiResponse({ status: 200, description: 'Campaigns retrieved successfully' })
   async listCampaigns(
-    @Request() req,
-    @Query('status') status?: string
+    @Query('status') status?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
-    return this.campaignOrchestrationService.listCampaigns(req.user.userId, status as any);
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.listCampaigns(user.id, status as any);
   }
 
   @Get('campaigns/:id')
   @ApiOperation({ summary: 'Get campaign details' })
   @ApiResponse({ status: 200, description: 'Campaign retrieved successfully' })
-  async getCampaign(@Request() req, @Param('id') id: string) {
-    return this.campaignOrchestrationService.getCampaign(req.user.userId, id);
+  async getCampaign(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.getCampaign(user.id, id);
   }
 
   @Put('campaigns/:id')
   @ApiOperation({ summary: 'Update campaign' })
   @ApiResponse({ status: 200, description: 'Campaign updated successfully' })
   async updateCampaign(
-    @Request() req,
     @Param('id') id: string,
-    @Body() updateCampaignDto: UpdateCampaignDto
+    @Body() updateCampaignDto: UpdateCampaignDto,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
-    return this.campaignOrchestrationService.updateCampaign(req.user.userId, id, updateCampaignDto);
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.updateCampaign(user.id, id, updateCampaignDto);
   }
 
   @Delete('campaigns/:id')
   @ApiOperation({ summary: 'Delete campaign' })
   @ApiResponse({ status: 200, description: 'Campaign deleted successfully' })
-  async deleteCampaign(@Request() req, @Param('id') id: string) {
-    return this.campaignOrchestrationService.deleteCampaign(req.user.userId, id);
+  async deleteCampaign(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.deleteCampaign(user.id, id);
   }
 
   // ACTION LANE ENDPOINTS
   @Post('action-lanes')
   @ApiOperation({ summary: 'Create a new action lane' })
   @ApiResponse({ status: 201, description: 'Action lane created successfully' })
-  async createActionLane(@Request() req, @Body() createActionLaneDto: CreateActionLaneDto) {
-    return this.campaignOrchestrationService.createActionLane(req.user.userId, createActionLaneDto);
+  async createActionLane(@Body() createActionLaneDto: CreateActionLaneDto, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.createActionLane(user.id, createActionLaneDto);
   }
 
   @Get('action-lanes')
   @ApiOperation({ summary: 'List action lanes' })
   @ApiResponse({ status: 200, description: 'Action lanes retrieved successfully' })
   async listActionLanes(
-    @Request() req,
     @Query('campaignId') campaignId?: string,
-    @Query('status') status?: string
+    @Query('status') status?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
     return this.campaignOrchestrationService.listActionLanes(
-      req.user.userId, 
-      campaignId, 
+      user.id,
+      campaignId,
       status as any
     );
   }
@@ -98,47 +93,52 @@ export class CampaignOrchestrationController {
   @Get('action-lanes/:id')
   @ApiOperation({ summary: 'Get action lane details' })
   @ApiResponse({ status: 200, description: 'Action lane retrieved successfully' })
-  async getActionLane(@Request() req, @Param('id') id: string) {
-    return this.campaignOrchestrationService.getActionLane(req.user.userId, id);
+  async getActionLane(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.getActionLane(user.id, id);
   }
 
   @Put('action-lanes/:id')
   @ApiOperation({ summary: 'Update action lane' })
   @ApiResponse({ status: 200, description: 'Action lane updated successfully' })
   async updateActionLane(
-    @Request() req,
     @Param('id') id: string,
-    @Body() updateActionLaneDto: UpdateActionLaneDto
+    @Body() updateActionLaneDto: UpdateActionLaneDto,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
-    return this.campaignOrchestrationService.updateActionLane(req.user.userId, id, updateActionLaneDto);
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.updateActionLane(user.id, id, updateActionLaneDto);
   }
 
   @Delete('action-lanes/:id')
   @ApiOperation({ summary: 'Delete action lane' })
   @ApiResponse({ status: 200, description: 'Action lane deleted successfully' })
-  async deleteActionLane(@Request() req, @Param('id') id: string) {
-    return this.campaignOrchestrationService.deleteActionLane(req.user.userId, id);
+  async deleteActionLane(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.deleteActionLane(user.id, id);
   }
 
   // ACTION CYCLE ENDPOINTS
   @Post('action-cycles')
   @ApiOperation({ summary: 'Create a new action cycle' })
   @ApiResponse({ status: 201, description: 'Action cycle created successfully' })
-  async createActionCycle(@Request() req, @Body() createActionCycleDto: CreateActionCycleDto) {
-    return this.campaignOrchestrationService.createActionCycle(req.user.userId, createActionCycleDto);
+  async createActionCycle(@Body() createActionCycleDto: CreateActionCycleDto, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.createActionCycle(user.id, createActionCycleDto);
   }
 
   @Get('action-cycles')
   @ApiOperation({ summary: 'List action cycles' })
   @ApiResponse({ status: 200, description: 'Action cycles retrieved successfully' })
   async listActionCycles(
-    @Request() req,
     @Query('campaignId') campaignId?: string,
     @Query('actionLaneId') actionLaneId?: string,
-    @Query('status') status?: string
+    @Query('status') status?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
     return this.campaignOrchestrationService.listActionCycles(
-      req.user.userId,
+      user.id,
       campaignId,
       actionLaneId,
       status as any
@@ -148,34 +148,38 @@ export class CampaignOrchestrationController {
   @Get('action-cycles/:id')
   @ApiOperation({ summary: 'Get action cycle details' })
   @ApiResponse({ status: 200, description: 'Action cycle retrieved successfully' })
-  async getActionCycle(@Request() req, @Param('id') id: string) {
-    return this.campaignOrchestrationService.getActionCycle(req.user.userId, id);
+  async getActionCycle(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.getActionCycle(user.id, id);
   }
 
   @Put('action-cycles/:id')
   @ApiOperation({ summary: 'Update action cycle' })
   @ApiResponse({ status: 200, description: 'Action cycle updated successfully' })
   async updateActionCycle(
-    @Request() req,
     @Param('id') id: string,
-    @Body() updateActionCycleDto: UpdateActionCycleDto
+    @Body() updateActionCycleDto: UpdateActionCycleDto,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
-    return this.campaignOrchestrationService.updateActionCycle(req.user.userId, id, updateActionCycleDto);
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.updateActionCycle(user.id, id, updateActionCycleDto);
   }
 
   @Delete('action-cycles/:id')
   @ApiOperation({ summary: 'Delete action cycle' })
   @ApiResponse({ status: 200, description: 'Action cycle deleted successfully' })
-  async deleteActionCycle(@Request() req, @Param('id') id: string) {
-    return this.campaignOrchestrationService.deleteActionCycle(req.user.userId, id);
+  async deleteActionCycle(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.deleteActionCycle(user.id, id);
   }
 
   // AI DECISION SUPPORT ENDPOINTS
   @Get('campaigns/:id/next-action')
   @ApiOperation({ summary: 'Get AI-recommended next action for campaign' })
   @ApiResponse({ status: 200, description: 'Next action recommendation retrieved successfully' })
-  async getNextBestAction(@Request() req, @Param('id') id: string) {
-    return this.campaignOrchestrationService.getNextBestAction(req.user.userId, id);
+  async getNextBestAction(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.getNextBestAction(user.id, id);
   }
 
   // METRICS ENDPOINTS
@@ -183,12 +187,13 @@ export class CampaignOrchestrationController {
   @ApiOperation({ summary: 'Update campaign metrics' })
   @ApiResponse({ status: 201, description: 'Campaign metrics updated successfully' })
   async updateCampaignMetrics(
-    @Request() req,
     @Param('id') id: string,
-    @Body() body: { metricType: string; value: number }
+    @Body() body: { metricType: string; value: number },
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
     return this.campaignOrchestrationService.updateCampaignMetrics(
-      req.user.userId,
+      user.id,
       id,
       body.metricType,
       body.value
@@ -199,12 +204,13 @@ export class CampaignOrchestrationController {
   @ApiOperation({ summary: 'Update action lane metrics' })
   @ApiResponse({ status: 201, description: 'Action lane metrics updated successfully' })
   async updateLaneMetrics(
-    @Request() req,
     @Param('id') id: string,
-    @Body() body: { metricType: string; value: number }
+    @Body() body: { metricType: string; value: number },
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
     return this.campaignOrchestrationService.updateLaneMetrics(
-      req.user.userId,
+      user.id,
       id,
       body.metricType,
       body.value
@@ -215,10 +221,11 @@ export class CampaignOrchestrationController {
   @ApiOperation({ summary: 'Get campaign metrics' })
   @ApiResponse({ status: 200, description: 'Campaign metrics retrieved successfully' })
   async getCampaignMetrics(
-    @Request() req,
     @Param('id') id: string,
-    @Query('metricType') metricType?: string
+    @Query('metricType') metricType?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
-    return this.campaignOrchestrationService.getCampaignMetrics(req.user.userId, id, metricType);
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.getCampaignMetrics(user.id, id, metricType);
   }
 }

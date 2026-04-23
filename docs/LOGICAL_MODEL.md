@@ -223,7 +223,14 @@ Values:
 * `product`
 * `service`
 * `consulting`
+* `advisory_program`
+* `book`
+* `content_series`
+* `software`
+* `platform`
+* `event`
 * `job_profile`
+* `role_candidacy`
 * `other`
 
 ### `offering_status`
@@ -344,7 +351,6 @@ Values:
 * `pursuing`
 * `executed`
 * `confirmed`
-* `queued`
 * `failed`
 * `dismissed`
 
@@ -1405,7 +1411,9 @@ Purpose: structured packages of value that users can take to market.
 #### Notes
 
 * An active offering is the commercial context the Conductor should use when ranking next actions.
-* Offerings may be advanced by goals, strategic campaigns, opportunities, and opportunity cycles.
+* An offering is the market-facing value unit being advanced, not the user's raw experience or resume by itself.
+* Offerings may be advanced by goals, campaigns, opportunities, lane execution records, and legacy opportunity cycles.
+* Supporting assets such as resumes, books, portfolios, case studies, and briefs provide evidence and leverage for an offering.
 * Offerings should be created from confirmed `offering_proposals` when the source is conversational AI inference.
 
 ---
@@ -2481,7 +2489,7 @@ Purpose: coordinated execution streams or channels within a campaign, representi
 
 ### `action_cycles`
 
-Purpose: concrete execution units within ActionLanes, representing complete cycles of surfacing, pursuing, executing, and confirming.
+Purpose: lane execution records within ActionLanes, representing one execution attempt against one target.
 
 #### Columns
 
@@ -2500,7 +2508,6 @@ Purpose: concrete execution units within ActionLanes, representing complete cycl
 * `pursuing_at` TIMESTAMP NULL
 * `executed_at` TIMESTAMP NULL
 * `confirmed_at` TIMESTAMP NULL
-* `completed_at` TIMESTAMP NULL
 * `created_at` TIMESTAMP NOT NULL
 * `updated_at` TIMESTAMP NOT NULL
 
@@ -2513,14 +2520,15 @@ Purpose: concrete execution units within ActionLanes, representing complete cycl
 * composite index on (`campaign_id`, `status`, `priority_score`)
 * index on `surfaced_at`
 * index on `executed_at`
-* index on `completed_at`
 
 #### Notes
 
 * `target_type` examples: `person`, `company`, `opportunity`, `discovered_target`
 * `execution_data_json` stores message content, channel details, and execution parameters
 * `outcome_data_json` stores results, responses, next actions, and follow-up requirements
-* Action cycles represent the atomic unit of work within a lane's execution stream
+* Action cycles are not the main product loop; they are only lane-level execution records
+* The main product flow is `goal -> offering -> discovery -> campaign -> action lane execution -> results -> next prioritization`
+* `campaign_id` should match the campaign implied by `action_lane_id`; this must be validated application-side if both values are accepted at write time
 
 ---
 
@@ -2777,8 +2785,13 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `offerings` -> many `offering_assets`
 * `offering_positionings` -> many optional `offering_assets`
 * `offerings` -> many optional `goals`
+* `offerings` -> many optional `campaigns`
 * `offerings` -> many optional `strategic_campaigns`
+* `goals` -> many `campaigns`
 * `goals` -> many `strategic_campaigns`
+* `campaigns` -> many `action_lanes`
+* `action_lanes` -> many `action_cycles`
+* `campaigns` -> many `opportunities`
 * `strategic_campaigns` -> many `opportunities`
 
 ### AI Conversation / Context
@@ -3197,8 +3210,9 @@ These are important even if some are enforced at application level instead of DB
 ### Offering Context
 
 * an offering may exist before any goals, campaigns, or opportunities
-* goals and strategic campaigns should store `offering_id` when they are created to advance a known offering
-* strategic campaigns should preserve `offering_id` even though it is inferable through goals, because workspace and reporting queries should not need to join through goals
+* goals and campaigns should store `offering_id` when they are created to advance a known offering
+* campaigns should preserve `offering_id` even though it is inferable through goals, because workspace and reporting queries should not need to join through goals
+* legacy strategic campaigns may continue to preserve `offering_id` during transition, but new orchestration should consolidate around `campaigns`
 * opportunity cycles should preserve `offering_id` whenever known, because the Active Workspace needs direct access to the commercial context being advanced
 
 ### Notes and Entity Tags
@@ -3213,7 +3227,7 @@ These are important even if some are enforced at application level instead of DB
 * a cycle should preserve offering context directly when the active offering can be inferred from a goal, campaign, opportunity, conversation, or command input
 * the foreground active cycle is selected by application logic, even if multiple active cycles exist
 * allowed actions must be recomputed or validated server-side before execution
-* every command that mutates domain state should produce or update a durable domain record such as Activity, Task, Opportunity, StrategicCampaign, AIConversation, or WorkspaceCommand result
+* every command that mutates domain state should produce or update a durable domain record such as Activity, Task, Opportunity, Campaign, AIConversation, or WorkspaceCommand result
 * WorkspaceState is an API composition, not a required persisted table
 
 ### Capability Integration
@@ -3274,6 +3288,10 @@ These are the tables I recommend for the first real schema pass:
 * `offering_positionings`
 * `offering_assets`
 * `goals`
+* `campaigns`
+* `action_lanes`
+* `action_cycles`
+* `campaign_metrics`
 * `strategic_campaigns`
 * `ai_conversations`
 * `ai_conversation_messages`

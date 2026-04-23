@@ -161,7 +161,14 @@ enum OfferingType {
   product
   service
   consulting
+  advisory_program
+  book
+  content_series
+  software
+  platform
+  event
   job_profile
+  role_candidacy
   other
 }
 
@@ -255,7 +262,6 @@ enum ActionCycleStatus {
   pursuing
   executed
   confirmed
-  queued
   failed
   dismissed
 }
@@ -2054,7 +2060,6 @@ model ActionCycle {
   pursuingAt       DateTime?
   executedAt       DateTime?
   confirmedAt      DateTime?
-  completedAt      DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -2068,7 +2073,6 @@ model ActionCycle {
   @@index([campaignId, status, priorityScore])
   @@index([surfacedAt])
   @@index([executedAt])
-  @@index([completedAt])
   @@map("action_cycles")
 }
 

@@ -1186,7 +1186,7 @@ MVP: later
 
 ### I. Offerings
 
-This domain represents the deterministic value the user can take to market across products, services, consulting, jobs, contracts, and founder-style pursuits.
+This domain represents the market-facing value the user is trying to advance across products, services, books, software, advisory work, role candidacy, contracts, and founder-style pursuits.
 
 It answers:
 
@@ -1199,15 +1199,24 @@ It answers:
 
 **Offering**
 
-A structured package of value that can be matched to an opportunity.
+A market-facing value unit that can be positioned, targeted, supported with assets, and advanced toward a goal.
 
 Represents:
 
 * products and services
-* consulting packages
-* job/contract/professional profiles
+* books, reports, and content-led assets
+* software or platform offerings
+* consulting and advisory packages
+* job/contract/role candidacy value propositions
 * founder-style pursuits
-* any marketable value proposition
+* any value proposition that can be promoted through campaigns and outreach
+
+Important clarification:
+
+* an Offering is not the user's raw experience, resume, or history
+* those are supporting assets, evidence, and credibility inputs
+* the Offering is the thing being advanced in the market
+* an Offering may be a direct revenue offer or a leverage offer that opens the door to another offer
 
 Relationships:
 
@@ -1216,7 +1225,8 @@ Relationships:
 * an Offering has many OfferingPositionings
 * an Offering has many OfferingAssets
 * an Offering may have many Goals
-* an Offering may have many StrategicCampaigns
+* an Offering may have many Campaigns
+* an Offering may have many ActionLanes through Campaigns
 * an Offering may have many OpportunityCycles
 * an Offering can be matched to many Opportunities
 
@@ -1286,14 +1296,14 @@ MVP: V1
 
 ### J. Goals and Campaigns
 
-This domain represents the user's intended outcomes and the tactical motions used to advance an offering.
+This domain represents the user's intended outcomes and the campaign structure used to advance an offering.
 
 It answers:
 
 * what offering is being advanced?
 * what outcome is the user trying to create?
-* what tactical motion is being used?
-* how do opportunities and cycles connect back to the commercial objective?
+* what coordinated campaign is being used?
+* how do discovery, opportunities, and execution connect back to the objective?
 
 #### Main Entities
 
@@ -1313,14 +1323,14 @@ Relationships:
 
 * belongs to one User when authenticated
 * may belong to one Offering
-* has many StrategicCampaigns
+* has many Campaigns
 * may have many OpportunityCycles
 
 MVP: yes
 
-**StrategicCampaign**
+**Campaign**
 
-A tactical motion designed to advance a Goal, usually for a specific audience, channel, or positioning angle.
+The coordinated pursuit strategy for advancing a Goal and Offering.
 
 Represents:
 
@@ -1329,46 +1339,52 @@ Represents:
 * executive briefing campaign
 * warm-network activation campaign
 * targeted discovery and follow-up motion
+* a coordinated push made up of multiple ActionLanes
 
 Relationships:
 
 * belongs to one User when authenticated
 * belongs to one Goal
 * may belong to one Offering
-* has many Opportunities
-* may have many OpportunityCycles
+* has many ActionLanes
+* may have many Opportunities
+* may have many lane execution records
+
+**StrategicCampaign (legacy compatibility)**
+
+The older campaign model retained temporarily for compatibility while the platform consolidates around Campaign as the canonical campaign abstraction.
 
 MVP: yes
 
 #### Conceptual Rule
 
-Offering context should be carried forward whenever it is known:
+The product loop should be modeled like this:
 
 ```text
-Offering -> Goal -> StrategicCampaign -> Opportunity -> OpportunityCycle
+Goal -> Offering -> Discovery -> Campaign -> ActionLanes -> Execution -> Results -> Next prioritization
 ```
 
-The Offering is the marketable value proposition. The Goal defines the desired outcome for that offering. The StrategicCampaign defines the tactical motion. The Opportunity and OpportunityCycle represent concrete execution against that motion.
+The Goal defines the outcome. The Offering defines what is being advanced. Discovery surfaces relevant opportunities and targets. The Campaign organizes the pursuit. ActionLanes define channel-specific motions. Execution produces Tasks, Activities, and results that feed the next prioritization pass.
 
 ---
 
 ### K. Campaign Orchestration
 
-This domain represents the evolution from single-cycle execution to coordinated multi-stream campaign management, enabling users to pursue larger objectives through parallel channels of action.
+This domain represents coordinated multi-stream campaign management, enabling users to pursue one campaign through multiple execution lanes.
 
 It answers:
 
 * what campaign objective is being pursued?
-* which coordinated execution streams (lanes) are active?
+* which execution streams (lanes) are active?
 * how are lanes balanced and prioritized?
-* what is the next best action across all lanes?
-* how does momentum flow between lanes?
+* what is the next best execution move across all lanes?
+* how do results feed back into prioritization?
 
 #### Main Entities
 
 **Campaign**
 
-A strategic container representing a larger pursuit objective that coordinates multiple execution streams.
+The canonical campaign container representing the current coordinated pursuit of an Offering/Goal.
 
 Represents:
 
@@ -1384,14 +1400,14 @@ Relationships:
 * may belong to one Offering (if promoting specific value)
 * may belong to one Goal (if advancing desired outcome)
 * has many ActionLanes
-* has many ActionCycles (through lanes)
+* has many ActionCycle execution records (through lanes)
 * has CampaignMetrics and momentum tracking
 
-MVP: yes (evolution of current StrategicCampaign)
+MVP: yes
 
 **ActionLane**
 
-A coordinated execution stream or channel within a campaign, representing a specific mode of pursuit.
+A coordinated execution stream or channel within a campaign, representing one mode of pursuit.
 
 Represents:
 
@@ -1410,7 +1426,7 @@ Relationships:
 * belongs to one Campaign
 * has a LaneType (email, linkedin_messaging, content, call, referral, etc.)
 * has LaneStrategy (cadence, target criteria, approach)
-* has many ActionCycles
+* has many ActionCycle execution records
 * has LaneMetrics and performance tracking
 * may have Lane-specific assets and templates
 
@@ -1418,27 +1434,32 @@ MVP: yes
 
 **ActionCycle**
 
-A concrete execution unit within an ActionLane, representing one complete cycle of surfacing, pursuing, executing, and confirming.
+A narrow lane execution record for one target within one ActionLane.
 
 Represents:
 
-* identify 5 CTOs and draft outreach
-* prepare and send LinkedIn connection request
-* create and publish content post
-* conduct podcast outreach and follow-up
-* leverage media article into outreach hook
+* one professor assigned to the email lane
+* one recruiter assigned to the referral lane
+* one prospect draft created, sent, and replied to
+* one execution attempt and its result
 
 Relationships:
 
 * belongs to one ActionLane
 * belongs to one Campaign (through lane)
 * has one Target (Person, Company, or Opportunity)
-* has CycleStatus (surfaced, pursuing, executed, confirmed, queued)
+* has ExecutionStatus (surfaced, pursuing, executed, confirmed, failed, dismissed)
 * has ExecutionData (message content, channel details)
 * has OutcomeData (results, next actions)
 * has PriorityScore for AI recommendation
 
-MVP: yes (evolution of current OpportunityCycle)
+Important clarification:
+
+* the product cycle is not the same thing as an ActionCycle
+* the product cycle is Goal -> Offering -> Discovery -> Campaign -> ActionLane execution -> Results -> Next prioritization
+* ActionCycle is only a lane-level execution record
+
+MVP: yes
 
 **LaneType**
 
