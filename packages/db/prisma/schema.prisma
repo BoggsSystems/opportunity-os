@@ -226,6 +226,38 @@ enum CampaignStatus {
   ACTIVE
   PAUSED
   COMPLETED
+  ARCHIVED
+}
+
+enum ActionLaneType {
+  email
+  linkedin_messaging
+  linkedin_content
+  call_outreach
+  referral_warm_intro
+  event_webinar_outreach
+  application_proposal
+  local_reactivation
+  client_retention
+  content_leverage
+  other
+}
+
+enum ActionLaneStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum ActionCycleStatus {
+  surfaced
+  pursuing
+  executed
+  confirmed
+  queued
+  failed
+  dismissed
 }
 
 enum AIConversationStatus {
@@ -443,6 +475,7 @@ model User {
   activities                   Activity[]
   goals                        Goal[]
   campaigns                    StrategicCampaign[]
+  campaignsNew                 Campaign[]
   tasks                        Task[]
   notes                        Note[]
   tags                         Tag[]
@@ -468,6 +501,7 @@ model User {
   weeklyTargets                WeeklyTarget[]
   momentumStates               MomentumState[]
   coachingNudges               CoachingNudge[]
+  campaignMetrics              CampaignMetric[]
 
   @@map("users")
 }
@@ -1106,6 +1140,7 @@ model Offering {
   assets         OfferingAsset[]
   goals          Goal[]
   campaigns      StrategicCampaign[]
+  campaignsNew   Campaign[]
   cycles         OpportunityCycle[]
   discoveryScans DiscoveryScan[]
   conversations  AIConversation[]
@@ -1393,6 +1428,7 @@ model Goal {
   user              User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
   offering          Offering?           @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   campaigns         StrategicCampaign[]
+  campaignsNew      Campaign[]
   discoveryScans    DiscoveryScan[]
   opportunityCycles OpportunityCycle[]
   progress          GoalProgress[]
@@ -1937,4 +1973,132 @@ model CoachingNudge {
   @@index([userId, status, scheduledFor])
   @@index([linkedEntityType, linkedEntityId])
   @@map("coaching_nudges")
+}
+
+model Campaign {
+  id               String            @id @default(uuid()) @db.Uuid
+  userId           String            @db.Uuid
+  offeringId       String?           @db.Uuid
+  goalId           String?           @db.Uuid
+  title            String
+  description      String?
+  objective        String?
+  successDefinition String?
+  timeframeStart   DateTime?
+  timeframeEnd     DateTime?
+  status           CampaignStatus    @default(PLANNING)
+  priorityScore    Int               @default(50)
+  metricsJson      Json?
+  metadataJson     Json?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering         Offering?         @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  goal             Goal?             @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  actionLanes      ActionLane[]
+  actionCycles     ActionCycle[]
+  campaignMetrics  CampaignMetric[]
+
+  @@index([userId])
+  @@index([offeringId])
+  @@index([goalId])
+  @@index([status])
+  @@index([userId, status, priorityScore])
+  @@index([timeframeStart])
+  @@index([timeframeEnd])
+  @@map("campaigns")
+}
+
+model ActionLane {
+  id                 String           @id @default(uuid()) @db.Uuid
+  campaignId         String           @db.Uuid
+  laneType           ActionLaneType
+  title              String
+  description        String?
+  strategy           String?
+  cadenceJson        Json?
+  targetCriteriaJson Json?
+  status             ActionLaneStatus @default(ACTIVE)
+  priorityScore      Int              @default(50)
+  metricsJson        Json?
+  metadataJson       Json?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  campaign           Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actionCycles       ActionCycle[]
+  campaignMetrics    CampaignMetric[]
+
+  @@index([campaignId])
+  @@index([laneType])
+  @@index([status])
+  @@index([campaignId, status, priorityScore])
+  @@index([createdAt])
+  @@map("action_lanes")
+}
+
+model ActionCycle {
+  id               String            @id @default(uuid()) @db.Uuid
+  campaignId       String            @db.Uuid
+  actionLaneId     String            @db.Uuid
+  targetType       String
+  targetId         String            @db.Uuid
+  actionType       String
+  status           ActionCycleStatus @default(surfaced)
+  priorityScore    Int               @default(50)
+  executionDataJson Json?
+  outcomeDataJson   Json?
+  metadataJson     Json?
+  surfacedAt       DateTime?
+  pursuingAt       DateTime?
+  executedAt       DateTime?
+  confirmedAt      DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  campaign         Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actionLane       ActionLane  @relation(fields: [actionLaneId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@index([actionLaneId])
+  @@index([targetType, targetId])
+  @@index([status])
+  @@index([campaignId, status, priorityScore])
+  @@index([surfacedAt])
+  @@index([executedAt])
+  @@index([completedAt])
+  @@map("action_cycles")
+}
+
+model CampaignMetric {
+  id               String    @id @default(uuid()) @db.Uuid
+  campaignId       String?   @db.Uuid
+  actionLaneId     String?   @db.Uuid
+  userId           String    @db.Uuid
+  metricType       String
+  metricValue      Decimal
+  metricUnit       String?
+  periodStart      DateTime?
+  periodEnd        DateTime?
+  comparisonValue  Decimal?
+  trendDirection   String?
+  computedAt       DateTime  @default(now())
+  metadataJson     Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign         Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  actionLane       ActionLane?  @relation(fields: [actionLaneId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([actionLaneId])
+  @@index([userId])
+  @@index([metricType])
+  @@index([campaignId, metricType, periodStart])
+  @@index([actionLaneId, metricType, periodStart])
+  @@index([computedAt])
+  @@map("campaign_metrics")
 }
