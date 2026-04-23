@@ -25,6 +25,7 @@ import { AssetModule } from './modules/asset/asset.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { GoalsModule } from './modules/goals/goals.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
+import { CampaignOrchestrationModule } from './modules/campaign-orchestration/campaign-orchestration.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { DevContextInterceptor } from './common/dev-context.interceptor';
 
@@ -57,6 +58,7 @@ import { DevContextInterceptor } from './common/dev-context.interceptor';
     AnalyticsModule,
     GoalsModule,
     CampaignsModule,
+    CampaignOrchestrationModule,
     WorkspaceModule,
   ],
   controllers: [TestValidationController],
