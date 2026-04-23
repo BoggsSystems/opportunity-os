@@ -11,7 +11,7 @@ The platform is an **AI-powered opportunity operating system** for:
 * tracking applications
 * enforcing plan/usage rules
 
-At the conceptual level, the system has 15 domain areas:
+At the conceptual level, the system has 16 domain areas:
 
 1. Identity and ownership
 2. Commercial access
@@ -23,11 +23,12 @@ At the conceptual level, the system has 15 domain areas:
 8. AI and analytics
 9. Offerings
 10. Goals and Campaigns
-11. AI Conversation / Context
-12. Workspace Orchestration
-13. Integration Capabilities & Connectors
-14. Growth, Referrals, and Rewards
-15. Coaching, Momentum, and Engagement
+11. Campaign Orchestration
+12. AI Conversation / Context
+13. Workspace Orchestration
+14. Integration Capabilities & Connectors
+15. Growth, Referrals, and Rewards
+16. Coaching, Momentum, and Engagement
 
 ---
 
@@ -1351,7 +1352,169 @@ The Offering is the marketable value proposition. The Goal defines the desired o
 
 ---
 
-### K. AI Conversation / Context
+### K. Campaign Orchestration
+
+This domain represents the evolution from single-cycle execution to coordinated multi-stream campaign management, enabling users to pursue larger objectives through parallel channels of action.
+
+It answers:
+
+* what campaign objective is being pursued?
+* which coordinated execution streams (lanes) are active?
+* how are lanes balanced and prioritized?
+* what is the next best action across all lanes?
+* how does momentum flow between lanes?
+
+#### Main Entities
+
+**Campaign**
+
+A strategic container representing a larger pursuit objective that coordinates multiple execution streams.
+
+Represents:
+
+* promote the AI-Native Software Engineering book
+* generate leads for the AI-Native SDLC Audit offering
+* reactivate past cat-sitting clients before holidays
+* land a new contract in capital markets UI development
+* drive repeat visits for a retail collection launch
+
+Relationships:
+
+* belongs to one User
+* may belong to one Offering (if promoting specific value)
+* may belong to one Goal (if advancing desired outcome)
+* has many ActionLanes
+* has many ActionCycles (through lanes)
+* has CampaignMetrics and momentum tracking
+
+MVP: yes (evolution of current StrategicCampaign)
+
+**ActionLane**
+
+A coordinated execution stream or channel within a campaign, representing a specific mode of pursuit.
+
+Represents:
+
+* Email outreach lane
+* LinkedIn messaging lane
+* LinkedIn content/posting lane
+* Podcast/webinar outreach lane
+* Media/article leverage lane
+* Warm contact/referral lane
+* Application/proposal lane
+* Call outreach lane
+* Client retention lane
+
+Relationships:
+
+* belongs to one Campaign
+* has a LaneType (email, linkedin_messaging, content, call, referral, etc.)
+* has LaneStrategy (cadence, target criteria, approach)
+* has many ActionCycles
+* has LaneMetrics and performance tracking
+* may have Lane-specific assets and templates
+
+MVP: yes
+
+**ActionCycle**
+
+A concrete execution unit within an ActionLane, representing one complete cycle of surfacing, pursuing, executing, and confirming.
+
+Represents:
+
+* identify 5 CTOs and draft outreach
+* prepare and send LinkedIn connection request
+* create and publish content post
+* conduct podcast outreach and follow-up
+* leverage media article into outreach hook
+
+Relationships:
+
+* belongs to one ActionLane
+* belongs to one Campaign (through lane)
+* has one Target (Person, Company, or Opportunity)
+* has CycleStatus (surfaced, pursuing, executed, confirmed, queued)
+* has ExecutionData (message content, channel details)
+* has OutcomeData (results, next actions)
+* has PriorityScore for AI recommendation
+
+MVP: yes (evolution of current OpportunityCycle)
+
+**LaneType**
+
+A classification of execution channel or motion type.
+
+Represents:
+
+* email
+* linkedin_messaging
+* linkedin_content
+* call_outreach
+* referral_warm_intro
+* event_webinar_outreach
+* application_proposal
+* local_reactivation
+* client_retention
+* content_leverage
+
+Relationships:
+
+* used by ActionLanes to define channel behavior
+* may have lane-specific templates and strategies
+* may have lane-specific metrics and success criteria
+
+MVP: yes
+
+**CampaignMetrics**
+
+Performance and momentum tracking across campaigns and lanes.
+
+Represents:
+
+* lane performance scores
+* momentum indicators
+* conversion rates
+* engagement metrics
+* balance indicators across lanes
+
+Relationships:
+
+* belongs to one Campaign
+* may belong to one ActionLane
+* used by AI for strategic recommendations
+* informs lane prioritization and coaching
+
+MVP: yes
+
+#### Conceptual Rules
+
+**Campaign Hierarchy:**
+```
+Campaign (strategic objective)
+├── ActionLane (execution stream)
+│   ├── ActionCycle (concrete execution)
+│   ├── ActionCycle
+│   └── ActionCycle
+├── ActionLane
+└── ActionLane
+```
+
+**AI Decision Flow:**
+1. Assess campaign progress across all lanes
+2. Identify lane with highest leverage opportunity
+3. Recommend next cycle from optimal lane
+4. Provide coaching on lane balance and momentum
+5. Execute cycle and update campaign metrics
+
+**Lane Coordination:**
+- Each lane operates independently but contributes to campaign objective
+- AI can rebalance effort between lanes based on performance
+- Cross-lane learning and optimization
+- Unified campaign momentum tracking
+
+---
+
+### L. AI Conversation / Context
 
 This domain represents the platform's persistent AI working memory rather than relying on implicit chat memory.
 
@@ -1445,7 +1608,7 @@ MVP: V1
 
 ---
 
-### L. Workspace Orchestration
+### M. Workspace Orchestration
 
 This domain represents the web product's operating spine. It turns raw CRM records, AI conversation, discovery results, and task/activity state into a focused execution cycle.
 
@@ -1577,7 +1740,7 @@ MVP: API contract
 
 ---
 
-### M. Integration Capabilities & Connectors
+### N. Integration Capabilities & Connectors
 
 This domain represents the platform's capability-first, provider-abstracted integration architecture. It separates what the platform can do (capabilities) from how it does it (providers), enabling scalable addition of new integrations without changing business logic.
 
@@ -1742,7 +1905,7 @@ MVP: basic provider configurations
 
 ---
 
-### N. Growth, Referrals, and Rewards
+### O. Growth, Referrals, and Rewards
 
 This domain represents product-native growth loops and reward credits. It should support sharing and referrals early without becoming a full billing or payout system.
 
@@ -1887,7 +2050,7 @@ MVP: later
 
 ---
 
-### O. Coaching, Momentum, and Engagement
+### P. Coaching, Momentum, and Engagement
 
 This domain represents product-native nudges that help users keep moving through opportunity cycles.
 
