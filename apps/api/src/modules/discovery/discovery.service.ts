@@ -15,7 +15,6 @@ import { CreateDiscoveryScanDto } from './dto/create-discovery-scan.dto';
 import { ContentUploadResponseDto } from './dto/content-upload-response.dto';
 import { ExecuteContentOpportunityDto } from './dto/execute-content-opportunity.dto';
 import { UploadContentDto } from './dto/upload-content.dto';
-import { LocalDiscoveryProvider } from './providers/local-discovery.provider';
 import {
   DiscoveryExistingMatch,
   DiscoveryProvider,
@@ -23,7 +22,6 @@ import {
 } from './providers/discovery-provider.interface';
 import { OpenAiDiscoveryProvider } from './providers/openai-discovery.provider';
 import { TavilyDiscoveryProvider } from './providers/tavily-discovery.provider';
-import { InternalDatabaseDiscoveryProvider } from './providers/internal-db.provider';
 import { PerplexityDiscoveryProvider } from './providers/perplexity-discovery.provider';
 import { ApolloDiscoveryProvider } from './providers/apollo-discovery.provider';
 import { AiService } from '../ai/ai.service';
@@ -33,10 +31,8 @@ export class DiscoveryService {
   private readonly logger = new Logger(DiscoveryService.name);
 
   constructor(
-    private readonly localDiscoveryProvider: LocalDiscoveryProvider,
     private readonly openAiDiscoveryProvider: OpenAiDiscoveryProvider,
     private readonly tavilyDiscoveryProvider: TavilyDiscoveryProvider,
-    private readonly internalDatabaseDiscoveryProvider: InternalDatabaseDiscoveryProvider,
     private readonly perplexityDiscoveryProvider: PerplexityDiscoveryProvider,
     private readonly apolloDiscoveryProvider: ApolloDiscoveryProvider,
     private readonly aiService: AiService,
@@ -712,10 +708,8 @@ export class DiscoveryService {
 
   private providers(): Map<string, DiscoveryProvider> {
     return new Map<string, DiscoveryProvider>([
-      [this.localDiscoveryProvider.key, this.localDiscoveryProvider],
       [this.openAiDiscoveryProvider.key, this.openAiDiscoveryProvider],
       [this.tavilyDiscoveryProvider.key, this.tavilyDiscoveryProvider],
-      [this.internalDatabaseDiscoveryProvider.key, this.internalDatabaseDiscoveryProvider],
       [this.perplexityDiscoveryProvider.key, this.perplexityDiscoveryProvider],
       [this.apolloDiscoveryProvider.key, this.apolloDiscoveryProvider],
     ]);

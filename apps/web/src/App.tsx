@@ -17,6 +17,8 @@ import {
   Target,
   UserRound,
   Database,
+  Eye,
+  EyeOff,
   X,
 } from 'lucide-react';
 import { ApiClient, ApiError } from './lib/api';
@@ -517,11 +519,13 @@ export function App() {
   async function startDiscoveryScan() {
     setCampaignFeedback(null);
     const campaign = campaignWorkspace?.campaign;
-    const query =
-      campaign?.targetSegment ??
-      campaign?.strategicAngle ??
-      workspace?.canvas?.title ??
-      'relevant prospects for the current campaign';
+    const goalTitle = campaignWorkspace?.discovery?.goal?.title;
+    const targetSegment = campaign?.targetSegment;
+
+    // Combine goal and target segment for maximum specificity (e.g. "Book Sales - CTOs")
+    const query = goalTitle && targetSegment && !targetSegment.toLowerCase().includes(goalTitle.toLowerCase())
+      ? `${goalTitle} - ${targetSegment}`
+      : targetSegment || goalTitle || campaign?.strategicAngle || 'relevant prospects';
 
     setIsWorking(true);
     setNotice(null);
@@ -1856,9 +1860,11 @@ function DiscoveryCanvas(props: {
   onRejectTarget: (targetId: string) => Promise<void>;
   onPromoteTargets: (scanId: string) => Promise<void>;
 }) {
+  const [showRejected, setShowRejected] = useState(false);
   const scan = props.campaignWorkspace?.discovery?.scans?.[0] ?? null;
-  const targets = scan?.targets ?? [];
-  const acceptedCount = targets.filter((target) => target.status === 'accepted').length;
+  const allTargets = scan?.targets ?? [];
+  const targets = showRejected ? allTargets : allTargets.filter((t) => t.status !== 'rejected');
+  const acceptedCount = allTargets.filter((target) => target.status === 'accepted').length;
   const providerKeys = Array.isArray(scan?.providerKeys) ? scan?.providerKeys : [];
 
   return (
@@ -1909,7 +1915,19 @@ function DiscoveryCanvas(props: {
             <div className="campaign-metrics">
               <Metric label="Accepted" value={scan.acceptedCount} tone="green" />
               <Metric label="Promoted" value={scan.promotedCount} tone="blue" />
-              <Metric label="Rejected" value={scan.rejectedCount} tone="amber" />
+              <div className="metric-with-action">
+                <Metric label="Rejected" value={scan.rejectedCount} tone="amber" />
+                {scan.rejectedCount > 0 ? (
+                  <button
+                    className={`icon-button ${showRejected ? 'active' : ''}`}
+                    onClick={() => setShowRejected(!showRejected)}
+                    title={showRejected ? 'Hide rejected' : 'Show rejected'}
+                    type="button"
+                  >
+                    {showRejected ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -1926,7 +1944,10 @@ function DiscoveryCanvas(props: {
               ))}
             </div>
           ) : (
-            <CanvasEmptyState title="No targets returned" detail="Run a scan or adjust the campaign query to produce reviewable targets." />
+            <CanvasEmptyState
+              title={allTargets.length > 0 ? 'No visible targets' : 'No targets returned'}
+              detail={allTargets.length > 0 ? 'All current targets are rejected. Toggle visibility to review them.' : 'Run a scan or adjust the campaign query to produce reviewable targets.'}
+            />
           )}
         </div>
       ) : (

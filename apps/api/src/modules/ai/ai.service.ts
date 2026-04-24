@@ -63,6 +63,41 @@ export class AiService {
     return response.content;
   }
 
+  async generateDiscoveryQuery(context: {
+    offering?: any;
+    campaign?: any;
+    goal?: any;
+    targetSegment?: string;
+  }): Promise<string> {
+    this.logger.log('Generating high-signal discovery query with AI');
+    
+    const prompt = `
+You are an expert sales prospector. Your task is to transform a broad target segment into a precise, high-signal search query that can be used to find specific individuals or companies.
+
+CONTEXT:
+Offering: ${context.offering?.title || 'N/A'} - ${context.offering?.description || ''}
+Campaign: ${context.campaign?.title || 'N/A'} - ${context.campaign?.strategicAngle || ''}
+Goal: ${context.goal?.title || 'N/A'}
+Target Segment: ${context.targetSegment || 'N/A'}
+
+INSTRUCTIONS:
+1. Generate a single search query that is optimized for finding relevant LinkedIn profiles or company websites.
+2. Focus on specific job titles, industries, and technologies mentioned in the context.
+3. If the context is about "University Professors", include keywords like "Faculty", "Professor", or "Researcher" along with the specific domain.
+4. Output ONLY the query string. No explanations or quotes.
+
+QUERY:`;
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.4,
+      maxTokens: 100,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    return response.content.replace(/^["']|["']$/g, '').trim();
+  }
+
   async interpretOffering(offeringContext: any): Promise<any> {
     this.logger.log('Interpreting offering context with AI');
     
@@ -86,6 +121,38 @@ export class AiService {
         structured: false,
       };
     }
+  }
+
+  async interpretDiscoveryRelevance(content: string, context: { goalTitle: string; campaignTitle?: string; targetSegment?: string }): Promise<string> {
+    this.logger.log(`Interpreting discovery relevance for goal: ${context.goalTitle}`);
+    
+    const prompt = `
+You are an expert business strategist. Analyze the following content and explain why it matters to the user's current business goal.
+
+Content to analyze:
+"${content}"
+
+User's Active Goal: "${context.goalTitle}"
+${context.campaignTitle ? `Current Campaign: "${context.campaignTitle}"` : ''}
+${context.targetSegment ? `Target Segment: "${context.targetSegment}"` : ''}
+
+Rules:
+- Be extremely concise (1-2 sentences max).
+- Focus on the "Leverage" - how this helps the user achieve their goal.
+- Avoid generic phrases like "this is relevant because."
+- If the content is clearly irrelevant, state that briefly.
+
+Response should be the explanation text only, no preamble.
+`.trim();
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.3,
+      maxTokens: 200,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    return response.content.trim();
   }
 
   async generateText(prompt: string, options?: Partial<AiRequest>): Promise<string> {
@@ -504,6 +571,9 @@ export class AiService {
                            lowerReply.includes('pulling up the details') ||
                            lowerReply.includes('proposing this goal') ||
                            lowerReply.includes('setting up your goal') ||
+                           lowerReply.includes('established the goal') ||
+                           lowerReply.includes('i\'ve set the goal') ||
+                           lowerReply.includes('i have set the goal') ||
                            lowerReply.includes('start by identifying') ||
                            lowerReply.includes('thank you for confirming') ||
                            lowerReply.includes('goal confirmed') ||
@@ -519,6 +589,9 @@ export class AiService {
         const aiMentionsCampaign = lowerReply.includes('propose a campaign') || 
                                    lowerReply.includes('drafted a campaign') || 
                                    lowerReply.includes('proposing this strategy') ||
+                                   lowerReply.includes('i\'ve created the campaign') ||
+                                   lowerReply.includes('i have created the campaign') ||
+                                   lowerReply.includes('established the campaign') ||
                                    lowerReply.includes('setting up the campaign') ||
                                    lowerReply.includes('locking in the campaign');
         
@@ -1518,7 +1591,7 @@ Based on this conversation, extract the following information as JSON:
   "description": "A one-sentence description of what the user wants to accomplish",
   "opportunityType": "The type of opportunity they're seeking: job, contract, consulting, partnership, or outreach",
   "focusArea": "The main focus area (e.g., 'AI-focused', 'leadership roles')",
-  "targetAudience": "Who they want to reach (e.g., 'CTOs at mid-market tech companies')",
+  "targetAudience": "Who they want to reach. MUST be specific and include the core industry, service, and location mentioned (e.g., 'Video production companies in Toronto looking for contract editors' rather than 'potential clients')",
   "suggestedApproach": "A strategic angle or approach suggested by the conversation",
   "firstCycleTitle": "Title for the first outreach cycle (e.g., 'Initial CTO Outreach')",
   "assistantSummary": "A concise, high-impact summary of the goal for the UI modal",

@@ -796,7 +796,33 @@ input:focus {
 
 .campaign-metrics {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.metric-with-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.metric-with-action .icon-button {
+  padding: 0.25rem;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.metric-with-action .icon-button:hover,
+.metric-with-action .icon-button.active {
+  opacity: 1;
+  color: var(--blue);
 }
 
 .prospect-table {
