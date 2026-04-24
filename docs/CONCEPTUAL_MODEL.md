@@ -11,7 +11,7 @@ The platform is an **AI-powered opportunity operating system** for:
 * tracking applications
 * enforcing plan/usage rules
 
-At the conceptual level, the system has 16 domain areas:
+At the conceptual level, the system has 17 domain areas:
 
 1. Identity and ownership
 2. Commercial access
@@ -29,6 +29,7 @@ At the conceptual level, the system has 16 domain areas:
 14. Integration Capabilities & Connectors
 15. Growth, Referrals, and Rewards
 16. Coaching, Momentum, and Engagement
+17. Browser Execution
 
 ---
 
@@ -2330,6 +2331,102 @@ Relationships:
 * may reference Goal, OpportunityCycle, Activity, ReferralReward, or WorkspaceCommand
 
 MVP: later
+
+---
+
+### Q. Browser Execution
+
+This domain represents embedded browser sessions that enable web-based execution within the platform.
+
+It answers:
+
+* what browser session is active?
+* what page is being viewed?
+* what actions has the user performed?
+* what is the AI suggesting?
+* how does this connect to opportunities and tasks?
+
+#### Main Entities
+
+**Browser Session**
+
+A live or completed browser interaction session.
+
+Represents:
+
+* one browser instance with state
+* the execution context for web-based actions
+* AI-guided browsing experience
+* link to opportunity/task context
+
+Relationships:
+
+* belongs to one User
+* may belong to one Opportunity
+* may belong to one Task
+* has many Browser Session Steps
+* has many Browser Session Artifacts
+* has many Browser Session Events
+
+MVP: yes
+
+**Browser Session Step**
+
+A single step or action within a browser session.
+
+Represents:
+
+* navigation to a page
+* form interaction
+* content extraction
+* AI analysis
+* user action
+
+Relationships:
+
+* belongs to one Browser Session
+* may produce Browser Session Artifacts
+* may trigger AI analysis
+
+MVP: yes
+
+**Browser Session Artifact**
+
+Captured data or content from a browser session.
+
+Represents:
+
+* screenshots
+* extracted text
+* form data
+* page summaries
+* AI insights
+
+Relationships:
+
+* belongs to one Browser Session
+* may belong to one Browser Session Step
+
+MVP: yes
+
+**Browser Session Event**
+
+An audit log of all actions and events in a browser session.
+
+Represents:
+
+* user actions
+* AI suggestions
+* system events
+* errors and recoveries
+* security events
+
+Relationships:
+
+* belongs to one Browser Session
+* provides audit trail
+
+MVP: yes
 
 ---
 

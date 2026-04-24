@@ -184,6 +184,47 @@ enum ConnectionSegmentType {
   by_relevance
 }
 
+enum BrowserSessionStatus {
+  created
+  active
+  paused
+  completed
+  failed
+  expired
+  cancelled
+}
+
+enum BrowserSessionMode {
+  observe
+  guide
+  assist
+  automate_partial
+}
+
+enum BrowserTargetType {
+  linkedin_profile
+  job_application
+  website_form
+  company_portal
+  recruiting_portal
+  event_signup
+  generic_web
+  other
+}
+
+enum BrowserActionType {
+  navigate
+  click
+  type
+  select
+  upload
+  scroll
+  extract
+  screenshot
+  analyze
+  complete
+}
+
 enum OfferingType {
   product
   service
@@ -518,6 +559,7 @@ model User {
   connectionImportBatches       ConnectionImportBatch[]
   connectionRecords            ConnectionRecord[]
   connectionSegments            ConnectionSegment[]
+  browserSessions              BrowserSession[]
   offerings                    Offering[]
   offeringProposals            OfferingProposal[]
   conversations                AIConversation[]
@@ -830,6 +872,7 @@ model Opportunity {
   assetInteractions AssetInteraction[]
   opportunityCycles OpportunityCycle[]
   discoveryTargets  DiscoveryTarget[]
+  browserSessions   BrowserSession[]
 
   @@index([userId])
   @@index([companyId])
@@ -910,6 +953,7 @@ model Task {
   company           Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
   person            Person?            @relation(fields: [personId], references: [id], onDelete: SetNull)
   opportunityCycles OpportunityCycle[]
+  browserSessions   BrowserSession[]
 
   @@index([userId])
   @@index([opportunityId])
@@ -1302,6 +1346,111 @@ model ConnectionSegmentMember {
   @@index([connectionId])
   @@index([segmentId, matchScore])
   @@map("connection_segment_members")
+}
+
+model BrowserSession {
+  id                   String              @id @default(uuid()) @db.Uuid
+  userId               String              @db.Uuid
+  opportunityId        String?             @db.Uuid
+  taskId               String?             @db.Uuid
+  status               BrowserSessionStatus @default(created)
+  mode                 BrowserSessionMode  @default(observe)
+  targetType           BrowserTargetType
+  targetUrl            String
+  currentUrl           String?
+  currentPageTitle     String?
+  stepIndex            Int                 @default(0)
+  sessionConfigJson    Json?
+  aiAnalysisJson       Json?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  expiredAt            DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity Opportunity?          @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  task        Task?                 @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  steps       BrowserSessionStep[]
+  artifacts   BrowserSessionArtifact[]
+  events      BrowserSessionEvent[]
+
+  @@index([userId])
+  @@index([opportunityId])
+  @@index([taskId])
+  @@index([status])
+  @@index([targetType])
+  @@index([userId, status, createdAt])
+  @@map("browser_sessions")
+}
+
+model BrowserSessionStep {
+  id                 String            @id @default(uuid()) @db.Uuid
+  sessionId          String            @db.Uuid
+  stepNumber         Int
+  actionType         BrowserActionType
+  targetUrl          String?
+  targetSelector     String?
+  actionDataJson     Json?
+  resultStatus       String?
+  resultDataJson     Json?
+  aiSuggestionJson   Json?
+  userAction         Boolean           @default(false)
+  performedAt        DateTime?
+  createdAt          DateTime          @default(now())
+
+  session    BrowserSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  artifacts  BrowserSessionArtifact[]
+
+  @@index([sessionId])
+  @@index([actionType])
+  @@index([userAction])
+  @@index([sessionId, stepNumber])
+  @@map("browser_session_steps")
+}
+
+model BrowserSessionArtifact {
+  id           String  @id @default(uuid()) @db.Uuid
+  sessionId    String  @db.Uuid
+  stepId       String? @db.Uuid
+  artifactType String
+  contentType  String?
+  contentData  String?
+  binaryData   Bytes?
+  metadataJson Json?
+  filePath     String?
+  createdAt    DateTime @default(now())
+
+  session BrowserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  step    BrowserSessionStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([stepId])
+  @@index([artifactType])
+  @@index([createdAt])
+  @@map("browser_session_artifacts")
+}
+
+model BrowserSessionEvent {
+  id           String   @id @default(uuid()) @db.Uuid
+  sessionId    String   @db.Uuid
+  eventType    String
+  eventSource  String
+  eventDataJson Json?
+  ipAddress    String?  @db.Inet
+  userAgent    String?
+  success      Boolean  @default(true)
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  session BrowserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([eventType])
+  @@index([eventSource])
+  @@index([createdAt])
+  @@index([sessionId, createdAt])
+  @@map("browser_session_events")
 }
 
 model Offering {

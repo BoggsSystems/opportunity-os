@@ -249,6 +249,55 @@ Values:
 * `by_strength`
 * `by_relevance`  // AI-scored against active offering
 
+### `browser_session_status`
+
+Values:
+
+* `created`
+* `active`
+* `paused`
+* `completed`
+* `failed`
+* `expired`
+* `cancelled`
+
+### `browser_session_mode`
+
+Values:
+
+* `observe`      // Display only, no actions
+* `guide`       // AI suggests, user acts
+* `assist`      // AI performs safe actions
+* `automate_partial`  // Bounded automation
+
+### `browser_target_type`
+
+Values:
+
+* `linkedin_profile`
+* `job_application`
+* `website_form`
+* `company_portal`
+* `recruiting_portal`
+* `event_signup`
+* `generic_web`
+* `other`
+
+### `browser_action_type`
+
+Values:
+
+* `navigate`
+* `click`
+* `type`
+* `select`
+* `upload`
+* `scroll`
+* `extract`
+* `screenshot`
+* `analyze`
+* `complete`
+
 ### `offering_type`
 
 Values:
@@ -1566,6 +1615,148 @@ Purpose: many-to-many relationship between connections and segments.
 
 * Allows connections to belong to multiple segments (e.g., by company AND title).
 * Match score helps with segment quality analysis.
+
+---
+
+### `browser_sessions`
+
+Purpose: track live or completed browser interaction sessions.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `opportunity_id` UUID NULL FK -> `opportunities.id`
+* `task_id` UUID NULL FK -> `tasks.id`
+* `status` `browser_session_status` NOT NULL DEFAULT `created`
+* `mode` `browser_session_mode` NOT NULL DEFAULT `observe`
+* `target_type` `browser_target_type` NOT NULL
+* `target_url` VARCHAR NOT NULL
+* `current_url` VARCHAR NULL
+* `current_page_title` VARCHAR NULL
+* `step_index` INTEGER NOT NULL DEFAULT 0
+* `session_config_json` JSONB NULL
+* `ai_analysis_json` JSONB NULL
+* `started_at` TIMESTAMP NULL
+* `completed_at` TIMESTAMP NULL
+* `expired_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `opportunity_id`
+* index on `task_id`
+* index on `status`
+* index on `target_type`
+* composite index on (`user_id`, `status`, `created_at`)
+
+#### Notes
+
+* Sessions represent a complete browser interaction workflow.
+* Can be linked to opportunities for job applications or tasks for specific actions.
+* AI analysis is stored for reference and learning.
+
+---
+
+### `browser_session_steps`
+
+Purpose: track individual steps or actions within a browser session.
+
+#### Columns
+
+* `id` UUID PK
+* `session_id` UUID NOT NULL FK -> `browser_sessions.id`
+* `step_number` INTEGER NOT NULL
+* `action_type` `browser_action_type` NOT NULL
+* `target_url` VARCHAR NULL
+* `target_selector` VARCHAR NULL
+* `action_data_json` JSONB NULL
+* `result_status` VARCHAR NULL  // success, failure, partial
+* `result_data_json` JSONB NULL
+* `ai_suggestion_json` JSONB NULL
+* `user_action` BOOLEAN NOT NULL DEFAULT FALSE
+* `performed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `session_id`
+* index on `action_type`
+* index on `user_action`
+* composite index on (`session_id`, `step_number`)
+
+#### Notes
+
+* Steps provide a detailed audit trail of session progression.
+* AI suggestions are stored to improve future recommendations.
+* User actions vs AI actions are tracked for learning.
+
+---
+
+### `browser_session_artifacts`
+
+Purpose: store captured data and content from browser sessions.
+
+#### Columns
+
+* `id` UUID PK
+* `session_id` UUID NOT NULL FK -> `browser_sessions.id`
+* `step_id` UUID NULL FK -> `browser_session_steps.id`
+* `artifact_type` VARCHAR NOT NULL  // screenshot, text, form_data, analysis
+* `content_type` VARCHAR NULL
+* `content_data` TEXT NULL
+* `binary_data` BYTEA NULL
+* `metadata_json` JSONB NULL
+* `file_path` VARCHAR NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `session_id`
+* index on `step_id`
+* index on `artifact_type`
+* index on `created_at`
+
+#### Notes
+
+* Screenshots and extracted content are stored here.
+* Large binary data may be stored externally with file path reference.
+* Artifacts can be linked to specific steps for context.
+
+---
+
+### `browser_session_events`
+
+Purpose: comprehensive audit log of all session events.
+
+#### Columns
+
+* `id` UUID PK
+* `session_id` UUID NOT NULL FK -> `browser_sessions.id`
+* `event_type` VARCHAR NOT NULL
+* `event_source` VARCHAR NOT NULL  // user, ai, system, security
+* `event_data_json` JSONB NULL
+* `ip_address` INET NULL
+* `user_agent` VARCHAR NULL
+* `success` BOOLEAN NOT NULL DEFAULT TRUE
+* `error_message` TEXT NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `session_id`
+* index on `event_type`
+* index on `event_source`
+* index on `created_at`
+* composite index on (`session_id`, `created_at`)
+
+#### Notes
+
+* Provides complete audit trail for security and debugging.
+* All user actions, AI suggestions, and system events are logged.
+* IP and user agent tracking for security monitoring.
 
 ---
 
@@ -2970,6 +3161,18 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `connection_records` may generate campaign suggestions based on AI relevance scoring
 * `connection_segments` may generate campaign suggestions for entire groups
 
+### Browser Execution
+
+* `users` -> many `browser_sessions`
+* `browser_sessions` -> optional `opportunities` (for job applications)
+* `browser_sessions` -> optional `tasks` (for specific actions)
+* `browser_sessions` -> many `browser_session_steps`
+* `browser_sessions` -> many `browser_session_artifacts`
+* `browser_sessions` -> many `browser_session_events`
+* `browser_session_steps` -> many `browser_session_artifacts`
+* `browser_sessions` may generate activities and tasks upon completion
+* `browser_sessions` may update opportunity status when linked to applications
+
 ### Offerings, Goals, and Campaigns
 
 * `users` -> many `offerings`
@@ -3341,6 +3544,21 @@ These are the most important ones to include early.
 * `connection_segments(user_id, segment_type, priority_rank)`
 * `connection_segment_members(segment_id, match_score DESC)`
 * `connection_segment_members(connection_id)`
+
+### Browser Execution Lookups
+
+* `browser_sessions(user_id, status, created_at)`
+* `browser_sessions(opportunity_id)`
+* `browser_sessions(task_id)`
+* `browser_sessions(target_type, status)`
+* `browser_session_steps(session_id, step_number)`
+* `browser_session_steps(session_id, action_type)`
+* `browser_session_steps(user_action, performed_at)`
+* `browser_session_artifacts(session_id, artifact_type)`
+* `browser_session_artifacts(step_id)`
+* `browser_session_events(session_id, created_at)`
+* `browser_session_events(session_id, event_type)`
+* `browser_session_events(event_source, created_at)`
 
 ### Workspace Orchestration Lookups
 
