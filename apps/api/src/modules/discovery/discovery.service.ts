@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   AssetCategory,
   CompanyType,
@@ -23,13 +23,23 @@ import {
 } from './providers/discovery-provider.interface';
 import { OpenAiDiscoveryProvider } from './providers/openai-discovery.provider';
 import { TavilyDiscoveryProvider } from './providers/tavily-discovery.provider';
+import { InternalDatabaseDiscoveryProvider } from './providers/internal-db.provider';
+import { PerplexityDiscoveryProvider } from './providers/perplexity-discovery.provider';
+import { ApolloDiscoveryProvider } from './providers/apollo-discovery.provider';
+import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class DiscoveryService {
+  private readonly logger = new Logger(DiscoveryService.name);
+
   constructor(
     private readonly localDiscoveryProvider: LocalDiscoveryProvider,
     private readonly openAiDiscoveryProvider: OpenAiDiscoveryProvider,
     private readonly tavilyDiscoveryProvider: TavilyDiscoveryProvider,
+    private readonly internalDatabaseDiscoveryProvider: InternalDatabaseDiscoveryProvider,
+    private readonly perplexityDiscoveryProvider: PerplexityDiscoveryProvider,
+    private readonly apolloDiscoveryProvider: ApolloDiscoveryProvider,
+    private readonly aiService: AiService,
   ) {}
 
   async listContent(userId: string) {
@@ -50,6 +60,14 @@ export class DiscoveryService {
     const extractedText = await this.extractTextFromPDF(file);
     const summary = this.summarizeText(extractedText, body.notes);
 
+    // Dynamic interpretation based on active context
+    const context = await this.resolveScanContext(userId, { offeringId: body.offeringId });
+    const whyItMatters = await this.aiService.interpretDiscoveryRelevance(extractedText, {
+      goalTitle: context.goal?.title || 'General business growth',
+      campaignTitle: context.campaign?.title,
+      targetSegment: context.targetSegment,
+    });
+
     const asset = await prisma.userAsset.create({
       data: {
         userId,
@@ -67,9 +85,9 @@ export class DiscoveryService {
       source,
       offeringId: body.offeringId,
       summary,
-      whyItMatters: 'Uploaded research content is available as campaign context.',
-      leverageInterpretation: this.leverageInterpretation(extractedText),
-      aiInterpretationSucceeded: false,
+      whyItMatters,
+      leverageInterpretation: whyItMatters,
+      aiInterpretationSucceeded: true,
       processingStatus: 'classified',
     };
   }
@@ -106,12 +124,19 @@ export class DiscoveryService {
   }
 
   async createScan(userId: string, dto: CreateDiscoveryScanDto) {
-    const query = dto.query?.trim();
-    if (!query) {
-      throw new BadRequestException('Discovery query is required');
+    const context = await this.resolveScanContext(userId, dto);
+    
+    // Strengthen the intent: If the query is generic, use AI to refine it based on context
+    let query = dto.query?.trim();
+    if (!query || query.length < 10 || query.includes('relevant prospects')) {
+      query = await this.aiService.generateDiscoveryQuery({
+        offering: context.offering,
+        campaign: context.campaign,
+        goal: context.goal,
+        targetSegment: dto.targetSegment || context.targetSegment,
+      });
     }
 
-    const context = await this.resolveScanContext(userId, dto);
     const providerKeys = this.resolveProviderKeys(dto);
     const scan = await prisma.discoveryScan.create({
       data: {
@@ -211,8 +236,12 @@ export class DiscoveryService {
       }
 
       const consolidatedTargets = this.consolidateTargets(providerResults);
+      
+      // Waterfall Enrichment: If any targets lack emails/LinkedIn, try Apollo
+      const enrichedTargets = await this.enrichTargetsWithApollo(consolidatedTargets);
+
       const createdTargets = [];
-      for (const target of consolidatedTargets) {
+      for (const target of enrichedTargets) {
         const dedupeKey = this.buildDedupeKey(userId, target);
         const existingTarget = await prisma.discoveryTarget.findFirst({
           where: { userId, dedupeKey, status: { not: DiscoveryTargetStatus.archived } },
@@ -408,15 +437,7 @@ export class DiscoveryService {
     return base.length > 240 ? `${base.slice(0, 240)}...` : base;
   }
 
-  private leverageInterpretation(text: string): string {
-    const lower = text.toLowerCase();
-    if (lower.includes('trading') || lower.includes('market data') || lower.includes('latency')) {
-      return 'Potentially useful for trading systems positioning and recruiter outreach.';
-    }
-    return 'Potentially useful as supporting context for future outreach.';
-  }
-
-  private async resolveScanContext(userId: string, dto: CreateDiscoveryScanDto) {
+  private async resolveScanContext(userId: string, dto: Partial<CreateDiscoveryScanDto>) {
     let campaign: any = null;
     if (dto.campaignId) {
       campaign = await prisma.campaign.findFirst({
@@ -694,6 +715,9 @@ export class DiscoveryService {
       [this.localDiscoveryProvider.key, this.localDiscoveryProvider],
       [this.openAiDiscoveryProvider.key, this.openAiDiscoveryProvider],
       [this.tavilyDiscoveryProvider.key, this.tavilyDiscoveryProvider],
+      [this.internalDatabaseDiscoveryProvider.key, this.internalDatabaseDiscoveryProvider],
+      [this.perplexityDiscoveryProvider.key, this.perplexityDiscoveryProvider],
+      [this.apolloDiscoveryProvider.key, this.apolloDiscoveryProvider],
     ]);
   }
 
@@ -873,6 +897,45 @@ export class DiscoveryService {
         : 'Review the prior discovery target and decide whether to reuse or reject it.';
     }
     return recommendedAction;
+  }
+
+  private async enrichTargetsWithApollo(
+    targets: DiscoveryProviderTarget[],
+  ): Promise<DiscoveryProviderTarget[]> {
+    this.logger.log(`Performing waterfall enrichment for ${targets.length} targets...`);
+    const enriched = [];
+
+    for (const target of targets) {
+      // If we already have a direct B2B result with email, skip
+      if (target.email && target.linkedinUrl) {
+        enriched.push(target);
+        continue;
+      }
+
+      try {
+        const enrichmentData = await this.apolloDiscoveryProvider.enrich(target);
+        
+        // Only merge if we actually found something
+        if (Object.keys(enrichmentData).length > 0) {
+          enriched.push({
+            ...target,
+            ...enrichmentData,
+            metadata: {
+              ...(target.metadata as Record<string, unknown> ?? {}),
+              ...(enrichmentData.metadata as Record<string, unknown> ?? {}),
+              enrichedBy: 'apollo',
+            },
+          } as DiscoveryProviderTarget);
+        } else {
+          enriched.push(target);
+        }
+      } catch (error) {
+        this.logger.error(`Enrichment failed for target ${target.personName}`, error);
+        enriched.push(target);
+      }
+    }
+
+    return enriched;
   }
 
   private toJson(value: unknown): Prisma.InputJsonValue | undefined {

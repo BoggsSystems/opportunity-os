@@ -101,7 +101,7 @@ export class OpenAiDiscoveryProvider implements DiscoveryProvider {
 
   private buildPrompt(request: DiscoveryProviderRequest): string {
     return [
-      'Search the web and extract recruiter or recruiting contact candidates relevant to this campaign.',
+      'Search the web and extract high-intent prospect or partnership candidates relevant to this campaign.',
       `Query: ${request.query}`,
       `Target segment: ${request.targetSegment ?? 'not provided'}`,
       `Max targets: ${request.maxTargets}`,
@@ -111,7 +111,7 @@ export class OpenAiDiscoveryProvider implements DiscoveryProvider {
       '  "targets": [',
       '    {',
       '      "title": "display title",',
-      '      "companyName": "company or recruiting firm",',
+      '      "companyName": "company name",',
       '      "personName": "person if known",',
       '      "roleTitle": "role if known",',
       '      "email": "email if explicit on page or snippet",',
@@ -127,8 +127,8 @@ export class OpenAiDiscoveryProvider implements DiscoveryProvider {
       '    }',
       '  ]',
       '}',
-      'Use only information grounded in search results. Prefer explicit recruiter firms and published contact/team pages. Do not invent emails.',
-      'If you find a firm with multiple contacts, emit one target item per contact rather than grouping them under the firm.',
+      'Use only information grounded in search results. Prefer explicit target profiles and published contact/team pages. Do not invent emails.',
+      'If you find a company with multiple relevant contacts, emit one target item per contact.',
     ].join('\n');
   }
 

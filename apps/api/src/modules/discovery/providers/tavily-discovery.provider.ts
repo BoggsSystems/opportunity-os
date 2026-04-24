@@ -38,14 +38,7 @@ export class TavilyDiscoveryProvider implements DiscoveryProvider {
     const parts = [request.query];
     if (request.targetSegment) parts.push(request.targetSegment);
 
-    if (request.scanType === DiscoveryScanType.people || request.scanType === DiscoveryScanType.mixed) {
-      parts.push('(recruiter OR recruiting consultant OR talent partner OR search consultant)');
-      parts.push('(email OR contact OR team)');
-    }
-
-    if (request.scanType === DiscoveryScanType.companies) {
-      parts.push('(recruiting firm OR executive search OR staffing)');
-    }
+    parts.push('(email OR contact OR team OR LinkedIn)');
 
     return parts.join(' ');
   }
@@ -85,7 +78,7 @@ export class TavilyDiscoveryProvider implements DiscoveryProvider {
       whyThisTarget: `Found from live web search for "${request.query}" and appears relevant to ${request.targetSegment ?? 'the current campaign'}.`,
       recommendedAction: personName || email
         ? 'Review this contact candidate, confirm fit, then generate first-touch outreach.'
-        : 'Review this firm, identify the right recruiter contact, then generate outreach.',
+        : 'Review this target, identify the right contact, then generate outreach.',
       metadata: {
         provider: this.key,
         searchScore: result.score,
@@ -115,7 +108,8 @@ export class TavilyDiscoveryProvider implements DiscoveryProvider {
   }
 
   private extractRoleTitle(text: string): string | undefined {
-    const roleMatch = text.match(/\b(recruiter|recruiting consultant|talent partner|talent acquisition|headhunter|search consultant)\b/i);
+    // Look for common leadership or professional titles in the text
+    const roleMatch = text.match(/\b(CTO|CEO|VP|Director|Manager|Lead|Engineer|Founder|Architect|Consultant)\b/i);
     if (!roleMatch) return undefined;
     return roleMatch[0]
       .split(/\s+/)

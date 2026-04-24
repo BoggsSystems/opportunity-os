@@ -1261,3 +1261,135 @@ input:focus {
     width: 100%;
   }
 }
+
+/* Discovery Enhancements */
+.status-badge.high-relevance {
+  background: #eef6ff;
+  color: var(--blue);
+  border-color: #bfd3ee;
+  font-weight: 700;
+}
+
+.target-badges {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.target-reasoning {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 12px 0;
+  background: var(--soft);
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.target-reasoning p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #334155;
+}
+
+.reasoning-icon {
+  color: var(--blue);
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.discovery-canvas .primary-button.working {
+  animation: pulse 2s infinite ease-in-out;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.02); opacity: 0.9; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.target-card {
+  animation: slideIn 0.4s ease-out forwards;
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+@keyframes slideIn {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Staggered animation for list items */
+.target-list article:nth-child(1) { animation-delay: 0.1s; }
+.target-list article:nth-child(2) { animation-delay: 0.15s; }
+.target-list article:nth-child(3) { animation-delay: 0.2s; }
+.target-list article:nth-child(4) { animation-delay: 0.25s; }
+.target-list article:nth-child(5) { animation-delay: 0.3s; }
+.target-list article:nth-child(6) { animation-delay: 0.35s; }
+
+.target-card-main {
+  display: flex;
+  gap: 14px;
+}
+
+.target-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  background: var(--soft);
+  color: var(--blue);
+  border-radius: 8px;
+}
+
+.target-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.target-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.target-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.meta-info, .match-info, .provider-info, .evidence-info {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.source-badge.internal {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #dcfce7;
+}
+
+.source-badge.internal svg {
+  color: #16a34a;
+}
+

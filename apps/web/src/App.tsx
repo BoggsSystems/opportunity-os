@@ -16,6 +16,7 @@ import {
   Sparkles,
   Target,
   UserRound,
+  Database,
   X,
 } from 'lucide-react';
 import { ApiClient, ApiError } from './lib/api';
@@ -422,13 +423,36 @@ export function App() {
     }
   }
 
-  function continueFromCampaignFeedback() {
+  async function continueFromCampaignFeedback() {
+    console.log('[DEBUG] continueFromCampaignFeedback called');
+    const feedback = campaignFeedback;
+    console.log('[DEBUG] feedback:', feedback);
     setCampaignFeedback(null);
+    
     setNotice({
       title: 'Campaign brief reviewed',
       detail: 'The Canvas can move into the first execution step now.',
       tone: 'success',
     });
+
+    if (feedback?.campaign?.id) {
+      console.log(`[DEBUG] Attempting to set workspace mode to discovery_scan for campaign ${feedback.campaign.id}`);
+      try {
+        await runCommand(
+          { 
+            type: 'set_workspace_mode', 
+            input: { mode: 'discovery_scan' },
+            campaignId: feedback.campaign.id
+          }, 
+          'Moving to lead discovery'
+        );
+        console.log('[DEBUG] runCommand successful');
+      } catch (err) {
+        console.error('[DEBUG] Failed to move to discovery mode', err);
+      }
+    } else {
+      console.warn('[DEBUG] No feedback campaign ID found');
+    }
   }
 
   async function generateDraft() {
@@ -1833,7 +1857,7 @@ function DiscoveryCanvas(props: {
   onPromoteTargets: (scanId: string) => Promise<void>;
 }) {
   const scan = props.campaignWorkspace?.discovery?.scans?.[0] ?? null;
-  const targets = scan?.targets?.slice(0, 6) ?? [];
+  const targets = scan?.targets ?? [];
   const acceptedCount = targets.filter((target) => target.status === 'accepted').length;
   const providerKeys = Array.isArray(scan?.providerKeys) ? scan?.providerKeys : [];
 
@@ -1850,9 +1874,18 @@ function DiscoveryCanvas(props: {
       </div>
 
       <div className="action-grid">
-        <button className="primary-button" disabled={props.isWorking} onClick={() => void props.onStartScan()} type="button">
-          {props.isWorking ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-          Run scan
+        <button className={`primary-button ${props.isWorking ? 'working' : ''}`} disabled={props.isWorking} onClick={() => void props.onStartScan()} type="button">
+          {props.isWorking ? (
+            <>
+              <Loader2 className="spin" size={16} />
+              Searching providers...
+            </>
+          ) : (
+            <>
+              <Sparkles size={16} />
+              Run scan
+            </>
+          )}
         </button>
         <button
           className="secondary-button"
@@ -1929,12 +1962,24 @@ function DiscoveryTargetCard(props: {
         <div>
           <div className="target-title-row">
             <h4>{props.target.title}</h4>
-            <StatusBadge label={props.target.status} />
+            <div className="target-badges">
+              {props.target.relevanceScore >= 80 && <span className="status-badge high-relevance">High Relevance</span>}
+              <StatusBadge label={props.target.status} />
+            </div>
           </div>
-          <p>{props.target.whyThisTarget ?? 'This target matched the discovery scan.'}</p>
-          {matchedDetails ? <small>Existing match: {matchedDetails}</small> : null}
-          {providerKeys.length > 0 ? <small>Found by: {providerKeys.join(', ')}</small> : null}
-          {evidence ? <small>{evidence.sourceName ?? evidence.evidenceType}: {evidence.snippet ?? evidence.title}</small> : null}
+          <div className="target-reasoning">
+            <Sparkles size={14} className="reasoning-icon" />
+            <p>{props.target.whyThisTarget ?? 'This target matched the discovery scan.'}</p>
+          </div>
+          {metadata['source'] === 'internal_db' ? (
+            <div className="source-badge internal">
+              <Database size={12} />
+              <span>Database Match</span>
+            </div>
+          ) : null}
+          {matchedDetails ? <small className="match-info">Matched existing: {matchedDetails}</small> : null}
+          {providerKeys.length > 0 ? <small className="provider-info">Sourced via {providerKeys.join(', ')}</small> : null}
+          {evidence ? <small className="evidence-info">Evidence: {evidence.snippet ?? evidence.title}</small> : null}
         </div>
       </div>
       <div className="target-score-row">
@@ -2417,6 +2462,7 @@ function actionFromMode(mode: WorkspaceMode): CanvasAction {
   if (mode === 'goal_planning') return 'confirm_goal';
   if (mode === 'campaign_review') return 'confirm_campaign';
   if (mode === 'discovery_review') return 'review_discovery_targets';
+  if (mode === 'discovery_scan') return 'run_discovery';
   if (mode === 'opportunity_review' || mode === 'signal_review') return 'review_opportunity';
   if (mode === 'draft_edit') return 'draft_email';
   if (mode === 'asset_review') return 'review_asset';

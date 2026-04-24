@@ -42,8 +42,9 @@ export class WorkspaceService {
     const nextActions = await this.nextActionsService.getNextActions(userId);
     await this.ensureSignalsFromNextActions(userId, nextActions);
 
-    const [activeCycle, signals, activeConversation, velocity, pendingOfferingProposal, activeOffering] = await Promise.all([
+    const [activeCycle, activeCampaign, signals, activeConversation, velocity, pendingOfferingProposal, activeOffering] = await Promise.all([
       this.findActiveCycle(userId),
+      this.findActiveCampaign(userId),
       this.findSignals(userId),
       this.findActiveConversation(userId),
       this.getVelocity(userId),
@@ -53,7 +54,7 @@ export class WorkspaceService {
 
     const recommendation = nextActions[0] ?? null;
     const activeCycleSummary = activeCycle ? this.toCycleSummary(activeCycle) : null;
-    const mode = activeCycleSummary?.workspaceMode ?? this.workspaceModeFromRecommendation(recommendation);
+    const mode = activeCycleSummary?.workspaceMode ?? activeCampaign?.workspaceMode ?? this.workspaceModeFromRecommendation(recommendation);
     const allowedActions = activeCycleSummary?.allowedActions ?? this.allowedActionsForMode(mode, recommendation);
     const canvas = this.buildCanvasState(
       activeCycleSummary,
@@ -62,6 +63,7 @@ export class WorkspaceService {
       allowedActions,
       pendingOfferingProposal,
       activeOffering,
+      activeCampaign,
     );
 
     return {
@@ -128,6 +130,7 @@ export class WorkspaceService {
   }
 
   private async runCommand(userId: string, dto: WorkspaceCommandDto) {
+    console.log(`[DEBUG] runCommand called with type: ${dto.type}`);
     switch (dto.type) {
       case 'confirm_offering':
         return this.confirmOfferingFromCommand(userId, dto);
@@ -135,6 +138,8 @@ export class WorkspaceService {
         return this.adjustOfferingFromCommand(userId, dto);
       case 'reject_offering':
         return this.rejectOfferingFromCommand(userId, dto);
+      case 'activate_campaign':
+        return this.activateCampaignFromCommand(userId, dto);
       case 'start_discovery_scan':
         return this.startDiscoveryScanFromCommand(userId, dto);
       case 'accept_discovery_target':
@@ -155,6 +160,8 @@ export class WorkspaceService {
         return this.createTaskFromCommand(userId, dto);
       case 'advance_opportunity':
         return this.advanceOpportunityFromCommand(userId, dto);
+      case 'set_workspace_mode':
+        return this.setWorkspaceMode(userId, dto);
       default:
         return assertNever(dto.type);
     }
@@ -179,6 +186,23 @@ export class WorkspaceService {
     };
   }
 
+  private async activateCampaignFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const campaignId = this.stringInput(dto, 'campaignId');
+    if (!campaignId) {
+      throw new NotFoundException('campaignId is required');
+    }
+
+    await prisma.campaign.update({
+      where: { id: campaignId, userId },
+      data: { 
+        status: CampaignStatus.active,
+        workspaceMode: WorkspaceMode.discovery_scan,
+      },
+    });
+
+    return { success: true, mode: WorkspaceMode.discovery_scan };
+  }
+
   private async startDiscoveryScanFromCommand(userId: string, dto: WorkspaceCommandDto) {
     const input = dto.input ?? {};
     const query = typeof input['query'] === 'string' ? input['query'] : undefined;
@@ -186,16 +210,31 @@ export class WorkspaceService {
       throw new NotFoundException('Discovery query is required');
     }
 
-    return this.discoveryService.createScan(userId, {
+    const scan = await this.discoveryService.createScan(userId, {
       query,
       scanType: typeof input['scanType'] === 'string' ? input['scanType'] as any : 'mixed',
       targetSegment: typeof input['targetSegment'] === 'string' ? input['targetSegment'] : undefined,
       campaignId: typeof input['campaignId'] === 'string' ? input['campaignId'] : undefined,
       offeringId: typeof input['offeringId'] === 'string' ? input['offeringId'] : undefined,
       goalId: typeof input['goalId'] === 'string' ? input['goalId'] : undefined,
+      providerKey: typeof input['providerKey'] === 'string' ? input['providerKey'] : undefined,
+      providerKeys: Array.isArray(input['providerKeys']) ? input['providerKeys'] : undefined,
       maxTargets: typeof input['maxTargets'] === 'number' ? input['maxTargets'] : undefined,
       context: typeof input['context'] === 'object' && input['context'] !== null ? input['context'] as Record<string, unknown> : undefined,
     });
+
+    // Automatically transition workspace to discovery mode for this campaign
+    if (typeof input['campaignId'] === 'string') {
+      await prisma.campaign.update({
+        where: { id: input['campaignId'] as string, userId },
+        data: { 
+          status: CampaignStatus.active,
+          workspaceMode: WorkspaceMode.discovery_scan,
+        },
+      }).catch(() => null);
+    }
+
+    return scan;
   }
 
   private async acceptDiscoveryTargetFromCommand(userId: string, dto: WorkspaceCommandDto) {
@@ -470,6 +509,26 @@ export class WorkspaceService {
 
     return { opportunity };
   }
+  
+  private async setWorkspaceMode(userId: string, dto: WorkspaceCommandDto) {
+    const mode = this.stringInput(dto, 'mode') as PrismaWorkspaceMode;
+    const cycleId = dto.cycleId;
+    const campaignId = dto.campaignId;
+    
+    if (cycleId) {
+      await prisma.opportunityCycle.update({
+        where: { id: cycleId, userId },
+        data: { workspaceMode: mode },
+      });
+    } else if (campaignId) {
+      await prisma.campaign.update({
+        where: { id: campaignId, userId },
+        data: { workspaceMode: mode },
+      });
+    }
+    
+    return { success: true, mode };
+  }
 
   private async assertOwnedCommandRefs(
     userId: string,
@@ -544,6 +603,13 @@ export class WorkspaceService {
   private findActiveCycle(userId: string) {
     return prisma.opportunityCycle.findFirst({
       where: { userId, status: OpportunityCycleStatus.active },
+      orderBy: [{ priorityScore: 'desc' }, { updatedAt: 'desc' }],
+    });
+  }
+
+  private findActiveCampaign(userId: string) {
+    return prisma.campaign.findFirst({
+      where: { userId, status: { in: ['PLANNING', 'ACTIVE'] } },
       orderBy: [{ priorityScore: 'desc' }, { updatedAt: 'desc' }],
     });
   }
@@ -724,9 +790,15 @@ export class WorkspaceService {
     allowedActions: string[],
     pendingOfferingProposal: any,
     activeOffering: any,
+    activeCampaign: any | null,
   ): CanvasState {
     const action = !cycle && pendingOfferingProposal ? 'confirm_offering' : this.canvasActionFromWorkspaceMode(mode, recommendation);
-    const refs = cycle?.refs ?? this.refsFromOfferingProposal(pendingOfferingProposal) ?? this.refsFromRecommendation(recommendation);
+    const refs = cycle?.refs ?? this.refsFromOfferingProposal(pendingOfferingProposal) ?? this.refsFromRecommendation(recommendation) ?? {};
+    
+    if (activeCampaign && !refs.campaignId) {
+      refs.campaignId = activeCampaign.id;
+    }
+
     const canvasActions = this.canvasCommandsForAction(action, allowedActions, recommendation);
     const title = this.canvasTitleForAction(action, cycle, recommendation, pendingOfferingProposal);
 
@@ -747,6 +819,7 @@ export class WorkspaceService {
     if (mode === 'goal_planning') return 'confirm_goal';
     if (mode === 'campaign_review') return 'confirm_campaign';
     if (mode === 'discovery_review') return 'review_discovery_targets';
+    if (mode === 'discovery_scan') return 'run_discovery';
     if (mode === 'opportunity_review') return 'review_opportunity';
     if (mode === 'draft_edit') return 'draft_email';
     if (mode === 'asset_review') return 'review_asset';

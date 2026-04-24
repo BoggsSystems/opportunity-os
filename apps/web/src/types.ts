@@ -8,6 +8,7 @@ export type WorkspaceMode =
   | 'draft_edit'
   | 'asset_review'
   | 'execution_confirm'
+  | 'discovery_scan'
   | 'progress_summary';
 
 export type CanvasAction =

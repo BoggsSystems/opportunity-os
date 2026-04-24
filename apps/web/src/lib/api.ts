@@ -166,6 +166,7 @@ export class ApiClient {
   }
 
   async executeWorkspaceCommand(body: Record<string, unknown>) {
+    console.log(`[API] Executing workspace command:`, body);
     return this.request<unknown>('/workspace/commands', {
       method: 'POST',
       body,
