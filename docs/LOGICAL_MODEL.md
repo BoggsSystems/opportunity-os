@@ -216,6 +216,39 @@ Values:
 * `uploaded_content`
 * `other`
 
+### `connection_import_status`
+
+Values:
+
+* `uploading`
+* `parsing`
+* `processing`
+* `completed`
+* `failed`
+* `cancelled`
+
+### `connection_strength`
+
+Values:
+
+* `very_weak`   // No recent interaction
+* `weak`        // Occasional likes/views
+* `moderate`    // Some messages or comments
+* `strong`      // Regular interaction
+* `very_strong` // Close professional relationship
+
+### `connection_segment_type`
+
+Values:
+
+* `by_company`
+* `by_title`
+* `by_industry`
+* `by_location`
+* `by_recency`
+* `by_strength`
+* `by_relevance`  // AI-scored against active offering
+
 ### `offering_type`
 
 Values:
@@ -1384,6 +1417,155 @@ Purpose: source-level proof or context behind a discovered target.
 * index on `discovery_target_id`
 * index on `evidence_type`
 * index on `source_url`
+
+---
+
+### `connection_import_batches`
+
+Purpose: track LinkedIn connections CSV imports and their processing status.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `filename` VARCHAR NOT NULL
+* `file_size` INTEGER NOT NULL
+* `total_rows` INTEGER NOT NULL
+* `processed_rows` INTEGER NOT NULL DEFAULT 0
+* `created_people_count` INTEGER NOT NULL DEFAULT 0
+* `updated_people_count` INTEGER NOT NULL DEFAULT 0
+* `duplicate_count` INTEGER NOT NULL DEFAULT 0
+* `error_count` INTEGER NOT NULL DEFAULT 0
+* `status` `connection_import_status` NOT NULL DEFAULT `uploading`
+* `error_message` TEXT NULL
+* `processing_started_at` TIMESTAMP NULL
+* `processing_completed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `status`
+* index on `created_at`
+
+#### Notes
+
+* Each CSV upload creates one batch record.
+* Processing is asynchronous to handle large files.
+* Tracks creation vs updates to understand data freshness.
+
+---
+
+### `connection_records`
+
+Purpose: individual LinkedIn connections with relationship context and campaign potential.
+
+#### Columns
+
+* `id` UUID PK
+* `import_batch_id` UUID NOT NULL FK -> `connection_import_batches.id`
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `person_id` UUID NULL FK -> `people.id`
+* `first_name` VARCHAR NOT NULL
+* `last_name` VARCHAR NOT NULL
+* `email` VARCHAR NULL
+* `company` VARCHAR NULL
+* `title` VARCHAR NULL
+* `linkedin_url` VARCHAR NULL
+* `connected_on` DATE NULL
+* `last_interaction_on` DATE NULL
+* `strength` `connection_strength` NOT NULL DEFAULT `moderate`
+* `relevance_score` DECIMAL(3,2) NULL  // AI-scored 0.00-1.00 against active offering
+* `is_potential_referral` BOOLEAN NOT NULL DEFAULT FALSE
+* `referral_target_notes` TEXT NULL
+* `campaign_suggestions_json` JSONB NULL
+* `import_row_number` INTEGER NOT NULL
+* `import_metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `import_batch_id`
+* index on `user_id`
+* index on `person_id`
+* index on `email`
+* index on `company`
+* index on `title`
+* index on `strength`
+* index on `relevance_score`
+* index on `is_potential_referral`
+* composite index on (`user_id`, `company`)
+* composite index on (`user_id`, `title`)
+
+#### Notes
+
+* Links to canonical Person record after deduplication and promotion.
+* Relevance scoring is updated when active offerings change.
+* Campaign suggestions are AI-generated based on connection profile.
+
+---
+
+### `connection_segments`
+
+Purpose: AI-generated groupings of connections for targeted campaigns.
+
+#### Columns
+
+* `id` UUID PK
+* `import_batch_id` UUID NOT NULL FK -> `connection_import_batches.id`
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `segment_type` `connection_segment_type` NOT NULL
+* `segment_key` VARCHAR NOT NULL  // e.g., "Google", "CTO", "San Francisco"
+* `segment_name` VARCHAR NOT NULL  // e.g., "Google Employees", "CTO Connections", "Bay Area Network"
+* `description` TEXT NULL
+* `connection_count` INTEGER NOT NULL DEFAULT 0
+* `avg_relevance_score` DECIMAL(3,2) NULL
+* `campaign_suggestion` TEXT NULL
+* `priority_rank` INTEGER NULL
+* `auto_generated` BOOLEAN NOT NULL DEFAULT TRUE
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `import_batch_id`
+* index on `user_id`
+* index on `segment_type`
+* index on `priority_rank`
+* composite index on (`user_id`, `segment_type`, `priority_rank`)
+
+#### Notes
+
+* Segments are created during import processing and updated as offerings change.
+* Priority ranking helps users focus on high-value segments first.
+* Auto-generated segments can be manually edited or supplemented.
+
+---
+
+### `connection_segment_members`
+
+Purpose: many-to-many relationship between connections and segments.
+
+#### Columns
+
+* `id` UUID PK
+* `segment_id` UUID NOT NULL FK -> `connection_segments.id`
+* `connection_id` UUID NOT NULL FK -> `connection_records.id`
+* `match_score` DECIMAL(3,2) NULL  // How strongly this connection belongs to the segment
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `segment_id`
+* index on `connection_id`
+* composite index on (`segment_id`, `match_score`)
+
+#### Notes
+
+* Allows connections to belong to multiple segments (e.g., by company AND title).
+* Match score helps with segment quality analysis.
 
 ---
 
@@ -2777,6 +2959,17 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `discovery_targets` may store pre-promotion match metadata against existing `companies`, `people`, `opportunities`, or prior `discovery_targets`
 * `discovery_targets` -> optional `companies`, `people`, and `opportunities` after promotion
 
+### LinkedIn Connection Imports
+
+* `users` -> many `connection_import_batches`
+* `connection_import_batches` -> many `connection_records`
+* `connection_records` -> optional canonical `people` (after promotion/deduplication)
+* `connection_import_batches` -> many `connection_segments`
+* `connection_segments` -> many `connection_segment_members`
+* `connection_segment_members` -> many `connection_records`
+* `connection_records` may generate campaign suggestions based on AI relevance scoring
+* `connection_segments` may generate campaign suggestions for entire groups
+
 ### Offerings, Goals, and Campaigns
 
 * `users` -> many `offerings`
@@ -3132,6 +3325,22 @@ These are the most important ones to include early.
 * `discovery_targets(opportunity_id)`
 * `discovery_evidence(discovery_target_id)`
 * `discovery_evidence(source_url)`
+
+### LinkedIn Connection Import Lookups
+
+* `connection_import_batches(user_id, status, created_at)`
+* `connection_import_batches(user_id, status)`
+* `connection_records(import_batch_id)`
+* `connection_records(user_id, person_id)`
+* `connection_records(user_id, email)`
+* `connection_records(user_id, company, title)`
+* `connection_records(user_id, strength)`
+* `connection_records(user_id, relevance_score DESC)`
+* `connection_records(user_id, is_potential_referral)`
+* `connection_segments(import_batch_id, segment_type, priority_rank)`
+* `connection_segments(user_id, segment_type, priority_rank)`
+* `connection_segment_members(segment_id, match_score DESC)`
+* `connection_segment_members(connection_id)`
 
 ### Workspace Orchestration Lookups
 

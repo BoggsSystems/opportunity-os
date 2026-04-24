@@ -706,6 +706,67 @@ Relationships:
 
 MVP: later
 
+**Connection Import Batch**
+
+A batch of LinkedIn connections imported from a CSV file.
+
+Represents:
+
+* one CSV upload event
+* the import source (LinkedIn connections)
+* import metadata and statistics
+* processing status and results
+
+Relationships:
+
+* belongs to one User
+* creates or updates many Connection Records
+* may trigger Connection Segments
+* may generate Campaign Suggestions
+
+MVP: yes
+
+**Connection Record**
+
+A person imported from LinkedIn connections with relationship context.
+
+Represents:
+
+* a LinkedIn connection with relationship history
+* connection strength and recency
+* professional context (company, title, location)
+* potential for re-engagement or referral
+
+Relationships:
+
+* belongs to one Connection Import Batch
+* belongs to one User
+* links to one Person (canonical CRM record)
+* may belong to many Connection Segments
+* may generate Campaign Suggestions
+
+MVP: yes
+
+**Connection Segment**
+
+A grouped subset of connections based on shared attributes.
+
+Represents:
+
+* connections by company, title, industry, or geography
+* relevance scoring against active offerings
+* prioritized target groups for campaigns
+* AI-identified high-value segments
+
+Relationships:
+
+* belongs to one User
+* belongs to one Connection Import Batch
+* contains many Connection Records
+* may generate many Campaign Suggestions
+
+MVP: yes
+
 **Contact Lead**
 
 A person discovered through search but not yet promoted to full CRM Person.
@@ -728,6 +789,7 @@ Important clarification:
 * Discovery Targets are the current staging layer for contact candidates.
 * Discovery should not write raw scraped/found contacts directly into canonical CRM records.
 * Discovery first stages, scores, dedupes, and matches candidate contacts, then promotes accepted targets into Company / Person / Opportunity records.
+* Connection Imports provide warm-network data that bypasses cold discovery and creates immediate campaign opportunities.
 
 ---
 
