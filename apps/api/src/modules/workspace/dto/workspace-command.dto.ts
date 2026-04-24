@@ -37,6 +37,7 @@ export const WORKSPACE_COMMAND_TYPES = [
   'complete_cycle',
   'create_task',
   'advance_opportunity',
+  'activate_campaign',
   'set_workspace_mode',
 ] as const;
 

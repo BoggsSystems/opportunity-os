@@ -1,0 +1,6 @@
+
+> @opportunity-os/api@0.1.0 build /Users/jeffboggs/opportunity-os/apps/api
+> nest build "--filter=@opportunity-os/api"
+
+error: unknown option '--filter'
+ ELIFECYCLE  Command failed with exit code 1.

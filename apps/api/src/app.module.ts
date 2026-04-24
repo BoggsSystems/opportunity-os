@@ -33,7 +33,7 @@ import { DevContextInterceptor } from './common/dev-context.interceptor';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.local', '.env'],
+      envFilePath: ['.env.local', '.env', '../../.env.local', '../../.env'],
     }),
     HealthModule,
     AuthModule,

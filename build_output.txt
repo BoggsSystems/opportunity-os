@@ -1,0 +1,61 @@
+
+> opportunity-os@0.1.0 build /Users/jeffboggs/opportunity-os
+> turbo run build "--filter=@opportunity-os/api"
+
+• Packages in scope: @opportunity-os/api
+• Running build in 1 packages
+• Remote caching disabled
+@opportunity-os/config:build: cache hit, replaying logs 8b31be070988b487
+@opportunity-os/types:build: cache hit, replaying logs 7319aac7f73c2744
+@opportunity-os/config:build: 
+@opportunity-os/config:build: > @opportunity-os/config@0.1.0 build /Users/jeffboggs/opportunity-os/packages/config
+@opportunity-os/config:build: > tsc
+@opportunity-os/config:build: 
+@opportunity-os/types:build: 
+@opportunity-os/types:build: > @opportunity-os/types@0.1.0 build /Users/jeffboggs/opportunity-os/packages/types
+@opportunity-os/types:build: > tsc
+@opportunity-os/types:build: 
+@opportunity-os/db:build: cache hit, replaying logs 2b0992d8c550ac4d
+@opportunity-os/db:build: 
+@opportunity-os/db:build: > @opportunity-os/db@0.1.0 build /Users/jeffboggs/opportunity-os/packages/db
+@opportunity-os/db:build: > tsc
+@opportunity-os/db:build: 
+@opportunity-os/auth:build: cache hit, replaying logs 068cd099cc4f0538
+@opportunity-os/auth:build: 
+@opportunity-os/auth:build: > @opportunity-os/auth@0.1.0 build /Users/jeffboggs/opportunity-os/packages/auth
+@opportunity-os/auth:build: > tsc
+@opportunity-os/auth:build: 
+@opportunity-os/logger:build: cache hit, replaying logs eb11984195cfd1a7
+@opportunity-os/logger:build: 
+@opportunity-os/logger:build: > @opportunity-os/logger@0.1.0 build /Users/jeffboggs/opportunity-os/packages/logger
+@opportunity-os/logger:build: > tsc
+@opportunity-os/logger:build: 
+@opportunity-os/api:build: cache miss, executing 8a647d2ad8ab6e36
+@opportunity-os/api:build: 
+@opportunity-os/api:build: > @opportunity-os/api@0.1.0 build /Users/jeffboggs/opportunity-os/apps/api
+@opportunity-os/api:build: > nest build
+@opportunity-os/api:build: 
+@opportunity-os/api:build: [96msrc/modules/discovery/discovery.service.ts[0m:[93m56[0m:[93m59[0m - [91merror[0m[90m TS2345: [0mArgument of type '{ offeringId: string; }' is not assignable to parameter of type 'CreateDiscoveryScanDto'.
+@opportunity-os/api:build:   Property 'query' is missing in type '{ offeringId: string; }' but required in type 'CreateDiscoveryScanDto'.
+@opportunity-os/api:build: 
+@opportunity-os/api:build: [7m56[0m     const context = await this.resolveScanContext(userId, { offeringId: body.offeringId });
+@opportunity-os/api:build: [7m  [0m [91m                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+@opportunity-os/api:build: 
+@opportunity-os/api:build:   [96msrc/modules/discovery/dto/create-discovery-scan.dto.ts[0m:[93m13[0m:[93m3[0m
+@opportunity-os/api:build:     [7m13[0m   query: string;
+@opportunity-os/api:build:     [7m  [0m [96m  ~~~~~[0m
+@opportunity-os/api:build:     'query' is declared here.
+@opportunity-os/api:build: 
+@opportunity-os/api:build: Found 1 error(s).
+@opportunity-os/api:build: 
+@opportunity-os/api:build:  ELIFECYCLE  Command failed with exit code 1.
+@opportunity-os/api:build: ERROR: command finished with error: command (/Users/jeffboggs/opportunity-os/apps/api) /Users/jeffboggs/Library/pnpm/.tools/@pnpm+exe/8.15.0/bin/pnpm run build exited (1)
+@opportunity-os/api#build: command (/Users/jeffboggs/opportunity-os/apps/api) /Users/jeffboggs/Library/pnpm/.tools/@pnpm+exe/8.15.0/bin/pnpm run build exited (1)
+
+ Tasks:    5 successful, 6 total
+Cached:    5 cached, 6 total
+  Time:    15.219s 
+Failed:    @opportunity-os/api#build
+
+ ERROR  run failed: command  exited (1)
+ ELIFECYCLE  Command failed with exit code 1.

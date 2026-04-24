@@ -142,7 +142,7 @@ export class DiscoveryService {
         goalId: context.goalId,
         query,
         scanType: (dto.scanType ?? 'mixed') as DiscoveryScanType,
-        providerKey: providerKeys[0] ?? this.localDiscoveryProvider.key,
+        providerKey: providerKeys[0] ?? 'tavily',
         providerKeys,
         targetSegment: dto.targetSegment?.trim() || context.targetSegment,
         maxTargets: dto.maxTargets ?? 10,

@@ -4,12 +4,13 @@ import {
   OpportunityCyclePhase,
   OpportunityCycleStatus,
   OpportunityStage,
+  CampaignStatus,
   Prisma,
   prisma,
   TaskPriority,
   TaskStatus,
   WorkspaceCommandStatus,
-  WorkspaceMode as PrismaWorkspaceMode,
+  WorkspaceMode,
   WorkspaceSignalImportance,
   WorkspaceSignalStatus,
 } from '@opportunity-os/db';
@@ -24,7 +25,6 @@ import {
   CanvasCommand,
   CanvasState,
   WorkspaceCycleSummary,
-  WorkspaceMode,
   WorkspaceSignalSummary,
   WorkspaceState,
 } from './workspace.types';
@@ -161,7 +161,7 @@ export class WorkspaceService {
       case 'advance_opportunity':
         return this.advanceOpportunityFromCommand(userId, dto);
       case 'set_workspace_mode':
-        return this.setWorkspaceMode(userId, dto);
+        return this.handleSetWorkspaceMode(userId, dto);
       default:
         return assertNever(dto.type);
     }
@@ -195,7 +195,7 @@ export class WorkspaceService {
     await prisma.campaign.update({
       where: { id: campaignId, userId },
       data: { 
-        status: CampaignStatus.active,
+        status: CampaignStatus.ACTIVE,
         workspaceMode: WorkspaceMode.discovery_scan,
       },
     });
@@ -212,14 +212,14 @@ export class WorkspaceService {
 
     const scan = await this.discoveryService.createScan(userId, {
       query,
-      scanType: typeof input['scanType'] === 'string' ? input['scanType'] as any : 'mixed',
+      scanType: typeof input['scanType'] === 'string' ? input['scanType'] as any : undefined,
+      maxTargets: typeof input['maxTargets'] === 'number' ? input['maxTargets'] : 10,
       targetSegment: typeof input['targetSegment'] === 'string' ? input['targetSegment'] : undefined,
       campaignId: typeof input['campaignId'] === 'string' ? input['campaignId'] : undefined,
       offeringId: typeof input['offeringId'] === 'string' ? input['offeringId'] : undefined,
       goalId: typeof input['goalId'] === 'string' ? input['goalId'] : undefined,
       providerKey: typeof input['providerKey'] === 'string' ? input['providerKey'] : undefined,
       providerKeys: Array.isArray(input['providerKeys']) ? input['providerKeys'] : undefined,
-      maxTargets: typeof input['maxTargets'] === 'number' ? input['maxTargets'] : undefined,
       context: typeof input['context'] === 'object' && input['context'] !== null ? input['context'] as Record<string, unknown> : undefined,
     });
 
@@ -228,7 +228,7 @@ export class WorkspaceService {
       await prisma.campaign.update({
         where: { id: input['campaignId'] as string, userId },
         data: { 
-          status: CampaignStatus.active,
+          status: CampaignStatus.ACTIVE,
           workspaceMode: WorkspaceMode.discovery_scan,
         },
       }).catch(() => null);
@@ -500,7 +500,7 @@ export class WorkspaceService {
         where: { id: cycle.id },
         data: {
           phase: OpportunityCyclePhase.executed,
-          workspaceMode: PrismaWorkspaceMode.progress_summary,
+          workspaceMode: WorkspaceMode.progress_summary,
           allowedActionsJson: this.toJson(this.allowedActionsForMode('progress_summary')),
           lastAdvancedAt: new Date(),
         },
@@ -510,8 +510,8 @@ export class WorkspaceService {
     return { opportunity };
   }
   
-  private async setWorkspaceMode(userId: string, dto: WorkspaceCommandDto) {
-    const mode = this.stringInput(dto, 'mode') as PrismaWorkspaceMode;
+  private async handleSetWorkspaceMode(userId: string, dto: WorkspaceCommandDto) {
+    const mode = this.stringInput(dto, 'mode') as WorkspaceMode;
     const cycleId = dto.cycleId;
     const campaignId = dto.campaignId;
     
