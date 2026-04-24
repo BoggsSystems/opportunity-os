@@ -583,7 +583,7 @@ export class WorkspaceService {
       activeCycleCount,
     ] = await Promise.all([
       prisma.goal.count({ where: { userId, status: 'ACTIVE' } }),
-      prisma.strategicCampaign.count({ where: { userId, status: { in: ['PLANNING', 'ACTIVE'] } } }),
+      prisma.campaign.count({ where: { userId, status: { in: ['PLANNING', 'ACTIVE'] } } }),
       prisma.opportunity.count({
         where: {
           userId,
@@ -650,7 +650,7 @@ export class WorkspaceService {
         signalId: cycle.workspaceSignalId ?? undefined,
         offeringId: cycle.offeringId ?? undefined,
         goalId: cycle.goalId ?? undefined,
-        campaignId: cycle.strategicCampaignId ?? undefined,
+        campaignId: cycle.campaignId ?? undefined,
         opportunityId: cycle.opportunityId ?? undefined,
         taskId: cycle.taskId ?? undefined,
         discoveredOpportunityId: cycle.discoveredOpportunityId ?? undefined,
@@ -954,7 +954,7 @@ export class WorkspaceService {
     return {
       taskId: task.id,
       opportunityId: task.opportunityId ?? undefined,
-      strategicCampaignId: task.opportunity?.campaignId ?? undefined,
+      campaignId: task.opportunity?.campaignId ?? undefined,
       goalId: task.opportunity?.campaign?.goalId ?? undefined,
       offeringId: task.opportunity?.campaign?.offeringId ?? task.opportunity?.campaign?.goal?.offeringId ?? undefined,
     };
@@ -980,7 +980,7 @@ export class WorkspaceService {
 
     return {
       opportunityId: opportunity.id,
-      strategicCampaignId: opportunity.campaignId ?? undefined,
+      campaignId: opportunity.campaignId ?? undefined,
       goalId: opportunity.campaign?.goalId ?? undefined,
       offeringId: opportunity.campaign?.offeringId ?? opportunity.campaign?.goal?.offeringId ?? undefined,
     };

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import type { Response } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { ConnectorsService } from './connectors.service';
@@ -24,6 +25,34 @@ export class ConnectorsController {
   async setupEmail(@Body() body: SetupEmailConnectorDto, @CurrentUser() user?: AuthenticatedUser) {
     if (!user?.id) throw new UnauthorizedException('No authenticated user found');
     return this.connectorsService.setupEmailConnector(user.id, body);
+  }
+
+  @Get('email/oauth/start')
+  async startEmailOAuth(
+    @Query('provider') provider: 'outlook',
+    @Query('returnTo') returnTo: string | undefined,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.startEmailOAuth(user.id, provider, returnTo);
+  }
+
+  @Get('email/oauth/callback')
+  async completeEmailOAuth(
+    @Query('state') state: string | undefined,
+    @Query('code') code: string | undefined,
+    @Query('error') error: string | undefined,
+    @Query('error_description') errorDescription: string | undefined,
+    @Res() res: Response,
+  ) {
+    const html = await this.connectorsService.completeEmailOAuth({
+      state,
+      code,
+      error,
+      errorDescription,
+    });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   }
 
   @Post(':id/test')

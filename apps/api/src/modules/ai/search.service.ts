@@ -17,6 +17,10 @@ export class SearchService {
     this.apiKey = this.configService.get<string>('TAVILY_API_KEY');
   }
 
+  isConfigured(): boolean {
+    return !!this.apiKey;
+  }
+
   async search(query: string, options: { maxResults?: number; searchDepth?: 'basic' | 'advanced' } = {}): Promise<SearchResult[]> {
     if (!this.apiKey) {
       this.logger.warn('TAVILY_API_KEY is not configured. Search will return empty results.');

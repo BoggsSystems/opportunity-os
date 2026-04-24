@@ -453,6 +453,7 @@ export interface DiscoveryTargetSummary {
   companyId?: string | null;
   personId?: string | null;
   opportunityId?: string | null;
+  metadata?: Record<string, unknown> | null;
   evidence?: DiscoveryEvidenceSummary[];
 }
 
@@ -462,6 +463,7 @@ export interface DiscoveryScanSummary {
   scanType: string;
   status: string;
   providerKey: string;
+  providerKeys?: string[];
   targetSegment?: string | null;
   maxTargets: number;
   acceptedCount: number;
@@ -471,6 +473,7 @@ export interface DiscoveryScanSummary {
   offeringId?: string | null;
   campaignId?: string | null;
   goalId?: string | null;
+  providerRuns?: Array<Record<string, unknown>>;
   targets?: DiscoveryTargetSummary[];
 }
 
@@ -500,6 +503,12 @@ export interface EmailReadiness {
   upgradeHint?: string | null;
   providers?: string[];
   connector?: ConnectorSummary;
+}
+
+export interface OAuthStartResult {
+  providerName: 'outlook';
+  authUrl: string;
+  state: string;
 }
 
 export interface StrategicPlanResult {

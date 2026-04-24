@@ -16,10 +16,21 @@ import { ContentUploadResponseDto } from './dto/content-upload-response.dto';
 import { ExecuteContentOpportunityDto } from './dto/execute-content-opportunity.dto';
 import { UploadContentDto } from './dto/upload-content.dto';
 import { LocalDiscoveryProvider } from './providers/local-discovery.provider';
+import {
+  DiscoveryExistingMatch,
+  DiscoveryProvider,
+  DiscoveryProviderTarget,
+} from './providers/discovery-provider.interface';
+import { OpenAiDiscoveryProvider } from './providers/openai-discovery.provider';
+import { TavilyDiscoveryProvider } from './providers/tavily-discovery.provider';
 
 @Injectable()
 export class DiscoveryService {
-  constructor(private readonly localDiscoveryProvider: LocalDiscoveryProvider) {}
+  constructor(
+    private readonly localDiscoveryProvider: LocalDiscoveryProvider,
+    private readonly openAiDiscoveryProvider: OpenAiDiscoveryProvider,
+    private readonly tavilyDiscoveryProvider: TavilyDiscoveryProvider,
+  ) {}
 
   async listContent(userId: string) {
     return prisma.userAsset.findMany({
@@ -101,6 +112,7 @@ export class DiscoveryService {
     }
 
     const context = await this.resolveScanContext(userId, dto);
+    const providerKeys = this.resolveProviderKeys(dto);
     const scan = await prisma.discoveryScan.create({
       data: {
         userId,
@@ -109,7 +121,8 @@ export class DiscoveryService {
         goalId: context.goalId,
         query,
         scanType: (dto.scanType ?? 'mixed') as DiscoveryScanType,
-        providerKey: dto.providerKey?.trim() || this.localDiscoveryProvider.key,
+        providerKey: providerKeys[0] ?? this.localDiscoveryProvider.key,
+        providerKeys,
         targetSegment: dto.targetSegment?.trim() || context.targetSegment,
         maxTargets: dto.maxTargets ?? 10,
         requestContextJson: this.toJson({
@@ -126,7 +139,10 @@ export class DiscoveryService {
 
   async runScan(userId: string, scanId: string) {
     const scan = await this.findScan(userId, scanId);
-    const provider = this.providerFor(scan.providerKey);
+    const providerKeys = this.resolveProviderKeys({
+      providerKey: scan.providerKey,
+      providerKeys: scan.providerKeys ?? [],
+    });
 
     await prisma.discoveryScan.update({
       where: { id: scan.id },
@@ -139,22 +155,76 @@ export class DiscoveryService {
     });
 
     try {
-      const result = await provider.discover({
-        userId,
-        query: scan.query,
-        scanType: scan.scanType,
-        targetSegment: scan.targetSegment ?? undefined,
-        maxTargets: scan.maxTargets,
-        context: (scan.requestContextJson as Record<string, unknown>) ?? {},
-      });
+      const providerResults = [];
+      for (const providerKey of providerKeys) {
+        const provider = this.providerFor(providerKey);
+        if (!provider) continue;
 
+        const providerRun = await prisma.discoveryProviderRun.create({
+          data: {
+            discoveryScanId: scan.id,
+            providerKey,
+            status: DiscoveryScanStatus.running,
+            query: scan.query,
+            requestJson: this.toJson({
+              scanType: scan.scanType,
+              targetSegment: scan.targetSegment ?? undefined,
+              maxTargets: scan.maxTargets,
+              context: (scan.requestContextJson as Record<string, unknown>) ?? {},
+            }),
+            startedAt: new Date(),
+          },
+        });
+
+        try {
+          const result = await provider.discover({
+            userId,
+            query: scan.query,
+            scanType: scan.scanType,
+            targetSegment: scan.targetSegment ?? undefined,
+            maxTargets: scan.maxTargets,
+            context: (scan.requestContextJson as Record<string, unknown>) ?? {},
+          });
+
+          await prisma.discoveryProviderRun.update({
+            where: { id: providerRun.id },
+            data: {
+              status: DiscoveryScanStatus.completed,
+              completedAt: new Date(),
+              rawTargetCount: result.targets.length,
+              normalizedTargetCount: result.targets.length,
+              resultJson: this.toJson(result.metadata),
+            },
+          });
+
+          providerResults.push(result);
+        } catch (error) {
+          await prisma.discoveryProviderRun.update({
+            where: { id: providerRun.id },
+            data: {
+              status: DiscoveryScanStatus.failed,
+              failedAt: new Date(),
+              failureReason: error instanceof Error ? error.message : 'Provider discovery failed',
+            },
+          });
+        }
+      }
+
+      const consolidatedTargets = this.consolidateTargets(providerResults);
       const createdTargets = [];
-      for (const target of result.targets) {
-        const dedupeKey = this.buildDedupeKey(userId, scan.id, target);
+      for (const target of consolidatedTargets) {
+        const dedupeKey = this.buildDedupeKey(userId, target);
         const existingTarget = await prisma.discoveryTarget.findFirst({
           where: { userId, dedupeKey, status: { not: DiscoveryTargetStatus.archived } },
-          select: { id: true },
+          select: { id: true, status: true, companyId: true, personId: true, opportunityId: true },
         });
+        const existingMatch = await this.matchExistingRecords(userId, target, existingTarget?.id);
+        const metadata = {
+          ...(target.metadata ?? {}),
+          providerKeys: this.providerKeysFromTarget(target),
+          existingMatch,
+          duplicateDiscoveryTargetId: existingTarget?.id,
+        };
 
         const created = await prisma.discoveryTarget.create({
           data: {
@@ -176,9 +246,9 @@ export class DiscoveryService {
             confidenceScore: target.confidenceScore,
             relevanceScore: target.relevanceScore,
             qualificationScore: target.qualificationScore,
-            whyThisTarget: target.whyThisTarget,
-            recommendedAction: target.recommendedAction,
-            metadataJson: this.toJson(target.metadata),
+            whyThisTarget: this.decorateWhyThisTarget(target.whyThisTarget, existingMatch),
+            recommendedAction: this.decorateRecommendedAction(target.recommendedAction, existingMatch),
+            metadataJson: this.toJson(metadata),
             evidence: {
               create: target.evidence.map((evidence) => ({
                 evidenceType: evidence.evidenceType,
@@ -201,7 +271,15 @@ export class DiscoveryService {
         data: {
           status: DiscoveryScanStatus.completed,
           completedAt: new Date(),
-          providerResultJson: this.toJson(result.metadata),
+          providerResultJson: this.toJson({
+            providerKeys,
+            providers: providerResults.map((result) => ({
+              providerKey: result.providerKey,
+              metadata: result.metadata,
+              targetCount: result.targets.length,
+            })),
+            consolidatedTargetCount: consolidatedTargets.length,
+          }),
         },
         include: this.scanInclude(),
       });
@@ -341,7 +419,7 @@ export class DiscoveryService {
   private async resolveScanContext(userId: string, dto: CreateDiscoveryScanDto) {
     let campaign: any = null;
     if (dto.campaignId) {
-      campaign = await prisma.strategicCampaign.findFirst({
+      campaign = await prisma.campaign.findFirst({
         where: { id: dto.campaignId, userId },
         include: { offering: true, goal: true },
       });
@@ -397,10 +475,8 @@ export class DiscoveryService {
   }
 
   private providerFor(providerKey: string) {
-    if (!providerKey || providerKey === this.localDiscoveryProvider.key) {
-      return this.localDiscoveryProvider;
-    }
-    return this.localDiscoveryProvider;
+    const providers = this.providers();
+    return providers.get(providerKey) ?? null;
   }
 
   private async promoteTarget(userId: string, scan: any, target: any) {
@@ -539,9 +615,9 @@ export class DiscoveryService {
     });
   }
 
-  private buildDedupeKey(userId: string, scanId: string, target: any) {
+  private buildDedupeKey(userId: string, target: any) {
     const identity = target.email || target.linkedinUrl || target.website || `${target.companyName ?? ''}:${target.personName ?? ''}:${target.title}`;
-    return `${userId}:${scanId}:${identity}`.toLowerCase().replace(/\s+/g, '-');
+    return `${userId}:${identity}`.toLowerCase().replace(/\s+/g, '-');
   }
 
   private scanInclude() {
@@ -549,6 +625,7 @@ export class DiscoveryService {
       offering: { select: { id: true, title: true, description: true, offeringType: true } },
       campaign: { select: { id: true, title: true, targetSegment: true, offeringId: true, goalId: true } },
       goal: { select: { id: true, title: true, description: true } },
+      providerRuns: { orderBy: [{ createdAt: 'asc' }] },
       targets: { include: { evidence: true }, orderBy: [{ relevanceScore: 'desc' }, { confidenceScore: 'desc' }] },
     } satisfies Prisma.DiscoveryScanInclude;
   }
@@ -560,6 +637,7 @@ export class DiscoveryService {
       scanType: scan.scanType,
       status: scan.status,
       providerKey: scan.providerKey,
+      providerKeys: scan.providerKeys ?? [],
       targetSegment: scan.targetSegment,
       maxTargets: scan.maxTargets,
       acceptedCount: scan.acceptedCount,
@@ -576,6 +654,7 @@ export class DiscoveryService {
       updatedAt: scan.updatedAt,
       completedAt: scan.completedAt,
       failureReason: scan.failureReason,
+      providerRuns: scan.providerRuns ?? [],
       targets: scan.targets?.map((target: any) => this.toTargetSummary(target)) ?? undefined,
     };
   }
@@ -603,10 +682,197 @@ export class DiscoveryService {
       companyId: target.companyId,
       personId: target.personId,
       opportunityId: target.opportunityId,
+      metadata: target.metadataJson ?? null,
       evidence: target.evidence ?? [],
       createdAt: target.createdAt,
       updatedAt: target.updatedAt,
     };
+  }
+
+  private providers(): Map<string, DiscoveryProvider> {
+    return new Map<string, DiscoveryProvider>([
+      [this.localDiscoveryProvider.key, this.localDiscoveryProvider],
+      [this.openAiDiscoveryProvider.key, this.openAiDiscoveryProvider],
+      [this.tavilyDiscoveryProvider.key, this.tavilyDiscoveryProvider],
+    ]);
+  }
+
+  private resolveProviderKeys(input: { providerKey?: string | null; providerKeys?: string[] | null }): string[] {
+    const requested = [
+      ...(input.providerKeys ?? []),
+      ...(input.providerKey ? [input.providerKey] : []),
+    ]
+      .map((value) => value?.trim())
+      .filter((value): value is string => !!value);
+
+    if (requested.length > 0) {
+      return Array.from(new Set(requested));
+    }
+
+    return Array.from(this.providers().keys());
+  }
+
+  private consolidateTargets(results: Array<{ providerKey: string; targets: DiscoveryProviderTarget[] }>): DiscoveryProviderTarget[] {
+    const map = new Map<string, DiscoveryProviderTarget>();
+
+    for (const result of results) {
+      for (const target of result.targets) {
+        const key = this.targetIdentityKey(target);
+        const existing = map.get(key);
+        const enrichedTarget: DiscoveryProviderTarget = {
+          ...target,
+          metadata: {
+            ...(target.metadata ?? {}),
+            providerKeys: [result.providerKey],
+          },
+        };
+
+        if (!existing) {
+          map.set(key, enrichedTarget);
+          continue;
+        }
+
+        const providerKeys = Array.from(
+          new Set([
+            ...this.providerKeysFromTarget(existing),
+            ...this.providerKeysFromTarget(enrichedTarget),
+          ]),
+        );
+
+        map.set(key, {
+          ...existing,
+          confidenceScore: Math.max(existing.confidenceScore, enrichedTarget.confidenceScore),
+          relevanceScore: Math.max(existing.relevanceScore, enrichedTarget.relevanceScore),
+          qualificationScore: Math.max(existing.qualificationScore ?? 0, enrichedTarget.qualificationScore ?? 0),
+          email: existing.email ?? enrichedTarget.email,
+          phone: existing.phone ?? enrichedTarget.phone,
+          website: existing.website ?? enrichedTarget.website,
+          linkedinUrl: existing.linkedinUrl ?? enrichedTarget.linkedinUrl,
+          location: existing.location ?? enrichedTarget.location,
+          sourceUrl: existing.sourceUrl ?? enrichedTarget.sourceUrl,
+          whyThisTarget: existing.whyThisTarget,
+          recommendedAction: existing.recommendedAction,
+          metadata: {
+            ...(existing.metadata ?? {}),
+            providerKeys,
+          },
+          evidence: [...existing.evidence, ...enrichedTarget.evidence],
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort((left, right) => {
+      const qualificationDelta = (right.qualificationScore ?? 0) - (left.qualificationScore ?? 0);
+      if (qualificationDelta !== 0) return qualificationDelta;
+      const relevanceDelta = right.relevanceScore - left.relevanceScore;
+      if (relevanceDelta !== 0) return relevanceDelta;
+      return right.confidenceScore - left.confidenceScore;
+    });
+  }
+
+  private targetIdentityKey(target: DiscoveryProviderTarget): string {
+    return (target.email || target.linkedinUrl || target.website || `${target.companyName ?? ''}:${target.personName ?? ''}:${target.title}`)
+      .toLowerCase()
+      .replace(/\s+/g, '-');
+  }
+
+  private providerKeysFromTarget(target: DiscoveryProviderTarget): string[] {
+    const metadata = (target.metadata ?? {}) as Record<string, unknown>;
+    const providerKeys = metadata['providerKeys'];
+    return Array.isArray(providerKeys) ? providerKeys.filter((value): value is string => typeof value === 'string') : [];
+  }
+
+  private async matchExistingRecords(
+    userId: string,
+    target: DiscoveryProviderTarget,
+    existingDiscoveryTargetId?: string,
+  ): Promise<DiscoveryExistingMatch> {
+    if (existingDiscoveryTargetId) {
+      const discoveryTarget = await prisma.discoveryTarget.findFirst({
+        where: { id: existingDiscoveryTargetId, userId },
+        select: { id: true, status: true, personId: true, companyId: true, opportunityId: true },
+      });
+      if (discoveryTarget) {
+        return {
+          matchType: 'discovery_target',
+          discoveryTargetId: discoveryTarget.id,
+          companyId: discoveryTarget.companyId ?? undefined,
+          personId: discoveryTarget.personId ?? undefined,
+          opportunityId: discoveryTarget.opportunityId ?? undefined,
+          promoted: discoveryTarget.status === DiscoveryTargetStatus.promoted,
+          details: discoveryTarget.status === DiscoveryTargetStatus.promoted ? 'Previously promoted from discovery.' : 'Previously seen in discovery.',
+        };
+      }
+    }
+
+    if (target.email || target.personName) {
+      const person = await prisma.person.findFirst({
+        where: {
+          userId,
+          OR: [
+            ...(target.email ? [{ email: target.email }] : []),
+            ...(target.personName ? [{ fullName: target.personName }] : []),
+          ],
+        },
+        include: {
+          primaryOpportunities: {
+            where: { stage: { in: [OpportunityStage.outreach_sent, OpportunityStage.conversation_started, OpportunityStage.interviewing] } },
+            take: 1,
+          },
+        },
+      });
+
+      if (person) {
+        return {
+          matchType: 'person',
+          personId: person.id,
+          contacted: person.primaryOpportunities.length > 0,
+          details: person.primaryOpportunities.length > 0 ? 'This contact already has an active opportunity.' : 'This contact already exists.',
+        };
+      }
+    }
+
+    if (target.companyName || target.website) {
+      const company = await prisma.company.findFirst({
+        where: {
+          userId,
+          OR: [
+            ...(target.companyName ? [{ name: target.companyName }] : []),
+            ...(target.website ? [{ website: target.website }] : []),
+          ],
+        },
+      });
+
+      if (company) {
+        return {
+          matchType: 'company',
+          companyId: company.id,
+          details: 'This company already exists in your workspace.',
+        };
+      }
+    }
+
+    return { matchType: 'none' };
+  }
+
+  private decorateWhyThisTarget(whyThisTarget: string, existingMatch: DiscoveryExistingMatch): string {
+    if (existingMatch.matchType === 'none') return whyThisTarget;
+    return `${whyThisTarget} ${existingMatch.details ?? ''}`.trim();
+  }
+
+  private decorateRecommendedAction(recommendedAction: string, existingMatch: DiscoveryExistingMatch): string {
+    if (existingMatch.matchType === 'person' && existingMatch.contacted) {
+      return 'Review the existing contact record and decide whether to follow up or re-engage.';
+    }
+    if (existingMatch.matchType === 'company') {
+      return 'Review the existing company and identify whether a new recruiter contact should be added.';
+    }
+    if (existingMatch.matchType === 'discovery_target') {
+      return existingMatch.promoted
+        ? 'Review the previously promoted record before creating any new outreach.'
+        : 'Review the prior discovery target and decide whether to reuse or reject it.';
+    }
+    return recommendedAction;
   }
 
   private toJson(value: unknown): Prisma.InputJsonValue | undefined {

@@ -24,6 +24,16 @@ export class CreateCampaignDto {
   @IsString()
   successDefinition?: string;
 
+  @ApiPropertyOptional({ description: 'Campaign strategic angle' })
+  @IsOptional()
+  @IsString()
+  strategicAngle?: string;
+
+  @ApiPropertyOptional({ description: 'Campaign target segment' })
+  @IsOptional()
+  @IsString()
+  targetSegment?: string;
+
   @ApiPropertyOptional({ description: 'Campaign timeframe start' })
   @IsOptional()
   @IsDate()
@@ -74,6 +84,16 @@ export class UpdateCampaignDto {
   @IsOptional()
   @IsString()
   successDefinition?: string;
+
+  @ApiPropertyOptional({ description: 'Campaign strategic angle' })
+  @IsOptional()
+  @IsString()
+  strategicAngle?: string;
+
+  @ApiPropertyOptional({ description: 'Campaign target segment' })
+  @IsOptional()
+  @IsString()
+  targetSegment?: string;
 
   @ApiPropertyOptional({ description: 'Campaign timeframe start' })
   @IsOptional()

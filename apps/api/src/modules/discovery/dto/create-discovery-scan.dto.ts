@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 export const DISCOVERY_SCAN_TYPES = [
   'companies',
@@ -19,6 +19,11 @@ export class CreateDiscoveryScanDto {
   @IsOptional()
   @IsString()
   providerKey?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  providerKeys?: string[];
 
   @IsOptional()
   @IsString()

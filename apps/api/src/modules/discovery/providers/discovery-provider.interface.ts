@@ -9,6 +9,17 @@ export interface DiscoveryProviderRequest {
   context?: Record<string, unknown>;
 }
 
+export interface DiscoveryExistingMatch {
+  matchType: 'none' | 'company' | 'person' | 'opportunity' | 'discovery_target';
+  companyId?: string;
+  personId?: string;
+  opportunityId?: string;
+  discoveryTargetId?: string;
+  contacted?: boolean;
+  promoted?: boolean;
+  details?: string;
+}
+
 export interface DiscoveryProviderEvidence {
   evidenceType: DiscoveryEvidenceType;
   title: string;

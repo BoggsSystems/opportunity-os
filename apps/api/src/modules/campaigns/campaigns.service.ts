@@ -14,7 +14,7 @@ import {
 @Injectable()
 export class CampaignsService {
   async getCurrentCampaignWorkspace(userId: string) {
-    const campaign = await prisma.strategicCampaign.findFirst({
+    const campaign = await prisma.campaign.findFirst({
       where: { userId, status: { in: ['PLANNING', 'ACTIVE'] } },
       orderBy: { updatedAt: 'desc' },
       select: { id: true },
@@ -160,7 +160,7 @@ export class CampaignsService {
     const existingCycle = await prisma.opportunityCycle.findFirst({
       where: {
         userId,
-        strategicCampaignId: campaignId,
+        campaignId,
         opportunityId: next.id,
         status: OpportunityCycleStatus.active,
       },
@@ -174,7 +174,7 @@ export class CampaignsService {
         userId,
         offeringId: workspace.campaign.offeringId,
         goalId: workspace.campaign.goalId,
-        strategicCampaignId: campaignId,
+        campaignId,
         opportunityId: next.id,
         phase: OpportunityCyclePhase.surfaced,
         status: OpportunityCycleStatus.active,
@@ -191,7 +191,7 @@ export class CampaignsService {
   }
 
   private async findCampaign(userId: string, campaignId: string) {
-    const campaign = await prisma.strategicCampaign.findFirst({
+    const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, userId },
       include: {
         offering: { select: { id: true, title: true, description: true, offeringType: true } },

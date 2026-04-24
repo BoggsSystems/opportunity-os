@@ -18,6 +18,10 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_BASE_URL: z.string().url().optional(),
   OPENROUTER_MODEL: z.string().optional(),
+  MICROSOFT_CLIENT_ID: z.string().optional(),
+  MICROSOFT_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_TENANT_ID: z.string().optional(),
+  API_PUBLIC_URL: z.string().url().optional(),
 
   // Integrations
   GITHUB_TOKEN: z.string().optional(),

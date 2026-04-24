@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ActivityType,
   CapabilityExecutionStatus,
@@ -7,6 +8,7 @@ import {
   Prisma,
   prisma,
 } from '@opportunity-os/db';
+import { createHash, randomBytes } from 'crypto';
 import { SetupEmailConnectorDto } from './dto/setup-email-connector.dto';
 import { EmailProvider, EmailSendInput, SyncedEmailMessage } from './email/email-provider.interface';
 import { GmailEmailProvider } from './email/gmail-email.provider';
@@ -15,6 +17,7 @@ import { OutlookEmailProvider } from './email/outlook-email.provider';
 @Injectable()
 export class ConnectorsService {
   constructor(
+    private readonly configService: ConfigService,
     private readonly gmailProvider: GmailEmailProvider,
     private readonly outlookProvider: OutlookEmailProvider,
   ) {}
@@ -110,6 +113,198 @@ export class ConnectorsService {
     });
 
     return this.getEmailReadiness(userId);
+  }
+
+  async startEmailOAuth(userId: string, providerName: 'outlook', returnTo?: string) {
+    if (providerName !== 'outlook') {
+      throw new BadRequestException('OAuth flow is currently implemented for Outlook only.');
+    }
+
+    const clientId = this.configService.get<string>('MICROSOFT_CLIENT_ID');
+    if (!clientId) {
+      throw new BadRequestException('Microsoft OAuth is not configured. Set MICROSOFT_CLIENT_ID first.');
+    }
+
+    const { capability, provider } = await this.ensureEmailProvider(providerName);
+    const state = randomBytes(24).toString('hex');
+    const codeVerifier = randomBytes(48).toString('base64url');
+    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const redirectUri = this.microsoftRedirectUri();
+    const tenantId = this.configService.get<string>('MICROSOFT_TENANT_ID') || 'common';
+    const scopes = [
+      'offline_access',
+      'openid',
+      'profile',
+      'email',
+      'User.Read',
+      'Mail.Send',
+      'Mail.Read',
+    ];
+
+    await prisma.userConnector.upsert({
+      where: {
+        userId_capabilityId: {
+          userId,
+          capabilityId: capability.id,
+        },
+      },
+      create: {
+        userId,
+        capabilityId: capability.id,
+        capabilityProviderId: provider.id,
+        connectorName: provider.displayName,
+        status: ConnectorStatus.pending_setup,
+        enabledFeaturesJson: this.toJson(['send', 'sync', 'reply_detection', 'thread_summary']),
+        metadataJson: this.toJson({
+          oauthState: state,
+          oauthCodeVerifier: codeVerifier,
+          oauthReturnTo: returnTo,
+          oauthProvider: providerName,
+        }),
+      },
+      update: {
+        capabilityProviderId: provider.id,
+        connectorName: provider.displayName,
+        status: ConnectorStatus.pending_setup,
+        errorMessage: null,
+        metadataJson: this.toJson({
+          oauthState: state,
+          oauthCodeVerifier: codeVerifier,
+          oauthReturnTo: returnTo,
+          oauthProvider: providerName,
+        }),
+      },
+    });
+
+    const authUrl = new URL(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`);
+    authUrl.searchParams.set('client_id', clientId);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('response_mode', 'query');
+    authUrl.searchParams.set('scope', scopes.join(' '));
+    authUrl.searchParams.set('state', state);
+    authUrl.searchParams.set('code_challenge', codeChallenge);
+    authUrl.searchParams.set('code_challenge_method', 'S256');
+
+    return { providerName, authUrl: authUrl.toString(), state };
+  }
+
+  async completeEmailOAuth(input: {
+    state?: string;
+    code?: string;
+    error?: string;
+    errorDescription?: string;
+  }) {
+    if (input.error) {
+      return this.oauthResultHtml({
+        success: false,
+        provider: 'outlook',
+        error: input.errorDescription || input.error,
+      });
+    }
+    if (!input.state || !input.code) {
+      return this.oauthResultHtml({
+        success: false,
+        provider: 'outlook',
+        error: 'Missing OAuth state or authorization code.',
+      });
+    }
+
+    const connector = await prisma.userConnector.findFirst({
+      where: {
+        metadataJson: { path: ['oauthState'], equals: input.state },
+      },
+      include: {
+        capabilityProvider: true,
+        connectorCredentials: true,
+      },
+    });
+
+    if (!connector) {
+      return this.oauthResultHtml({
+        success: false,
+        provider: 'outlook',
+        error: 'OAuth session was not found or has expired.',
+      });
+    }
+
+    try {
+      const metadata = this.jsonObject(connector.metadataJson);
+      const codeVerifier = typeof metadata['oauthCodeVerifier'] === 'string' ? metadata['oauthCodeVerifier'] : '';
+      const returnTo = typeof metadata['oauthReturnTo'] === 'string' ? metadata['oauthReturnTo'] : undefined;
+      if (!codeVerifier) {
+        throw new Error('Missing PKCE verifier for OAuth completion.');
+      }
+
+      const tokenResult = await this.exchangeMicrosoftCode(input.code, codeVerifier);
+      const credentials = {
+        accessToken: tokenResult.access_token,
+        refreshToken: tokenResult.refresh_token,
+        expiresAt: tokenResult.expires_in
+          ? new Date(Date.now() + tokenResult.expires_in * 1000).toISOString()
+          : undefined,
+      };
+
+      await prisma.connectorCredential.upsert({
+        where: { userConnectorId: connector.id },
+        create: {
+          userConnectorId: connector.id,
+          credentialType: 'oauth2_token',
+          encryptedData: JSON.stringify(credentials),
+          expiresAt: credentials.expiresAt ? new Date(credentials.expiresAt) : null,
+          refreshStatus: 'ready',
+        },
+        update: {
+          encryptedData: JSON.stringify(credentials),
+          expiresAt: credentials.expiresAt ? new Date(credentials.expiresAt) : null,
+          lastRefreshedAt: new Date(),
+          refreshStatus: 'ready',
+        },
+      });
+
+      const testResult = await this.outlookProvider.test({
+        accessToken: credentials.accessToken,
+        refreshToken: credentials.refreshToken,
+      });
+
+      await prisma.userConnector.update({
+        where: { id: connector.id },
+        data: {
+          status: ConnectorStatus.connected,
+          lastSuccessAt: new Date(),
+          errorMessage: null,
+          metadataJson: this.toJson({
+            emailAddress: testResult.emailAddress,
+            oauthProvider: 'outlook',
+          }),
+        },
+      });
+
+      return this.oauthResultHtml({
+        success: true,
+        provider: 'outlook',
+        emailAddress: testResult.emailAddress ?? undefined,
+        returnTo,
+      });
+    } catch (error) {
+      const connectorMetadata = this.jsonObject(connector.metadataJson);
+      await prisma.userConnector.update({
+        where: { id: connector.id },
+        data: {
+          status: ConnectorStatus.error,
+          errorMessage: error instanceof Error ? error.message : 'OAuth completion failed',
+        },
+      }).catch(() => null);
+
+      return this.oauthResultHtml({
+        success: false,
+        provider: 'outlook',
+        error: error instanceof Error ? error.message : 'OAuth completion failed',
+        returnTo: typeof connectorMetadata['oauthReturnTo'] === 'string'
+          ? connectorMetadata['oauthReturnTo']
+          : undefined,
+      });
+    }
   }
 
   async testConnector(userId: string, connectorId: string) {
@@ -377,6 +572,119 @@ export class ConnectorsService {
     } catch {
       return {};
     }
+  }
+
+  private jsonObject(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return {};
+  }
+
+  private microsoftRedirectUri() {
+    const configured = this.configService.get<string>('API_PUBLIC_URL');
+    const baseUrl = configured || 'http://localhost:3002';
+    return `${baseUrl.replace(/\/$/, '')}/connectors/email/oauth/callback`;
+  }
+
+  private async exchangeMicrosoftCode(code: string, codeVerifier: string) {
+    const clientId = this.configService.get<string>('MICROSOFT_CLIENT_ID');
+    if (!clientId) {
+      throw new Error('Microsoft OAuth is not configured. Set MICROSOFT_CLIENT_ID first.');
+    }
+    const clientSecret = this.configService.get<string>('MICROSOFT_CLIENT_SECRET');
+    const tenantId = this.configService.get<string>('MICROSOFT_TENANT_ID') || 'common';
+
+    const body = new URLSearchParams({
+      client_id: clientId,
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: this.microsoftRedirectUri(),
+      code_verifier: codeVerifier,
+    });
+    if (clientSecret) {
+      body.set('client_secret', clientSecret);
+    }
+
+    const response = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+    });
+    const payload = await response.json().catch(() => null) as Record<string, unknown> | null;
+    if (!response.ok) {
+      const detail = payload?.['error_description'] ?? payload?.['error'] ?? `HTTP ${response.status}`;
+      throw new Error(`Microsoft token exchange failed: ${detail}`);
+    }
+    return payload as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
+  }
+
+  private oauthResultHtml(input: {
+    success: boolean;
+    provider: 'outlook';
+    emailAddress?: string;
+    error?: string;
+    returnTo?: string;
+  }) {
+    const payload = JSON.stringify({
+      type: 'opportunity-os-oauth',
+      provider: input.provider,
+      success: input.success,
+      emailAddress: input.emailAddress ?? null,
+      error: input.error ?? null,
+    });
+
+    const title = input.success ? 'Connector connected' : 'Connector failed';
+    const message = input.success
+      ? `Outlook is now connected${input.emailAddress ? ` for ${input.emailAddress}` : ''}.`
+      : input.error ?? 'The Outlook connection failed.';
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${this.escapeHtml(title)}</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f8fb; color: #1f2937; display: grid; place-items: center; min-height: 100vh; margin: 0; }
+      .card { background: white; border: 1px solid #dbe4f0; border-radius: 12px; padding: 24px; width: min(460px, calc(100vw - 32px)); box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08); }
+      h1 { margin: 0 0 8px; font-size: 20px; }
+      p { margin: 0; line-height: 1.5; color: #475569; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>${this.escapeHtml(title)}</h1>
+      <p>${this.escapeHtml(message)}</p>
+    </div>
+    <script>
+      (function () {
+        var payload = ${payload};
+        var targetOrigin = ${JSON.stringify(input.returnTo ?? '*')};
+        try {
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage(payload, targetOrigin);
+          }
+        } catch (error) {}
+        setTimeout(function () { window.close(); }, 600);
+      }());
+    </script>
+  </body>
+</html>`;
+  }
+
+  private escapeHtml(value: string) {
+    return value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
   }
 
   private async logExecution(

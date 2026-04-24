@@ -1269,7 +1269,7 @@ Purpose: first-class discovery runs created from an offering, campaign, goal, or
 * `id` UUID PK
 * `user_id` UUID NOT NULL FK -> `users.id`
 * `offering_id` UUID NULL FK -> `offerings.id`
-* `campaign_id` UUID NULL FK -> `strategic_campaigns.id`
+* `campaign_id` UUID NULL FK -> `campaigns.id`
 * `goal_id` UUID NULL FK -> `goals.id`
 * `scan_type` `discovery_scan_type` NOT NULL DEFAULT `mixed`
 * `status` `discovery_scan_status` NOT NULL DEFAULT `requested`
@@ -1550,7 +1550,7 @@ Purpose: desired business or professional outcomes owned by the user.
 
 ---
 
-### `strategic_campaigns`
+### `campaigns`
 
 Purpose: tactical motions designed to advance a goal, usually for a specific audience, channel, or positioning angle.
 
@@ -1763,7 +1763,7 @@ Purpose: meaningful items promoted for user attention. Signals are not raw event
 
 #### Notes
 
-* `source_type` examples: `discovered_opportunity`, `opportunity`, `task`, `strategic_campaign`, `activity`, `ai_conversation`, `asset`
+* `source_type` examples: `discovered_opportunity`, `opportunity`, `task`, `campaign`, `activity`, `ai_conversation`, `asset`
 * `evidence_json` stores supporting snippets or facts used by the Conductor
 * application logic should suppress low-value duplicate signals
 
@@ -1780,7 +1780,7 @@ Purpose: the active unit of web workflow momentum. A cycle connects a signal or 
 * `workspace_signal_id` UUID NULL FK -> `workspace_signals.id`
 * `offering_id` UUID NULL FK -> `offerings.id`
 * `goal_id` UUID NULL FK -> `goals.id`
-* `strategic_campaign_id` UUID NULL FK -> `strategic_campaigns.id`
+* `campaign_id` UUID NULL FK -> `campaigns.id`
 * `opportunity_id` UUID NULL FK -> `opportunities.id`
 * `task_id` UUID NULL FK -> `tasks.id`
 * `discovered_opportunity_id` UUID NULL FK -> `discovered_opportunities.id`
@@ -1808,7 +1808,7 @@ Purpose: the active unit of web workflow momentum. A cycle connects a signal or 
 * index on `workspace_signal_id`
 * index on `offering_id`
 * index on `goal_id`
-* index on `strategic_campaign_id`
+* index on `campaign_id`
 * index on `opportunity_id`
 * index on `task_id`
 * index on `discovered_opportunity_id`
@@ -2344,7 +2344,7 @@ Purpose: latest or periodic momentum assessment for a user, goal, offering, or c
 * `user_id` UUID NOT NULL FK -> `users.id`
 * `goal_id` UUID NULL FK -> `goals.id`
 * `offering_id` UUID NULL FK -> `offerings.id`
-* `strategic_campaign_id` UUID NULL FK -> `strategic_campaigns.id`
+* `campaign_id` UUID NULL FK -> `campaigns.id`
 * `state_type` `momentum_state_type` NOT NULL
 * `score` INTEGER NULL
 * `reason` TEXT NULL
@@ -2358,7 +2358,7 @@ Purpose: latest or periodic momentum assessment for a user, goal, offering, or c
 * index on `user_id`
 * index on `goal_id`
 * index on `offering_id`
-* index on `strategic_campaign_id`
+* index on `campaign_id`
 * composite index on (`user_id`, `computed_at`)
 
 #### Notes
@@ -2702,7 +2702,7 @@ Purpose: durable record of positive or progress-oriented events that can feed co
   * opportunities
   * offerings
   * goals
-  * strategic_campaigns
+  * campaigns
   * ai_conversations
   * ai_context_summaries
   * ai_tasks
@@ -2770,9 +2770,11 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `users` -> many `discovery_scans`
 * `offerings` -> many optional `discovery_scans`
 * `goals` -> many optional `discovery_scans`
-* `strategic_campaigns` -> many optional `discovery_scans`
+* `campaigns` -> many optional `discovery_scans`
+* `discovery_scans` -> many `discovery_provider_runs`
 * `discovery_scans` -> many `discovery_targets`
 * `discovery_targets` -> many `discovery_evidence`
+* `discovery_targets` may store pre-promotion match metadata against existing `companies`, `people`, `opportunities`, or prior `discovery_targets`
 * `discovery_targets` -> optional `companies`, `people`, and `opportunities` after promotion
 
 ### Offerings, Goals, and Campaigns
@@ -2786,13 +2788,13 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `offering_positionings` -> many optional `offering_assets`
 * `offerings` -> many optional `goals`
 * `offerings` -> many optional `campaigns`
-* `offerings` -> many optional `strategic_campaigns`
+* `offerings` -> many optional `campaigns`
 * `goals` -> many `campaigns`
-* `goals` -> many `strategic_campaigns`
+* `goals` -> many `campaigns`
 * `campaigns` -> many `action_lanes`
 * `action_lanes` -> many `action_cycles`
 * `campaigns` -> many `opportunities`
-* `strategic_campaigns` -> many `opportunities`
+* `campaigns` -> many `opportunities`
 
 ### AI Conversation / Context
 
@@ -2816,7 +2818,7 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `opportunity_cycles` -> optional `workspace_signals`
 * `opportunity_cycles` -> optional `offerings`
 * `opportunity_cycles` -> optional `goals`
-* `opportunity_cycles` -> optional `strategic_campaigns`
+* `opportunity_cycles` -> optional `campaigns`
 * `opportunity_cycles` -> optional `opportunities`
 * `opportunity_cycles` -> optional `tasks`
 * `opportunity_cycles` -> optional `discovered_opportunities`
@@ -2856,7 +2858,7 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `goals` -> optional many `weekly_targets`
 * `offerings` -> optional many `weekly_targets`
 * `users` -> many `momentum_states`
-* `goals`, `offerings`, and `strategic_campaigns` -> optional many `momentum_states`
+* `goals`, `offerings`, and `campaigns` -> optional many `momentum_states`
 * `momentum_states` -> many `coaching_nudges`
 * `users` -> many `coaching_nudges`
 * `users` -> many `engagement_states`
@@ -3076,7 +3078,7 @@ These are the most important ones to include early.
 * `offerings(user_id)`
 * `offering_proposals(user_id)`
 * `goals(user_id)`
-* `strategic_campaigns(user_id)`
+* `campaigns(user_id)`
 * `ai_conversations(user_id)`
 * `search_profiles(user_id)`
 * `tags(user_id)`
@@ -3093,8 +3095,8 @@ These are the most important ones to include early.
 * `people(company_id)`
 * `opportunities(company_id)`
 * `goals(offering_id)`
-* `strategic_campaigns(goal_id)`
-* `strategic_campaigns(offering_id)`
+* `campaigns(goal_id)`
+* `campaigns(offering_id)`
 * `ai_conversations(offering_id)`
 * `ai_context_summaries(offering_id)`
 * `activities(opportunity_id)`
@@ -3118,6 +3120,18 @@ These are the most important ones to include early.
 * `search_runs(search_profile_id, started_at)`
 * `discovered_opportunities(search_run_id, lifecycle_status)`
 * `discovered_opportunities(posted_at)`
+* `discovery_scans(user_id, status, created_at)`
+* `discovery_scans(campaign_id)`
+* `discovery_provider_runs(discovery_scan_id, provider_key)`
+* `discovery_provider_runs(provider_key, status, created_at)`
+* `discovery_targets(scan_id, status)`
+* `discovery_targets(user_id, dedupe_key)`
+* `discovery_targets(email)`
+* `discovery_targets(company_id)`
+* `discovery_targets(person_id)`
+* `discovery_targets(opportunity_id)`
+* `discovery_evidence(discovery_target_id)`
+* `discovery_evidence(source_url)`
 
 ### Workspace Orchestration Lookups
 
@@ -3125,7 +3139,7 @@ These are the most important ones to include early.
 * `workspace_signals(source_type, source_id)`
 * `opportunity_cycles(offering_id)`
 * `opportunity_cycles(goal_id)`
-* `opportunity_cycles(strategic_campaign_id)`
+* `opportunity_cycles(campaign_id)`
 * `opportunity_cycles(user_id, status, priority_score)`
 * `opportunity_cycles(user_id, status, updated_at)`
 * `workspace_commands(user_id, status, created_at)`
@@ -3292,7 +3306,7 @@ These are the tables I recommend for the first real schema pass:
 * `action_lanes`
 * `action_cycles`
 * `campaign_metrics`
-* `strategic_campaigns`
+* `campaigns`
 * `ai_conversations`
 * `ai_conversation_messages`
 * `ai_context_summaries`
@@ -3387,7 +3401,7 @@ Models to include:
 - OfferingPositioning
 - OfferingAsset
 - Goal
-- StrategicCampaign
+- Campaign
 - AIConversation
 - AIConversationMessage
 - AIContextSummary
@@ -3427,7 +3441,7 @@ Requirements:
 - Keep CapabilityGateService, CapabilityCheckResult, UpgradeReason, and WorkspaceState as service/API concepts unless there is a clear audit-log requirement to persist them
 - Model the capability-first architecture where UserConnectors link Capabilities to CapabilityProviders
 - Ensure WorkspaceCommands can route through UserConnectors to CapabilityProviders
-- Preserve offering context by adding optional offeringId references on Goal, StrategicCampaign, OpportunityCycle, AIConversation, AIContextSummary, and AITask
+- Preserve offering context by adding optional offeringId references on Goal, Campaign, OpportunityCycle, AIConversation, AIContextSummary, and AITask
 - Include commercial gating tables needed for bounded free usage: Plan, PlanFeature, Subscription, UsageCounter, ModelAccessPolicy, and GrowthCredit
 - Include referral reward tables for milestone-based rewards: ReferralLink, ReferralAttribution, ReferralMilestone, ReferralReward
 - Include coaching tables for early momentum support: GoalProgress, WeeklyTarget, MomentumState, CoachingNudge
@@ -3440,9 +3454,9 @@ Important modeling notes:
 - Notes are polymorphic via linkedEntityType + linkedEntityId
 - EntityTag is polymorphic via entityType + entityId
 - DiscoveredOpportunity belongs to one SearchRun and may promote to one Opportunity
-- Offering belongs to one User and may have many OfferingPositionings, OfferingAssets, Goals, StrategicCampaigns, AIConversations, AIContextSummaries, AITasks, and OpportunityCycles
-- Goal belongs to one User when authenticated, may reference one Offering, and has many StrategicCampaigns and OpportunityCycles
-- StrategicCampaign belongs to one Goal, may reference one Offering, and has many Opportunities and OpportunityCycles
+- Offering belongs to one User and may have many OfferingPositionings, OfferingAssets, Goals, Campaigns, AIConversations, AIContextSummaries, AITasks, and OpportunityCycles
+- Goal belongs to one User when authenticated, may reference one Offering, and has many Campaigns and OpportunityCycles
+- Campaign belongs to one Goal, may reference one Offering, and has many Opportunities and OpportunityCycles
 - PlanFeature and ModelAccessPolicy are scoped by Plan
 - CapabilityGateService evaluates active subscription, PlanFeature entitlement, UsageCounter consumption, GrowthCredit allowance, connector state, and feature flags
 - UpgradeReason is an enum/reason code used in API responses, not a persisted table
@@ -3457,7 +3471,7 @@ Important modeling notes:
 - AIConversation belongs to one User or guest session and may optionally reference Offering and Opportunity
 - AIContextSummary belongs to one User and may optionally reference AIConversation, Offering, and Opportunity
 - AITask belongs to one User and may optionally reference AIConversation, AIContextSummary, Offering, and Opportunity
-- OpportunityCycle belongs to one User and may optionally reference WorkspaceSignal, Offering, Goal, StrategicCampaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation
+- OpportunityCycle belongs to one User and may optionally reference WorkspaceSignal, Offering, Goal, Campaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation
 - WorkspaceCommand belongs to one User and may optionally reference OpportunityCycle and AIConversation
 - WorkspaceState is an API composition, not a persisted table
 - Capability has many CapabilityProviders implementing the same interface

@@ -25,6 +25,8 @@ export class CampaignOrchestrationService {
         description: data.description,
         objective: data.objective,
         successDefinition: data.successDefinition,
+        strategicAngle: data.strategicAngle,
+        targetSegment: data.targetSegment,
         timeframeStart: data.timeframeStart,
         timeframeEnd: data.timeframeEnd,
         offeringId: data.offeringId,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
+  Bell,
   Bot,
   CheckCircle2,
   ChevronRight,
@@ -29,6 +30,7 @@ import type {
   ConversationMessage,
   DiscoveryTargetSummary,
   EmailReadiness,
+  EntitlementSummary,
   OutreachDraft,
   PlanSummary,
   StrategicPlanResult,
@@ -59,6 +61,8 @@ interface UpgradePromptState {
   reason?: string | undefined;
   hint?: string | undefined;
 }
+
+type SettingsSection = 'profile' | 'connectors' | 'usage' | 'notifications';
 
 type OutreachExecutionState = 'idle' | 'blocked' | 'sent';
 
@@ -101,8 +105,11 @@ export function App() {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [pendingStrategicSessionId, setPendingStrategicSessionId] = useState<string | null>(null);
   const [strategicPreview, setStrategicPreview] = useState<StrategicPlanResult | null>(null);
+  const [campaignFeedback, setCampaignFeedback] = useState<StrategicPlanResult | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [upgradePrompt, setUpgradePrompt] = useState<UpgradePromptState | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('profile');
   const [isBooting, setIsBooting] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   
@@ -160,8 +167,8 @@ export function App() {
   }, [loadWorkspace]);
 
   const workspaceView = useMemo(
-    () => buildWorkspaceView(workspace, draft, pendingStrategicSessionId),
-    [workspace, draft, pendingStrategicSessionId],
+    () => buildWorkspaceView(workspace, draft, pendingStrategicSessionId, campaignFeedback),
+    [workspace, draft, pendingStrategicSessionId, campaignFeedback],
   );
 
   useEffect(() => {
@@ -177,6 +184,17 @@ export function App() {
     const nextUrl = `${window.location.pathname}?${params.toString()}${window.location.hash}`;
     window.history.replaceState(null, '', nextUrl);
   }, [session, workspaceView.action, workspaceView.cycleId]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setSettingsOpen(false);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [settingsOpen]);
 
   function commitSession(auth: AuthResponse) {
     const stored = {
@@ -225,6 +243,7 @@ export function App() {
     setActiveConversationId(null);
     setPendingStrategicSessionId(null);
     setStrategicPreview(null);
+    setCampaignFeedback(null);
     setSubscription(null);
     setUsage(null);
     setCommercialState(null);
@@ -299,10 +318,20 @@ export function App() {
       ]);
       if (result.suggestedAction === 'PROPOSE_GOAL') {
         setPendingStrategicSessionId(result.sessionId);
-        setStrategicPreview(null);
+        setStrategicPreview(result.onboardingPlan ?? null);
+        setCampaignFeedback(null);
         setNotice({
           title: 'Goal proposal ready',
           detail: 'Review the proposed goal and campaign in the Canvas.',
+          tone: 'info',
+        });
+      } else if (result.suggestedAction === 'PROPOSE_CAMPAIGN' && result.onboardingPlan) {
+        setPendingStrategicSessionId(null);
+        setStrategicPreview(null);
+        setCampaignFeedback(result.onboardingPlan);
+        setNotice({
+          title: 'Campaign proposal ready',
+          detail: 'Review the proposed campaign update in the Canvas.',
           tone: 'info',
         });
       }
@@ -367,6 +396,15 @@ export function App() {
       const result = await api.finalizeStrategicGoal(sessionId);
       setStrategicPreview(result);
       setPendingStrategicSessionId(null);
+      setCampaignFeedback(result);
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: buildCampaignFeedbackMessage(result),
+        },
+      ]);
       setNotice({
         title: 'Goal and campaign created',
         detail: `${result.goal.title} is now active with campaign ${result.campaign.title}.`,
@@ -384,7 +422,17 @@ export function App() {
     }
   }
 
+  function continueFromCampaignFeedback() {
+    setCampaignFeedback(null);
+    setNotice({
+      title: 'Campaign brief reviewed',
+      detail: 'The Canvas can move into the first execution step now.',
+      tone: 'success',
+    });
+  }
+
   async function generateDraft() {
+    setCampaignFeedback(null);
     const opportunityId =
       workspace?.activeCycle?.refs.opportunityId ??
       (typeof workspace?.recommendation?.opportunityId === 'string' ? workspace.recommendation.opportunityId : undefined);
@@ -418,6 +466,7 @@ export function App() {
   }
 
   async function generateDraftForOpportunity(opportunityId: string, kind: 'initial' | 'follow_up' = 'initial') {
+    setCampaignFeedback(null);
     setIsWorking(true);
     setNotice(null);
     try {
@@ -442,6 +491,7 @@ export function App() {
   }
 
   async function startDiscoveryScan() {
+    setCampaignFeedback(null);
     const campaign = campaignWorkspace?.campaign;
     const query =
       campaign?.targetSegment ??
@@ -568,6 +618,69 @@ export function App() {
       setNotice({
         title: 'Connector setup failed',
         detail: error instanceof Error ? error.message : 'The email connector could not be configured.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function startOutlookOAuth() {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const start = await api.startEmailOAuth('outlook', window.location.origin);
+      const callbackOrigin = new URL(api.baseUrl).origin;
+      const popup = window.open(start.authUrl, 'opportunity-os-outlook-oauth', 'width=560,height=760');
+      if (!popup) {
+        throw new Error('The OAuth popup was blocked by the browser.');
+      }
+
+      const result = await new Promise<{ success: boolean; emailAddress?: string | null; error?: string | null }>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error('Timed out waiting for Microsoft login to complete.'));
+        }, 120000);
+
+        function cleanup() {
+          window.clearTimeout(timeout);
+          window.removeEventListener('message', onMessage);
+        }
+
+        function onMessage(event: MessageEvent) {
+          if (event.origin !== callbackOrigin) return;
+          const data = event.data as { type?: string; provider?: string; success?: boolean; emailAddress?: string | null; error?: string | null };
+          if (data?.type !== 'opportunity-os-oauth' || data.provider !== 'outlook') return;
+          cleanup();
+          const resolved: { success: boolean; emailAddress?: string | null; error?: string | null } = {
+            success: data.success === true,
+          };
+          if (data.emailAddress !== undefined) resolved.emailAddress = data.emailAddress;
+          if (data.error !== undefined) resolved.error = data.error;
+          resolve(resolved);
+        }
+
+        window.addEventListener('message', onMessage);
+      });
+
+      if (!result.success) {
+        throw new Error(result.error ?? 'Microsoft login did not complete successfully.');
+      }
+
+      const readiness = await api.getEmailReadiness();
+      setEmailReadiness(readiness);
+      setNotice({
+        title: 'Outlook connected',
+        detail: result.emailAddress
+          ? `Real outreach can now send through ${result.emailAddress}.`
+          : 'Real outreach can now send through Outlook.',
+        tone: 'success',
+      });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Outlook connect failed',
+        detail: error instanceof Error ? error.message : 'The Microsoft login flow could not be completed.',
         tone: 'error',
       });
     } finally {
@@ -715,6 +828,7 @@ export function App() {
           usage={usage}
           isLoading={isBooting || isWorking}
           onRefresh={() => void loadWorkspace()}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
         {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
@@ -739,6 +853,7 @@ export function App() {
             outreachExecutionState={outreachExecutionState}
             pendingStrategicSessionId={pendingStrategicSessionId}
             strategicPreview={strategicPreview}
+            campaignFeedback={campaignFeedback}
             isWorking={isWorking}
             onCommand={runCommand}
             onGenerateDraft={generateDraft}
@@ -748,12 +863,14 @@ export function App() {
             onRejectDiscoveryTarget={rejectDiscoveryTarget}
             onPromoteDiscoveryTargets={promoteDiscoveryTargets}
             onConnectEmail={connectEmail}
+            onStartOutlookOAuth={startOutlookOAuth}
             onSyncEmail={syncEmail}
             onDraftChange={setDraft}
             onSendDraft={sendDraft}
             onCompleteCycle={completeActiveCycle}
             onPreviewStrategicPlan={previewStrategicPlan}
             onFinalizeStrategicGoal={finalizeStrategicGoal}
+            onContinueFromCampaignFeedback={continueFromCampaignFeedback}
           />
           <SignalsPanel
             signals={workspace?.signals ?? []}
@@ -774,6 +891,21 @@ export function App() {
           />
         </div>
       </section>
+      {settingsOpen ? (
+        <SettingsModal
+          user={session.user}
+          subscription={subscription}
+          usage={usage}
+          commercialState={commercialState}
+          emailReadiness={emailReadiness}
+          activeSection={settingsSection}
+          isWorking={isWorking}
+          onClose={() => setSettingsOpen(false)}
+          onChangeSection={setSettingsSection}
+          onStartOutlookOAuth={startOutlookOAuth}
+          onSyncEmail={syncEmail}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1034,6 +1166,7 @@ function WorkspaceTopBar(props: {
   usage: UsageSummary | null;
   isLoading: boolean;
   onRefresh: () => void;
+  onOpenSettings: () => void;
 }) {
   const velocity = props.workspace?.velocity ?? emptyVelocity;
   const aiUsage = props.usage?.usage?.find((item) => item.featureKey === 'ai_requests');
@@ -1052,11 +1185,209 @@ function WorkspaceTopBar(props: {
           <span>{props.subscription?.plan.name ?? 'Plan'}</span>
           <strong>{formatRemaining(aiUsage)}</strong>
         </div>
+        <button className="icon-button" onClick={props.onOpenSettings} title="Open settings" type="button">
+          <UserRound size={18} />
+        </button>
         <button className="icon-button" onClick={props.onRefresh} title="Refresh workspace" type="button">
           {props.isLoading ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
         </button>
       </div>
     </header>
+  );
+}
+
+function SettingsModal(props: {
+  user: AuthResponse['user'];
+  subscription: SubscriptionSummary | null;
+  usage: UsageSummary | null;
+  commercialState: CommercialState | null;
+  emailReadiness: EmailReadiness | null;
+  activeSection: SettingsSection;
+  isWorking: boolean;
+  onClose: () => void;
+  onChangeSection: (section: SettingsSection) => void;
+  onStartOutlookOAuth: () => Promise<void>;
+  onSyncEmail: () => Promise<void>;
+}) {
+  const aiUsage = props.usage?.usage?.find((item) => item.featureKey === 'ai_requests') ?? null;
+  const discoveryUsage = props.usage?.usage?.find((item) => item.featureKey === 'discovery_scans') ?? null;
+  const cycleUsage = props.usage?.usage?.find((item) => item.featureKey === 'next_action_cycles') ?? null;
+  const connectorName = props.emailReadiness?.connector?.providerDisplayName ?? 'Outlook / Hotmail';
+
+  return (
+    <div className="settings-modal-overlay" onClick={props.onClose} role="presentation">
+      <section
+        aria-label="User settings"
+        className="settings-modal"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="settings-header">
+          <div>
+            <p className="eyebrow">Settings</p>
+            <h2>Account and workspace controls</h2>
+          </div>
+          <button className="icon-button" onClick={props.onClose} title="Close settings" type="button">
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="settings-layout">
+          <nav className="settings-nav" aria-label="Settings sections">
+            <SettingsNavButton
+              active={props.activeSection === 'profile'}
+              icon={<UserRound size={16} />}
+              label="Profile"
+              onClick={() => props.onChangeSection('profile')}
+            />
+            <SettingsNavButton
+              active={props.activeSection === 'connectors'}
+              icon={<Mail size={16} />}
+              label="Connectors"
+              onClick={() => props.onChangeSection('connectors')}
+            />
+            <SettingsNavButton
+              active={props.activeSection === 'usage'}
+              icon={<CircleGauge size={16} />}
+              label="Usage & Plan"
+              onClick={() => props.onChangeSection('usage')}
+            />
+            <SettingsNavButton
+              active={props.activeSection === 'notifications'}
+              icon={<Bell size={16} />}
+              label="Notifications"
+              onClick={() => props.onChangeSection('notifications')}
+            />
+          </nav>
+
+          <div className="settings-panel">
+            {props.activeSection === 'profile' ? (
+              <div className="settings-section">
+                <div className="surface-card">
+                  <p className="label">Profile</p>
+                  <h3>{props.user.fullName ?? 'Operator'}</h3>
+                  <div className="settings-detail-list">
+                    <div>
+                      <span>Email</span>
+                      <strong>{props.user.email}</strong>
+                    </div>
+                    <div>
+                      <span>Timezone</span>
+                      <strong>{Intl.DateTimeFormat().resolvedOptions().timeZone}</strong>
+                    </div>
+                    <div>
+                      <span>User ID</span>
+                      <strong>{props.user.id}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {props.activeSection === 'connectors' ? (
+              <div className="settings-section">
+                <div className="surface-card">
+                  <p className="label">Email connector</p>
+                  <h3>{connectorName}</h3>
+                  <p>
+                    {props.emailReadiness?.ready
+                      ? 'Connected. Real outreach and inbox sync are available.'
+                      : props.emailReadiness?.upgradeHint ?? 'Connect Outlook to enable real email send and reply sync.'}
+                  </p>
+                </div>
+                <div className="action-grid">
+                  <button
+                    className="primary-button"
+                    disabled={props.isWorking}
+                    onClick={() => void props.onStartOutlookOAuth()}
+                    type="button"
+                  >
+                    {props.isWorking ? <Loader2 className="spin" size={16} /> : <Mail size={16} />}
+                    {props.emailReadiness?.ready ? 'Reconnect Outlook' : 'Connect Outlook'}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={props.isWorking || !props.emailReadiness?.ready}
+                    onClick={() => void props.onSyncEmail()}
+                    type="button"
+                  >
+                    {props.isWorking ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
+                    Sync inbox
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {props.activeSection === 'usage' ? (
+              <div className="settings-section">
+                <div className="surface-card">
+                  <p className="label">Plan</p>
+                  <h3>{props.subscription?.plan.name ?? props.commercialState?.subscription.plan.name ?? 'Unknown plan'}</h3>
+                  <p>
+                    {props.subscription?.status ?? props.commercialState?.subscription.status ?? 'No subscription status available'}
+                  </p>
+                </div>
+                <div className="settings-usage-grid">
+                  <UsageCard label="AI requests" usage={aiUsage} />
+                  <UsageCard label="Discovery scans" usage={discoveryUsage} />
+                  <UsageCard label="Action cycles" usage={cycleUsage} />
+                </div>
+              </div>
+            ) : null}
+
+            {props.activeSection === 'notifications' ? (
+              <div className="settings-section">
+                <div className="surface-card">
+                  <p className="label">Notifications</p>
+                  <h3>Coaching and momentum prompts</h3>
+                  <p>
+                    Notification preferences are not configurable yet. This section will hold delivery controls for coaching nudges,
+                    momentum reminders, and blocked-action prompts.
+                  </p>
+                </div>
+                <div className="settings-detail-list muted-panel">
+                  <div>
+                    <span>Current state</span>
+                    <strong>Using in-product notices and signals</strong>
+                  </div>
+                  <div>
+                    <span>Next step</span>
+                    <strong>Add delivery preferences and reactivation controls</strong>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SettingsNavButton(props: {
+  active: boolean;
+  icon: JSX.Element;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button className={`settings-nav-button ${props.active ? 'active' : ''}`} onClick={props.onClick} type="button">
+      {props.icon}
+      <span>{props.label}</span>
+    </button>
+  );
+}
+
+function UsageCard(props: { label: string; usage: EntitlementSummary | null | undefined }) {
+  return (
+    <article className="surface-card usage-card">
+      <p className="label">{props.label}</p>
+      <h3>{formatRemaining(props.usage ?? undefined)}</h3>
+      <p>
+        {props.usage
+          ? `${props.usage.used} used${typeof props.usage.limit === 'number' ? ` of ${props.usage.limit}` : ''}`
+          : 'No usage tracked yet'}
+      </p>
+    </article>
   );
 }
 
@@ -1069,6 +1400,7 @@ function ActiveWorkspace(props: {
   outreachExecutionState: OutreachExecutionState;
   pendingStrategicSessionId: string | null;
   strategicPreview: StrategicPlanResult | null;
+  campaignFeedback: StrategicPlanResult | null;
   isWorking: boolean;
   onCommand: (body: Record<string, unknown>, success: string) => Promise<void>;
   onGenerateDraft: () => Promise<void>;
@@ -1078,12 +1410,14 @@ function ActiveWorkspace(props: {
   onRejectDiscoveryTarget: (targetId: string) => Promise<void>;
   onPromoteDiscoveryTargets: (scanId: string) => Promise<void>;
   onConnectEmail: (providerName: 'gmail' | 'outlook', accessToken: string, emailAddress?: string) => Promise<void>;
+  onStartOutlookOAuth: () => Promise<void>;
   onSyncEmail: () => Promise<void>;
   onDraftChange: (draft: OutreachDraft) => void;
   onSendDraft: () => Promise<void>;
   onCompleteCycle: () => Promise<void>;
   onPreviewStrategicPlan: () => Promise<void>;
   onFinalizeStrategicGoal: () => Promise<void>;
+  onContinueFromCampaignFeedback: () => void;
 }) {
   const cycle = props.workspace?.activeCycle ?? null;
   const recommendation = props.workspace?.recommendation ?? null;
@@ -1130,10 +1464,18 @@ function ActiveWorkspace(props: {
       ) : null}
 
       {props.view.action === 'confirm_goal' || props.view.action === 'confirm_campaign' ? (
-        props.pendingStrategicSessionId ? (
+        props.campaignFeedback ? (
+          <StrategicPlanWorkspace
+            preview={props.campaignFeedback}
+            isWorking={props.isWorking}
+            mode="campaign_ready"
+            onContinue={props.onContinueFromCampaignFeedback}
+          />
+        ) : props.pendingStrategicSessionId ? (
           <StrategicPlanWorkspace
             preview={props.strategicPreview}
             isWorking={props.isWorking}
+            mode="planning"
             onPreview={props.onPreviewStrategicPlan}
             onFinalize={props.onFinalizeStrategicGoal}
           />
@@ -1182,6 +1524,7 @@ function ActiveWorkspace(props: {
             onSend={props.onSendDraft}
             onCompleteCycle={props.onCompleteCycle}
             onConnectEmail={props.onConnectEmail}
+            onStartOutlookOAuth={props.onStartOutlookOAuth}
             onSyncEmail={props.onSyncEmail}
           />
         ) : (
@@ -1253,16 +1596,22 @@ function CycleTimeline(props: { phase: string }) {
 function StrategicPlanWorkspace(props: {
   preview: StrategicPlanResult | null;
   isWorking: boolean;
-  onPreview: () => Promise<void>;
-  onFinalize: () => Promise<void>;
+  mode: 'planning' | 'campaign_ready';
+  onPreview?: () => Promise<void>;
+  onFinalize?: () => Promise<void>;
+  onContinue?: () => void;
 }) {
+  const finalized = props.mode === 'campaign_ready' && props.preview;
+
   return (
     <div className="execution-surface">
       <div className="surface-card priority">
-        <p className="label">Proposed strategy</p>
+        <p className="label">{finalized ? 'Campaign ready' : 'Proposed strategy'}</p>
         <h3>{props.preview?.goal.title ?? 'Goal proposal is ready'}</h3>
         <p>
-          {props.preview?.goal.description ??
+          {finalized
+            ? `The AI has established the goal, created the campaign, and selected the first motion. Review the synthesis before moving into execution.`
+            : props.preview?.goal.description ??
             'The Conductor has identified a strategic goal. Preview the plan, then confirm it to create the goal, campaign, and first execution cycle.'}
         </p>
       </div>
@@ -1276,7 +1625,7 @@ function StrategicPlanWorkspace(props: {
             <span className="status-badge">{props.preview.campaign.targetSegment}</span>
           </article>
           <article className="surface-card">
-            <p className="label">First cycle</p>
+            <p className="label">{finalized ? 'Recommended first move' : 'First cycle'}</p>
             <h3>{props.preview.extractedIntent.firstCycleTitle}</h3>
             <ol className="cycle-list">
               {props.preview.extractedIntent.firstCycleSteps.map((step) => (
@@ -1285,21 +1634,34 @@ function StrategicPlanWorkspace(props: {
             </ol>
           </article>
           <article className="surface-card wide">
-            <p className="label">First draft prompt</p>
-            <p>{props.preview.extractedIntent.firstDraftPrompt}</p>
+            <p className="label">{finalized ? 'AI feedback' : 'First draft prompt'}</p>
+            <p>
+              {finalized
+                ? buildCampaignBriefText(props.preview)
+                : props.preview.extractedIntent.firstDraftPrompt}
+            </p>
           </article>
         </div>
       ) : null}
 
       <div className="action-grid">
-        <button className="secondary-button" disabled={props.isWorking} onClick={() => void props.onPreview()} type="button">
-          {props.isWorking ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-          Preview plan
-        </button>
-        <button className="primary-button" disabled={props.isWorking} onClick={() => void props.onFinalize()} type="button">
-          {props.isWorking ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />}
-          Confirm goal
-        </button>
+        {finalized ? (
+          <button className="primary-button" disabled={props.isWorking} onClick={() => props.onContinue?.()} type="button">
+            {props.isWorking ? <Loader2 className="spin" size={16} /> : <ArrowRight size={16} />}
+            Continue to first action
+          </button>
+        ) : (
+          <>
+            <button className="secondary-button" disabled={props.isWorking || !props.onPreview} onClick={() => props.onPreview && void props.onPreview()} type="button">
+              {props.isWorking ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+              Preview plan
+            </button>
+            <button className="primary-button" disabled={props.isWorking || !props.onFinalize} onClick={() => props.onFinalize && void props.onFinalize()} type="button">
+              {props.isWorking ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />}
+              Confirm goal
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1473,6 +1835,7 @@ function DiscoveryCanvas(props: {
   const scan = props.campaignWorkspace?.discovery?.scans?.[0] ?? null;
   const targets = scan?.targets?.slice(0, 6) ?? [];
   const acceptedCount = targets.filter((target) => target.status === 'accepted').length;
+  const providerKeys = Array.isArray(scan?.providerKeys) ? scan?.providerKeys : [];
 
   return (
     <div className="execution-surface discovery-canvas">
@@ -1508,6 +1871,7 @@ function DiscoveryCanvas(props: {
             <div>
               <p className="label">Latest scan</p>
               <h3>{scan.targetCount} targets found</h3>
+              {providerKeys.length > 0 ? <p className="meta">Providers: {providerKeys.join(', ')}</p> : null}
             </div>
             <div className="campaign-metrics">
               <Metric label="Accepted" value={scan.acceptedCount} tone="green" />
@@ -1547,6 +1911,14 @@ function DiscoveryTargetCard(props: {
 }) {
   const evidence = props.target.evidence?.[0];
   const isLocked = props.target.status === 'promoted' || props.target.status === 'rejected';
+  const metadata = props.target.metadata ?? {};
+  const existingMatch = typeof metadata['existingMatch'] === 'object' && metadata['existingMatch'] !== null
+    ? (metadata['existingMatch'] as Record<string, unknown>)
+    : null;
+  const matchedDetails = typeof existingMatch?.['details'] === 'string' ? existingMatch['details'] : null;
+  const providerKeys = Array.isArray(metadata['providerKeys'])
+    ? (metadata['providerKeys'] as unknown[]).filter((value): value is string => typeof value === 'string')
+    : [];
 
   return (
     <article className="target-card">
@@ -1560,6 +1932,8 @@ function DiscoveryTargetCard(props: {
             <StatusBadge label={props.target.status} />
           </div>
           <p>{props.target.whyThisTarget ?? 'This target matched the discovery scan.'}</p>
+          {matchedDetails ? <small>Existing match: {matchedDetails}</small> : null}
+          {providerKeys.length > 0 ? <small>Found by: {providerKeys.join(', ')}</small> : null}
           {evidence ? <small>{evidence.sourceName ?? evidence.evidenceType}: {evidence.snippet ?? evidence.title}</small> : null}
         </div>
       </div>
@@ -1653,6 +2027,7 @@ function EmailReadinessPanel(props: {
   readiness: EmailReadiness | null;
   isWorking: boolean;
   onConnectEmail: (providerName: 'gmail' | 'outlook', accessToken: string, emailAddress?: string) => Promise<void>;
+  onStartOutlookOAuth: () => Promise<void>;
   onSyncEmail: () => Promise<void>;
 }) {
   const [providerName, setProviderName] = useState<'gmail' | 'outlook'>('gmail');
@@ -1683,6 +2058,17 @@ function EmailReadinessPanel(props: {
             <option value="gmail">Gmail</option>
             <option value="outlook">Outlook</option>
           </select>
+          {providerName === 'outlook' ? (
+            <button
+              className="primary-button compact"
+              disabled={props.isWorking}
+              onClick={() => void props.onStartOutlookOAuth()}
+              type="button"
+            >
+              <CheckCircle2 size={15} />
+              Connect with Microsoft
+            </button>
+          ) : null}
           <input
             value={emailAddress}
             onChange={(event) => setEmailAddress(event.target.value)}
@@ -1702,7 +2088,7 @@ function EmailReadinessPanel(props: {
             type="button"
           >
             <CheckCircle2 size={15} />
-            Connect
+            {providerName === 'outlook' ? 'Use token instead' : 'Connect'}
           </button>
         </div>
       )}
@@ -1720,6 +2106,7 @@ function DraftWorkspace(props: {
   onSend: () => Promise<void>;
   onCompleteCycle: () => Promise<void>;
   onConnectEmail: (providerName: 'gmail' | 'outlook', accessToken: string, emailAddress?: string) => Promise<void>;
+  onStartOutlookOAuth: () => Promise<void>;
   onSyncEmail: () => Promise<void>;
 }) {
   const primaryRecipient = props.draft.recipients[0];
@@ -1748,6 +2135,7 @@ function DraftWorkspace(props: {
         readiness={props.emailReadiness}
         isWorking={props.isWorking}
         onConnectEmail={props.onConnectEmail}
+        onStartOutlookOAuth={props.onStartOutlookOAuth}
         onSyncEmail={props.onSyncEmail}
       />
 
@@ -1951,33 +2339,77 @@ function buildWorkspaceView(
   workspace: WorkspaceState | null,
   draft: OutreachDraft | null,
   pendingStrategicSessionId: string | null,
+  campaignFeedback: StrategicPlanResult | null,
 ): WorkspaceViewState {
   const backendCanvas = workspace?.canvas;
-  const mode = draft ? 'draft_edit' : pendingStrategicSessionId ? 'goal_planning' : workspace?.activeWorkspace.mode ?? 'empty';
+  const mode = draft
+    ? 'draft_edit'
+    : campaignFeedback
+      ? 'campaign_review'
+      : pendingStrategicSessionId
+        ? 'goal_planning'
+        : workspace?.activeWorkspace.mode ?? 'empty';
   const cycle = workspace?.activeCycle ?? null;
   const recommendation = workspace?.recommendation ?? null;
-  const action = draft ? 'draft_email' : pendingStrategicSessionId ? 'confirm_goal' : backendCanvas?.action ?? actionFromMode(mode);
+  const action = draft
+    ? 'draft_email'
+    : campaignFeedback
+      ? 'confirm_campaign'
+      : pendingStrategicSessionId
+        ? 'confirm_goal'
+        : backendCanvas?.action ?? actionFromMode(mode);
   return {
     action,
     title:
       draft?.subject ??
+      (campaignFeedback ? campaignFeedback.campaign.title : undefined) ??
       (pendingStrategicSessionId ? 'Goal proposal is ready' : undefined) ??
       backendCanvas?.title ??
       cycle?.title ??
       recommendation?.title ??
       (mode === 'goal_planning' ? 'Goal proposal' : 'Opportunity cycle engine'),
     explanation:
+      (campaignFeedback ? buildCampaignBriefText(campaignFeedback) : undefined) ??
       backendCanvas?.explanation ??
       cycle?.whyItMatters ??
       recommendation?.aiExplanation ??
       recommendation?.reason ??
       'The Conductor will guide the next step and the Canvas will keep the current action focused.',
-    phase: draft ? 'executed' : cycle?.phase ?? backendCanvas?.phase ?? (pendingStrategicSessionId ? 'pursued' : recommendation?.type ?? 'ready'),
+    phase: draft
+      ? 'executed'
+      : campaignFeedback
+        ? 'pursued'
+        : cycle?.phase ?? backendCanvas?.phase ?? (pendingStrategicSessionId ? 'pursued' : recommendation?.type ?? 'ready'),
     cycleId: cycle?.id ?? null,
-    refs: backendCanvas?.refs ?? cycle?.refs ?? {},
-    allowedActions: new Set(backendCanvas?.allowedActions ?? cycle?.allowedActions ?? workspace?.activeWorkspace.allowedActions ?? []),
-    primaryAction: backendCanvas?.primaryAction ?? null,
+    refs: campaignFeedback
+      ? {
+          goalId: campaignFeedback.goal.id,
+          campaignId: campaignFeedback.campaign.id,
+          ...(campaignFeedback.goal.offeringId ?? campaignFeedback.campaign.offeringId
+            ? { offeringId: campaignFeedback.goal.offeringId ?? campaignFeedback.campaign.offeringId ?? '' }
+            : {}),
+          ...(workspace?.conductor.activeConversationId ? { conversationId: workspace.conductor.activeConversationId } : {}),
+        }
+      : backendCanvas?.refs ?? cycle?.refs ?? {},
+    allowedActions: new Set(
+      campaignFeedback
+        ? ['continue']
+        : backendCanvas?.allowedActions ?? cycle?.allowedActions ?? workspace?.activeWorkspace.allowedActions ?? [],
+    ),
+    primaryAction: campaignFeedback ? 'continue' : backendCanvas?.primaryAction ?? null,
   };
+}
+
+function buildCampaignBriefText(result: StrategicPlanResult) {
+  const audience = result.campaign.targetSegment ?? result.extractedIntent.targetAudience;
+  const angle = result.campaign.strategicAngle ?? 'the current positioning';
+  return `The AI translated your goal into the campaign "${result.campaign.title}", focused on ${audience}. It chose this first motion because ${angle.toLowerCase()} gives the fastest path to real outreach momentum. The next step is ${result.extractedIntent.firstCycleTitle.toLowerCase()}.`;
+}
+
+function buildCampaignFeedbackMessage(result: StrategicPlanResult) {
+  const audience = result.campaign.targetSegment ?? result.extractedIntent.targetAudience;
+  const steps = result.extractedIntent.firstCycleSteps.slice(0, 2).join(', ');
+  return `I established the goal "${result.goal.title}" and created the campaign "${result.campaign.title}" for ${audience}. I recommend starting with ${result.extractedIntent.firstCycleTitle.toLowerCase()} so we can move from planning into execution quickly. First steps: ${steps}.`;
 }
 
 function actionFromMode(mode: WorkspaceMode): CanvasAction {

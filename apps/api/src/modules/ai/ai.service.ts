@@ -110,22 +110,12 @@ export class AiService {
     message: string;
     history?: ConversationTurn[];
     context?: ConversationContext;
-  }): Promise<{ sessionId: string; reply: string; shouldBeSilent: boolean; suggestedAction?: string }> {
+  }): Promise<{ sessionId: string; reply: string; shouldBeSilent: boolean; suggestedAction?: string; onboardingPlan?: StrategicResult | null }> {
     this.logger.log(
       `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} guestSessionId=${input.guestSessionId ?? 'none'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
     );
 
     let sessionId = input.sessionId;
-    
-    // If no sessionId is provided, try to resume the most recent active conversation
-    if (!sessionId && input.userId) {
-      const lastConversation = await prisma.aIConversation.findFirst({
-        where: { userId: input.userId, status: 'active' },
-        orderBy: { updatedAt: 'desc' },
-        select: { id: true }
-      });
-      sessionId = lastConversation?.id;
-    }
 
     if (!sessionId) {
       sessionId = crypto.randomUUID();
@@ -209,7 +199,7 @@ export class AiService {
     const response = await this.aiProviderFactory.getProvider().generateText(request);
     let reply = response.content.trim();
     const toolAction = this.actionFromToolCalls(response.tool_calls);
-    const { action, plan } = await this.detectStrategicIntent(sessionId, input.message, reply, input.history, toolAction);
+    const { action, plan } = await this.detectStrategicIntent(sessionId, input.message, reply, history, toolAction);
     const suggestedAction = action;
     const onboardingPlan = plan;
 
@@ -230,9 +220,11 @@ export class AiService {
     const cleanedReply = shouldBeSilent ? '' : reply.replace(/\[silence\]/gi, '').trim();
 
     if (input.userId || input.guestSessionId) {
-      this.persistConversation(input.userId, input.guestSessionId, sessionId, input.message, cleanedReply).catch(err => {
+      try {
+        await this.persistConversation(input.userId, input.guestSessionId, sessionId, input.message, cleanedReply);
+      } catch (err) {
         this.logger.error(`Failed to persist conversation sessionId=${sessionId}`, err);
-      });
+      }
     }
 
     const finalResponse = {
@@ -393,16 +385,6 @@ export class AiService {
     this.logger.log(`🌀 SESSION: id=${input.sessionId}, guest=${input.guestSessionId}, user=${input.userId}`);
     
     let sessionId = input.sessionId;
-    
-    // If no sessionId is provided, try to resume the most recent active conversation
-    if (!sessionId && input.userId) {
-      const lastConversation = await prisma.aIConversation.findFirst({
-        where: { userId: input.userId, status: 'active' },
-        orderBy: { updatedAt: 'desc' },
-        select: { id: true }
-      });
-      sessionId = lastConversation?.id;
-    }
 
     if (!sessionId) {
       sessionId = require('crypto').randomUUID();
@@ -558,14 +540,23 @@ export class AiService {
     }
 
     // 2. Plan Extraction if needed
-    if (suggestedAction === 'PROPOSE_GOAL') {
-      this.logger.debug(`[detectStrategicIntent] Extracting strategic plan for PROPOSE_GOAL...`);
+    if (suggestedAction === 'PROPOSE_GOAL' || suggestedAction === 'PROPOSE_CAMPAIGN') {
+      this.logger.debug(`[detectStrategicIntent] Extracting strategic plan for ${suggestedAction}...`);
       try {
         const combinedHistory = this.mergeConversationHistory(history ?? [], [
           { role: 'user', text: message },
           { role: 'assistant', text: reply }
         ]);
-        strategicPlan = await this.extractGoalFromConversation(combinedHistory);
+        const latestObjective = this.latestSubstantiveUserMessage(combinedHistory);
+
+        if (suggestedAction === 'PROPOSE_GOAL' && this.isAffirmationMessage(message) && latestObjective) {
+          strategicPlan = this.buildStrategicResultFromExtracted(this.buildHeuristicGoalExtraction(latestObjective));
+          this.logger.debug(`[detectStrategicIntent] Used heuristic goal extraction from latest confirmed objective.`);
+          return { action: suggestedAction, plan: strategicPlan };
+        }
+
+        const extracted = await this.extractGoalFromConversation(combinedHistory);
+        strategicPlan = this.buildStrategicResultFromExtracted(extracted);
         this.logger.debug(`[detectStrategicIntent] Plan extraction successful: ${JSON.stringify(strategicPlan, null, 2).substring(0, 200)}`);
       } catch (err: any) {
         this.logger.error(`[detectStrategicIntent] Plan extraction failed for sessionId=${sessionId}: ${err.message}`);
@@ -732,7 +723,7 @@ Rules:
         };
       }
 
-      const campaign = await prisma.strategicCampaign.findFirst({
+      const campaign = await prisma.campaign.findFirst({
         where: { ...where, goalId: goal.id },
         orderBy: { createdAt: 'desc' },
       });
@@ -896,6 +887,9 @@ Please provide a JSON response with this structure:
     strategicContext?: { phase: string; mission: string };
     searchResults?: string;
   }): AiMessage[] {
+    const phase = input.strategicContext?.phase ?? 'DISCOVERY';
+    const phaseRules = this.phaseSpecificPromptRules(phase);
+
     const systemPrompt = `
 You are Opportunity OS, a friendly and proactive voice-first assistant.
 You are talking to ${input.userName ?? 'the user'}.
@@ -906,7 +900,7 @@ Your Core Mission:
 - Help the user turn high-level goals into tactical business outreach.
 
 Current Pipeline Status & Mission:
-- Phase: ${input.strategicContext?.phase ?? 'DISCOVERY'}
+- Phase: ${phase}
 - Directive: ${input.strategicContext?.mission ?? 'Identify the user\'s next strategic objective.'}
 
 CRITICAL NEGATIVE CONSTRAINT:
@@ -916,16 +910,15 @@ CRITICAL NEGATIVE CONSTRAINT:
 
 ${input.searchResults ? `Real-time Research Results:\n${input.searchResults}\n\nNote: Use the research results above to provide specific, up-to-date names and details. Cite that you've looked this up.` : ''}
 
-Phase Triggers (Sequential Ladder):
-- STEP 1 (GOAL VERIFICATION): Repeat the goal and ask: "To confirm, is [GOAL] the objective we're setting today?". 
-- STEP 2 (GOAL PROPOSAL): Once the user affirms, you MUST IMMEDIATELY call \`propose_goal\`. DO NOT continue speaking about the next phase until the modal has been confirmed.
-- STEP 3 (PHASE GATE): DO NOT discuss any strategy, campaigns, or tactical details until AFTER the Goal is confirmed via the modal.
-- STEP 4 (CAMPAIGN PITCH): Once the goal is confirmed, give the user a SHORT verbal pitch of your proposed email outreach strategy — 2 sentences max. End with "Would you like to proceed with this plan?". DO NOT call \`propose_campaign\` yet.
-- STEP 5 (CAMPAIGN CONFIRM): ONLY after the user explicitly says yes/proceed/sounds good/let's do it — THEN call \`propose_campaign\`. Never skip the verbal pitch first.
+Phase Rules:
+${phaseRules}
 
 Response Rules:
 - You are the Strategic Commander. ALWAYS stay in the Assistant view.
-- HANDSHAKE LOCKDOWN: Once you identify a potential goal, your NEXT response MUST be ONLY the verification question. DO NOT ask refinement questions (e.g. "which companies", "what location") until the Goal is locked.
+- Only use goal-verification language when the phase is DISCOVERY or INITIAL_INTRO.
+- In STRATEGY and OPERATIONS, do not re-ask the user to confirm the top-level goal unless they explicitly say they want to change it.
+- In OPERATIONS, answer operational requests directly: lists, targets, firms, drafts, sequencing, prioritization, and explanation of current opportunities.
+- If the user asks for a list, names, firms, recruiters, companies, or research, provide that directly instead of resetting to goal confirmation.
 - NEVER skip the verbal handshake before calling a tool.
 - Keep responses extremely short (1-2 sentences).
 - NEVER ASK "WHY".
@@ -970,6 +963,32 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     });
 
     return messages;
+  }
+
+  private phaseSpecificPromptRules(phase: string): string {
+    if (phase === 'INITIAL_INTRO' || phase === 'DISCOVERY') {
+      return `
+- STEP 1 (GOAL VERIFICATION): Repeat the goal and ask: "To confirm, is [GOAL] the objective we're setting today?".
+- STEP 2 (GOAL PROPOSAL): Once the user affirms, you MUST IMMEDIATELY call \`propose_goal\`.
+- STEP 3 (PHASE GATE): Do not discuss campaign tactics until the goal is confirmed via the modal.
+      `.trim();
+    }
+
+    if (phase === 'STRATEGY') {
+      return `
+- The goal is already established.
+- Help the user define the tactical campaign: target audience, hook, lane, and first motion.
+- Give a short campaign pitch, then ask if they want to proceed.
+- Only call \`propose_campaign\` after the user explicitly approves the proposed campaign.
+      `.trim();
+    }
+
+    return `
+- The goal and campaign already exist.
+- Stay in execution mode unless the user explicitly asks to change the goal or replace the campaign.
+- Handle operational requests directly: research target firms, identify people, draft outreach, explain opportunities, and recommend the next move.
+- If the user asks for research or a list, answer with concrete operational help rather than restarting onboarding.
+    `.trim();
   }
 
   private mergeConversationHistory(
@@ -1037,12 +1056,14 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
         },
       });
 
-      const campaign = await tx.strategicCampaign.create({
+      const campaign = await tx.campaign.create({
         data: {
           userId: userId || null,
+          guestSessionId: guestSessionId || null,
           goalId: goal.id,
           offeringId,
           title: `${extractedGoal.focusArea} Outreach`,
+          objective: extractedGoal.description,
           strategicAngle: extractedGoal.suggestedApproach,
           targetSegment: extractedGoal.targetAudience,
           status: 'PLANNING',
@@ -1092,7 +1113,7 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
   /**
    * Creates a strategic campaign for a specific goal.
    */
-  async createStrategicCampaign(
+  async createCampaign(
     userId: string | undefined,
     goalId: string,
     payload: { title: string; strategicAngle: string; targetSegment: string }
@@ -1105,12 +1126,13 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
       select: { offeringId: true },
     });
 
-    const campaign = await prisma.strategicCampaign.create({
+    const campaign = await prisma.campaign.create({
       data: {
         userId: userId || null,
         goalId: goalId,
         offeringId: goal?.offeringId ?? null,
         title: payload.title,
+        objective: payload.strategicAngle,
         strategicAngle: payload.strategicAngle,
         targetSegment: payload.targetSegment,
         status: 'PLANNING',
@@ -1155,31 +1177,8 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     const history = await this.getPersistentHistoryForOnboarding(sessionId, guestSessionId);
     if (history.length === 0) throw new Error('No history found');
     const extracted = await this.extractGoalFromConversation(history);
-    
-    return {
-      success: true,
-      goal: { 
-        id: 'preview', 
-        title: extracted.title, 
-        description: extracted.description, 
-        status: 'ACTIVE' 
-      },
-      campaign: { 
-        id: 'preview', 
-        title: `${extracted.focusArea} Outreach`, 
-        strategicAngle: extracted.suggestedApproach, 
-        targetSegment: extracted.targetAudience, 
-        status: 'PLANNING' 
-      },
-      extractedIntent: {
-        focusArea: extracted.focusArea,
-        opportunityType: extracted.opportunityType,
-        targetAudience: extracted.targetAudience,
-        firstCycleTitle: extracted.firstCycleTitle,
-        firstCycleSteps: extracted.firstCycleSteps,
-        firstDraftPrompt: extracted.firstDraftPrompt,
-      },
-    };
+
+    return this.buildStrategicResultFromExtracted(extracted);
   }
 
   /**
@@ -1188,8 +1187,10 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
   private async extractGoalFromConversation(
     history: ConversationTurn[],
   ): Promise<ExtractedGoal> {
+    const latestUserObjective = this.latestSubstantiveUserMessage(history);
+
     // Build the extraction prompt
-    const prompt = this.buildGoalExtractionPrompt(history);
+    const prompt = this.buildGoalExtractionPrompt(history, latestUserObjective);
 
     // Call AI provider
     const response = await this.aiProviderFactory.getProvider().generateText({
@@ -1203,29 +1204,22 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     try {
       const extracted = JSON.parse(this.extractJsonPayload(response.content)) as ExtractedGoal;
       
-      // Validate required fields
-      // Validate required fields
       if (!extracted.assistantSummary || !extracted.opportunityType) {
         throw new Error('AI response missing required fields');
+      }
+
+      if (latestUserObjective && !this.extractionMatchesIntent(extracted, latestUserObjective)) {
+        this.logger.warn(`AI goal extraction drifted from latest user objective. Falling back to heuristic extraction.`);
+        return this.buildHeuristicGoalExtraction(latestUserObjective);
       }
 
       return extracted;
     } catch (error) {
       this.logger.error('Failed to parse AI goal extraction:', error);
-      // Return a default goal if extraction fails
-      return {
-        title: 'Professional Outreach Goal',
-        description: 'Build meaningful professional connections and opportunities',
-        opportunityType: 'outreach',
-        focusArea: 'general',
-        targetAudience: 'relevant professionals',
-        suggestedApproach: 'Direct outreach with value-first messaging',
-        firstCycleTitle: 'Initial Outreach',
-        assistantSummary: 'Build meaningful professional connections and opportunities',
-        confirmationMessage: 'Excellent. Your goal is set! Now, let\'s discuss the tactical campaign strategy to achieve it.',
-        firstCycleSteps: ['Identify targets', 'Draft messages', 'Send outreach'],
-        firstDraftPrompt: 'Introduce yourself and suggest a conversation',
-      };
+      if (latestUserObjective) {
+        return this.buildHeuristicGoalExtraction(latestUserObjective);
+      }
+      return this.defaultGoalExtraction();
     }
   }
 
@@ -1255,6 +1249,50 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     }
 
     return trimmed;
+  }
+
+  private buildStrategicResultFromExtracted(
+    extracted: ExtractedGoal,
+    options?: {
+      goalId?: string;
+      goalStatus?: string;
+      campaignId?: string;
+      campaignStatus?: string;
+      offeringId?: string | null;
+    },
+  ): StrategicResult {
+    const goalId = options?.goalId ?? 'preview';
+    const campaignId = options?.campaignId ?? 'preview';
+    const goalStatus = options?.goalStatus ?? 'ACTIVE';
+    const campaignStatus = options?.campaignStatus ?? 'PLANNING';
+    const offeringId = options?.offeringId;
+
+    return {
+      success: true,
+      goal: {
+        id: goalId,
+        title: extracted.title,
+        description: extracted.description,
+        status: goalStatus,
+        ...(offeringId !== undefined ? { offeringId } : {}),
+      },
+      campaign: {
+        id: campaignId,
+        title: `${extracted.focusArea} Outreach`,
+        strategicAngle: extracted.suggestedApproach,
+        targetSegment: extracted.targetAudience,
+        status: campaignStatus,
+        ...(offeringId !== undefined ? { offeringId } : {}),
+      },
+      extractedIntent: {
+        focusArea: extracted.focusArea,
+        opportunityType: extracted.opportunityType,
+        targetAudience: extracted.targetAudience,
+        firstCycleTitle: extracted.firstCycleTitle,
+        firstCycleSteps: extracted.firstCycleSteps,
+        firstDraftPrompt: extracted.firstDraftPrompt,
+      },
+    };
   }
 
   private async generateInitialOpportunities(
@@ -1459,7 +1497,7 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
   /**
    * Builds the prompt for goal extraction.
    */
-  private buildGoalExtractionPrompt(history: ConversationTurn[]): string {
+  private buildGoalExtractionPrompt(history: ConversationTurn[], latestUserObjective?: string): string {
     const conversationText = history
       .map(turn => `${turn.role === 'assistant' ? 'Assistant' : 'User'}: ${turn.text}`)
       .join('\n\n');
@@ -1470,6 +1508,9 @@ Analyze the following onboarding conversation and extract the user's professiona
 
 Conversation:
 ${conversationText}
+
+Latest explicit user objective:
+${latestUserObjective ?? 'Not available'}
 
 Based on this conversation, extract the following information as JSON:
 {
@@ -1489,8 +1530,169 @@ Based on this conversation, extract the following information as JSON:
 Important:
 - The opportunityType must be exactly one of: job, contract, consulting, partnership, outreach
 - Be specific and concrete based on what was discussed
-- If the user mentions multiple things, pick the primary focus
+- Use the latest explicit user objective as the authoritative signal when there is any ambiguity
+- If the user mentions multiple things, pick the primary focus from the latest explicit objective
+- Do not invent a different industry, product, audience, or business model than the one described by the user
+- Reuse the user's actual domain nouns where possible (for example: recruiters, professors, book, trading systems, CTOs)
 - The firstCycleSteps should be actionable and clear`.trim();
+  }
+
+  private latestSubstantiveUserMessage(history: ConversationTurn[]): string | null {
+    const userTurns = [...history]
+      .filter((turn) => turn.role === 'user')
+      .map((turn) => turn.text.trim())
+      .filter(Boolean);
+
+    for (let index = userTurns.length - 1; index >= 0; index -= 1) {
+      const candidate = userTurns[index];
+      if (!this.isAffirmationMessage(candidate) && candidate.length > 8) {
+        return candidate;
+      }
+    }
+
+    return userTurns.at(-1) ?? null;
+  }
+
+  private isAffirmationMessage(message: string): boolean {
+    const normalized = message.trim().toLowerCase();
+    return [
+      'yes',
+      'yep',
+      'yeah',
+      'correct',
+      'that is correct',
+      'that’s correct',
+      'thats correct',
+      'ok',
+      'okay',
+      'sure',
+      'proceed',
+      'sounds good',
+      'go ahead',
+    ].includes(normalized);
+  }
+
+  private extractionMatchesIntent(extracted: ExtractedGoal, latestObjective: string): boolean {
+    const objectiveTokens = this.significantTokens(latestObjective);
+    if (objectiveTokens.length === 0) {
+      return true;
+    }
+
+    const extractedText = [
+      extracted.title,
+      extracted.description,
+      extracted.focusArea,
+      extracted.targetAudience,
+      extracted.suggestedApproach,
+      extracted.firstCycleTitle,
+    ].join(' ');
+    const extractedTokens = new Set(this.significantTokens(extractedText));
+    const overlap = objectiveTokens.filter((token) => extractedTokens.has(token));
+
+    return overlap.length >= Math.max(1, Math.ceil(objectiveTokens.length * 0.2));
+  }
+
+  private significantTokens(text: string): string[] {
+    const stopWords = new Set([
+      'that', 'this', 'with', 'from', 'into', 'your', 'their', 'would', 'like', 'about', 'today',
+      'want', 'reach', 'out', 'need', 'help', 'goal', 'setting', 'create', 'build', 'move', 'next',
+      'correct', 'yes', 'okay', 'sure', 'please', 'them', 'they', 'what', 'when', 'then',
+    ]);
+
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length > 2 && !stopWords.has(token));
+  }
+
+  private buildHeuristicGoalExtraction(latestObjective: string): ExtractedGoal {
+    const normalized = latestObjective.replace(/\s+/g, ' ').trim();
+    const lower = normalized.toLowerCase();
+    const targetAudience = this.extractTargetAudienceFromObjective(normalized);
+    const opportunityType =
+      lower.includes('recruiter') || lower.includes('job') || lower.includes('role')
+        ? 'job'
+        : lower.includes('contract') || lower.includes('freelance')
+          ? 'contract'
+          : lower.includes('consult')
+            ? 'consulting'
+            : lower.includes('partner')
+              ? 'partnership'
+              : 'outreach';
+    const focusArea = this.toTitleCase(targetAudience);
+    const title =
+      opportunityType === 'job'
+        ? `${this.toTitleCase(targetAudience)} Outreach`
+        : `${this.toTitleCase(targetAudience)} Promotion`;
+    const description = `The user wants to reach ${targetAudience}.`;
+
+    return {
+      title,
+      description,
+      opportunityType,
+      focusArea,
+      targetAudience,
+      suggestedApproach: `Use direct, tailored outreach focused on ${targetAudience} with clear relevance and a specific next step.`,
+      firstCycleTitle: `Initial ${this.toTitleCase(targetAudience)} Outreach`,
+      assistantSummary: description,
+      confirmationMessage: `Great. I captured the goal around ${targetAudience} and prepared the first campaign direction.`,
+      firstCycleSteps: [
+        `Build a focused target list for ${targetAudience}.`,
+        'Define the message angle and proof points.',
+        'Draft the first outreach message.',
+        'Send the first wave and review responses.',
+      ],
+      firstDraftPrompt: `Draft a concise outreach message for ${targetAudience} based on this objective: ${normalized}`,
+    };
+  }
+
+  private extractTargetAudienceFromObjective(objective: string): string {
+    const lower = objective.toLowerCase();
+    const reachOutMatch = objective.match(/reach out(?:\s+to)?\s+(.+)/i);
+    if (reachOutMatch?.[1]) {
+      return reachOutMatch[1]
+        .trim()
+        .replace(/^\bto\b\s+/i, '')
+        .replace(/\.$/, '');
+    }
+    const promoteMatch = objective.match(/promot(?:e|ing).+?\s+to\s+(.+)/i);
+    if (promoteMatch?.[1]) {
+      return promoteMatch[1].trim().replace(/\.$/, '');
+    }
+    const contactMatch = objective.match(/(?:contact|target|message|email)\s+(.+)/i);
+    if (contactMatch?.[1]) {
+      return contactMatch[1].trim().replace(/\.$/, '');
+    }
+    if (lower.includes('recruiter')) {
+      return objective.replace(/^.*?recruiters?/i, 'recruiters').trim().replace(/\.$/, '');
+    }
+    return 'relevant professionals';
+  }
+
+  private toTitleCase(value: string): string {
+    return value
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
+  private defaultGoalExtraction(): ExtractedGoal {
+    return {
+      title: 'Professional Outreach Goal',
+      description: 'Build meaningful professional connections and opportunities',
+      opportunityType: 'outreach',
+      focusArea: 'general',
+      targetAudience: 'relevant professionals',
+      suggestedApproach: 'Direct outreach with value-first messaging',
+      firstCycleTitle: 'Initial Outreach',
+      assistantSummary: 'Build meaningful professional connections and opportunities',
+      confirmationMessage: 'Excellent. Your goal is set! Now, let\'s discuss the tactical campaign strategy to achieve it.',
+      firstCycleSteps: ['Identify targets', 'Draft messages', 'Send outreach'],
+      firstDraftPrompt: 'Introduce yourself and suggest a conversation',
+    };
   }
 }
 

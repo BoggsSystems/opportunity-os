@@ -9,6 +9,7 @@ import type {
   DiscoveryScanSummary,
   DiscoveryTargetSummary,
   EmailReadiness,
+  OAuthStartResult,
   OfferingAssetSummary,
   OfferingPositioningSummary,
   OfferingSummary,
@@ -117,6 +118,7 @@ export class ApiClient {
   async createDiscoveryScan(input: {
     query: string;
     scanType?: string;
+    providerKeys?: string[];
     campaignId?: string;
     offeringId?: string;
     goalId?: string;
@@ -176,6 +178,7 @@ export class ApiClient {
       sessionId: string;
       reply: string;
       suggestedAction?: string;
+      onboardingPlan?: StrategicPlanResult;
       blocked?: boolean;
       upgradeReason?: string;
       upgradeHint?: string;
@@ -256,6 +259,12 @@ export class ApiClient {
       method: 'POST',
       body: {},
     });
+  }
+
+  async startEmailOAuth(providerName: 'outlook', returnTo?: string) {
+    const query = new URLSearchParams({ provider: providerName });
+    if (returnTo) query.set('returnTo', returnTo);
+    return this.request<OAuthStartResult>(`/connectors/email/oauth/start?${query.toString()}`);
   }
 
   async checkCapability(featureKey: string) {

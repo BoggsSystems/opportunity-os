@@ -134,7 +134,7 @@ export class AuthService {
           data: { userId: user.id },
         });
 
-        await tx.strategicCampaign.updateMany({
+        await tx.campaign.updateMany({
           where: { guestSessionId: dto.guestSessionId, userId: null },
           data: { userId: user.id },
         });

@@ -605,18 +605,39 @@ A first-class research run created from an offering, campaign, goal, or explicit
 Represents:
 
 * the discovery intent
-* the provider or tool used
+* the provider plan for the run
+* one or more providers or tools used
 * the query and target segment
 * the bounded scan request
-* the reviewable result set
+* the consolidated, reviewable result set
+* the top-level context for a contact-finding pass
 
 Relationships:
 
 * belongs to one User
 * may belong to one Offering
 * may belong to one Goal
-* may belong to one StrategicCampaign
+* may belong to one Campaign
+* has one or more Discovery Provider Runs
 * produces many Discovery Targets
+
+MVP: yes
+
+**Discovery Provider Run**
+
+A provider-specific execution inside a Discovery Scan.
+
+Represents:
+
+* one provider invocation such as Tavily, OpenAI search, Firecrawl, or a local/mock provider
+* the provider-specific query or crawl parameters
+* raw result counts and provider status
+* provider-level provenance for later debugging and scoring
+
+Relationships:
+
+* belongs to one Discovery Scan
+* may contribute evidence to many Discovery Targets conceptually
 
 MVP: yes
 
@@ -629,6 +650,8 @@ Represents:
 * who or what was found
 * confidence and relevance scoring
 * dedupe identity
+* candidate contact information before canonical promotion
+* existing-record match state
 * why the target matters
 * recommended next action
 * accept/reject/promote review state
@@ -637,6 +660,10 @@ Relationships:
 
 * belongs to one User
 * belongs to one Discovery Scan
+* may represent a company candidate, person/contact candidate, or content-signal candidate
+* may match an existing Company before promotion
+* may match an existing Person before promotion
+* may match an existing Opportunity before promotion
 * may link to one Company after promotion
 * may link to one Person after promotion
 * may link to one Opportunity after promotion
@@ -695,6 +722,12 @@ Relationships:
 * may later promote into one Person
 
 MVP: later
+
+Important clarification:
+
+* Discovery Targets are the current staging layer for contact candidates.
+* Discovery should not write raw scraped/found contacts directly into canonical CRM records.
+* Discovery first stages, scores, dedupes, and matches candidate contacts, then promotes accepted targets into Company / Person / Opportunity records.
 
 ---
 
@@ -1350,9 +1383,9 @@ Relationships:
 * may have many Opportunities
 * may have many lane execution records
 
-**StrategicCampaign (legacy compatibility)**
+**Campaign**
 
-The older campaign model retained temporarily for compatibility while the platform consolidates around Campaign as the canonical campaign abstraction.
+The durable tactical motion that advances a goal and offering toward concrete results.
 
 MVP: yes
 
@@ -1661,7 +1694,7 @@ Relationships:
 * belongs to one User when authenticated
 * may be linked to one Offering
 * may be linked to one Goal
-* may be linked to one StrategicCampaign
+* may be linked to one Campaign
 * may be linked to one Opportunity
 * may be linked to one Task
 * may be linked to one DiscoveredOpportunity
@@ -2117,7 +2150,7 @@ Represents:
 Relationships:
 
 * belongs to one User
-* may belong to one Goal or StrategicCampaign
+* may belong to one Goal or Campaign
 * informs Momentum State and Coaching Nudges
 
 MVP: V1 logical modeling
@@ -2156,7 +2189,7 @@ Represents:
 Relationships:
 
 * belongs to one User
-* may reference Goal, StrategicCampaign, Opportunity, Task, OpportunityCycle, or WorkspaceSignal
+* may reference Goal, Campaign, Opportunity, Task, OpportunityCycle, or WorkspaceSignal
 * may become a notification later
 
 MVP: V1 logical modeling
@@ -2269,9 +2302,11 @@ MVP: later
 * A Search Profile has many Search Runs.
 * A Search Run produces many Discovered Opportunities.
 * A Discovered Opportunity may be promoted to an Opportunity.
-* A Discovery Scan belongs to a User and may reference an Offering, Goal, and StrategicCampaign.
+* A Discovery Scan belongs to a User and may reference an Offering, Goal, and Campaign.
+* A Discovery Scan may execute through one or more Discovery Provider Runs.
 * A Discovery Scan produces many Discovery Targets.
 * A Discovery Target has many Discovery Evidence records.
+* A Discovery Target may match existing Company, Person, Opportunity, or prior Discovery Target records before promotion.
 * A Discovery Target may be accepted, rejected, marked duplicate, or promoted.
 * A promoted Discovery Target may link to Company, Person, and Opportunity records.
 
@@ -2313,7 +2348,7 @@ MVP: later
 * An Offering has many OfferingPositionings.
 * An Offering has many OfferingAssets.
 * An Offering may have many Goals.
-* An Offering may have many StrategicCampaigns.
+* An Offering may have many Campaigns.
 * An Offering may have many OpportunityCycles.
 * An Offering can be matched to many Opportunities.
 * An OfferingPositioning may be linked to specific Opportunity types.
@@ -2322,10 +2357,10 @@ MVP: later
 ### Goals and Campaigns Relationships
 
 * A Goal belongs to one User when authenticated and may belong to one Offering.
-* A StrategicCampaign belongs to one Goal and may belong to one Offering.
-* A StrategicCampaign has many Opportunities.
-* Goals and StrategicCampaigns provide the strategic context that explains why an OpportunityCycle matters.
-* When an Offering is known, Goals, StrategicCampaigns, and OpportunityCycles should preserve that Offering context.
+* A Campaign belongs to one Goal and may belong to one Offering.
+* A Campaign has many Opportunities.
+* Goals and Campaigns provide the strategic context that explains why an OpportunityCycle matters.
+* When an Offering is known, Goals, Campaigns, and OpportunityCycles should preserve that Offering context.
 
 ### AI Conversation / Context Relationships
 
@@ -2339,9 +2374,9 @@ MVP: later
 
 ### Workspace Orchestration Relationships
 
-* A WorkspaceSignal belongs to one User and may reference a source entity such as DiscoveredOpportunity, Opportunity, Task, StrategicCampaign, Activity, or AIConversation.
+* A WorkspaceSignal belongs to one User and may reference a source entity such as DiscoveredOpportunity, Opportunity, Task, Campaign, Activity, or AIConversation.
 * A WorkspaceSignal may create or activate one OpportunityCycle.
-* An OpportunityCycle belongs to one User and may reference one Offering, Goal, StrategicCampaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation.
+* An OpportunityCycle belongs to one User and may reference one Offering, Goal, Campaign, Opportunity, Task, DiscoveredOpportunity, and AIConversation.
 * An OpportunityCycle has a current phase and active workspace mode that guide the right-pane web experience.
 * Every orchestrated cycle should know which Offering it is advancing whenever that context is available.
 * A WorkspaceCommand belongs to one User and may belong to one OpportunityCycle.
@@ -2375,7 +2410,7 @@ MVP: later
 ### Coaching, Momentum, and Engagement Relationships
 
 * Goal Progress belongs to one Goal and is derived from cycles, activities, tasks, and opportunity movement.
-* Weekly Targets may belong to a User, Goal, or StrategicCampaign.
+* Weekly Targets may belong to a User, Goal, or Campaign.
 * Momentum State is computed from progress, targets, activities, tasks, signals, and cycles.
 * Coaching Nudges belong to one User and may reference Goals, Campaigns, Opportunities, Tasks, Signals, or Cycles.
 * Engagement State is informed by user sessions, completed cycles, activities, and workspace commands.
@@ -2668,7 +2703,7 @@ Examples:
 * OfferingProposal
 * Offering
 * Goal
-* StrategicCampaign
+* Campaign
 * Capability (core types)
 * Capability Provider (Gmail, Outlook, Google Calendar, Twilio, Firecrawl)
 * User Connector (email, calendar)
@@ -2750,7 +2785,7 @@ The platform revolves around a **User** who owns a set of **Companies**, **Peopl
 
 The platform operates through a **capability-first, provider-abstracted integration architecture** where **User Connectors** link **Capabilities** (Email, Calendar, Messaging, Discovery) to **Capability Providers** (Gmail, Outlook, Twilio, Firecrawl). Capability services consult the **Capability Gate** before executing cost-bearing or premium operations, returning structured **Capability Check Results** and **Upgrade Reasons** that frontend clients can use for plan-aware experiences.
 
-New potential opportunities enter the system through **Discovery Scans**, **Discovery Targets**, **Discovery Evidence**, and the legacy **Search Profiles/Search Runs/Discovered Opportunities** path. Discovery is its own provider-abstracted intelligence module: it researches targets, stores evidence, scores relevance, supports accept/reject review, and only promotes accepted targets into the CRM core. The **Offerings** domain represents the user's marketable value propositions. **Goals** define the outcomes the user wants for those offerings, and **StrategicCampaigns** define the tactical motions used to advance them. Persistent **AI Conversation/Context** maintains working memory across sessions and may recommend capability-based actions.
+New potential opportunities enter the system through **Discovery Scans**, **Discovery Targets**, **Discovery Evidence**, and the legacy **Search Profiles/Search Runs/Discovered Opportunities** path. Discovery is its own provider-abstracted intelligence module: it researches targets, stores evidence, scores relevance, supports accept/reject review, and only promotes accepted targets into the CRM core. The **Offerings** domain represents the user's marketable value propositions. **Goals** define the outcomes the user wants for those offerings, and **Campaigns** define the tactical motions used to advance them. Persistent **AI Conversation/Context** maintains working memory across sessions and may recommend capability-based actions.
 
 The **Workspace Orchestration** domain turns CRM records, discovery results, AI insight, tasks, activities, offerings, goals, and campaigns into focused **Opportunity Cycles** so the web app can show what matters now, why it matters, which offering is being advanced, what the AI recommends, what the active workspace should display, and which execution actions are allowed. **Coaching, Momentum, and Engagement** concepts turn those cycles into targets, nudges, progress, and reactivation moments.
 
