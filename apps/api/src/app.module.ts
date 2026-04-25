@@ -27,6 +27,8 @@ import { GoalsModule } from './modules/goals/goals.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { CampaignOrchestrationModule } from './modules/campaign-orchestration/campaign-orchestration.module';
 import { WorkspaceModule } from './modules/workspace/workspace.module';
+import { BrowserModule } from './modules/browser/browser.module';
+import { ConnectionsModule } from './modules/connections/connections.module';
 import { DevContextInterceptor } from './common/dev-context.interceptor';
 
 @Module({
@@ -60,6 +62,8 @@ import { DevContextInterceptor } from './common/dev-context.interceptor';
     CampaignsModule,
     CampaignOrchestrationModule,
     WorkspaceModule,
+    BrowserModule,
+    ConnectionsModule,
   ],
   controllers: [TestValidationController],
   providers: [
