@@ -292,6 +292,26 @@ input:focus {
   color: #24344f;
 }
 
+.connections-nav-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #24344f;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.connections-nav-button:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: #f8fafc;
+}
+
 .send-button {
   border-color: var(--blue);
   background: var(--blue);
@@ -1417,5 +1437,87 @@ input:focus {
 
 .source-badge.internal svg {
   color: #16a34a;
+}
+
+.canvas-empty-state {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.empty-state-content h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 8px 0;
+}
+
+.empty-state-content p {
+  color: var(--muted);
+  margin: 0 0 32px 0;
+  line-height: 1.5;
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.primary-action {
+  background: var(--blue);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.primary-action:hover:not(:disabled) {
+  background: var(--blue-strong);
+}
+
+.primary-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.or-divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.or-divider::before,
+.or-divider::after {
+  content: '';
+  height: 1px;
+  width: 60px;
+  background: var(--line);
+}
+
+.secondary-action {
+  background: transparent;
+  color: var(--blue);
+  border: 1px solid var(--blue);
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.secondary-action:hover:not(:disabled) {
+  background: var(--blue);
+  color: white;
+}
+
+.secondary-action:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 

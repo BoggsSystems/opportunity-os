@@ -16,6 +16,7 @@ import {
   Sparkles,
   Target,
   UserRound,
+  Users,
   Database,
   Eye,
   EyeOff,
@@ -519,7 +520,7 @@ export function App() {
   async function startDiscoveryScan() {
     setCampaignFeedback(null);
     const campaign = campaignWorkspace?.campaign;
-    const goalTitle = campaignWorkspace?.discovery?.goal?.title;
+    const goalTitle = campaignWorkspace?.campaign?.title;
     const targetSegment = campaign?.targetSegment;
 
     // Combine goal and target segment for maximum specificity (e.g. "Book Sales - CTOs")
@@ -1206,6 +1207,15 @@ function WorkspaceTopBar(props: {
         <h1>{props.workspace?.activeCycle?.title ?? 'Opportunity cycle engine'}</h1>
       </div>
       <div className="topbar-actions">
+        <button 
+          className="connections-nav-button"
+          onClick={() => window.location.href = '/connections'}
+          title="Manage connections"
+          type="button"
+        >
+          <Users size={18} />
+          <span>Connections</span>
+        </button>
         <Metric label="Signals" value={velocity.pendingSignalCount} tone="blue" />
         <Metric label="Outreach" value={velocity.outreachSentThisWeek} tone="green" />
         <Metric label="Open tasks" value={velocity.openTaskCount} tone="amber" />
@@ -1951,7 +1961,31 @@ function DiscoveryCanvas(props: {
           )}
         </div>
       ) : (
-        <CanvasEmptyState title="No discovery scan yet" detail="Run the first scan to produce explainable campaign targets." />
+        <div className="canvas-empty-state">
+          <div className="empty-state-content">
+            <h3>No discovery scan yet</h3>
+            <p>Run the first scan to produce explainable campaign targets.</p>
+            <div className="empty-state-actions">
+              <button
+                onClick={props.onStartScan}
+                className="primary-action"
+                disabled={props.isWorking}
+              >
+                {props.isWorking ? 'Scanning...' : 'Run Discovery Scan'}
+              </button>
+              <div className="or-divider">
+                <span>or</span>
+              </div>
+              <button
+                onClick={() => window.location.href = '/connections/import'}
+                className="secondary-action"
+                disabled={props.isWorking}
+              >
+                Import LinkedIn Connections
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
