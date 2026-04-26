@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CreateConnectionImportDto, ImportSource, ImportStatus } from '../dto/create-connection-import.dto';
 import { ConnectionImportDto } from '../dto/connection-import.dto';
+import { ImportGateway } from '../../../websocket/import.gateway';
 // import { ConnectionRecordDto } from '../dto/connection-record.dto'; // Not used yet
 
 // Temporarily using in-memory storage until Prisma is integrated
@@ -49,6 +50,8 @@ export class ConnectionImportService {
   private readonly logger = new Logger(ConnectionImportService.name);
   private readonly imports = new Map<string, ConnectionImportData>();
   private readonly connections = new Map<string, ConnectionRecordData[]>();
+
+  constructor(private readonly importGateway: ImportGateway) {}
 
   async createImport(createImportDto: CreateConnectionImportDto, userId: string): Promise<ConnectionImportDto> {
     this.logger.log(`Creating connection import for user: ${userId}`);
@@ -170,6 +173,22 @@ export class ConnectionImportService {
 
           connections.push(connection);
           
+          // Send WebSocket progress update every 50 records or 10% of total
+          const progressInterval = Math.max(50, Math.floor(fileData.length * 0.1));
+          if ((i + 1) % progressInterval === 0 || i === fileData.length - 1) {
+            const percentage = ((i + 1) / fileData.length) * 100;
+            this.importGateway.sendImportProgress(importId, {
+              status: 'PROCESSING',
+              totalRecords: fileData.length,
+              processedRecords: i + 1,
+              importedRecords: connections.length - duplicateCount,
+              duplicateRecords: duplicateCount,
+              failedRecords: failedCount,
+              percentage: Math.round(percentage),
+              message: `Processed ${i + 1} of ${fileData.length} records...`
+            });
+          }
+          
           // Log progress for every 100 records
           if ((i + 1) % 100 === 0) {
             this.logger.log(`📈 PROCESSED ${i + 1}/${fileData.length} RECORDS`);
@@ -191,7 +210,7 @@ export class ConnectionImportService {
       this.connections.set(importId, connections);
 
       // Update import with results
-      await this.updateImportStatus(importId, ImportStatus.COMPLETED, {
+      const finalImportData = await this.updateImportStatus(importId, ImportStatus.COMPLETED, {
         totalRecords: fileData.length,
         importedRecords: connections.length - duplicateCount,
         duplicateRecords: duplicateCount,
@@ -199,11 +218,28 @@ export class ConnectionImportService {
         errors: errors.length > 0 ? errors : undefined,
       });
 
+      // Send WebSocket completion event
+      this.importGateway.sendImportCompletion(importId, {
+        status: 'COMPLETED',
+        totalRecords: fileData.length,
+        importedRecords: connections.length - duplicateCount,
+        duplicateRecords: duplicateCount,
+        failedRecords: failedCount,
+        duration: Date.now() - new Date(finalImportData.startedAt!).getTime(),
+      });
+
       this.logger.log(`Import processing completed: ${importId}`);
       return this.mapToDto(this.imports.get(importId)!);
 
     } catch (error) {
       this.logger.error(`Failed to process import ${importId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Send WebSocket error event
+      this.importGateway.sendImportError(importId, {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        details: error,
+      });
+      
       await this.updateImportStatus(importId, ImportStatus.FAILED, {
         errors: [{ error: error instanceof Error ? error.message : 'Unknown error' }],
       });
