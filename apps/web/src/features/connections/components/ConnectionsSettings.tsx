@@ -50,8 +50,22 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
       setUploadMessage(`Successfully imported ${importData.importedRecords} connections. ${importData.duplicateRecords} duplicates found.`);
 
     } catch (error) {
+      console.error('Import error:', error);
       setUploadStatus('error');
-      setUploadMessage(error instanceof Error ? error.message : 'Failed to import connections');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to import connections';
+      
+      // Check for common issues
+      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized')) {
+        setUploadMessage('Authentication required. Please log in and try again.');
+      } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden')) {
+        setUploadMessage('You do not have permission to import connections.');
+      } else if (errorMessage.includes('413') || errorMessage.includes('too large')) {
+        setUploadMessage('File is too large. Please use a smaller file.');
+      } else if (errorMessage.includes('Network') || errorMessage.includes('fetch')) {
+        setUploadMessage('Network error. Please check your connection and try again.');
+      } else {
+        setUploadMessage(errorMessage);
+      }
     } finally {
       // Clear file input
       if (event.target) {

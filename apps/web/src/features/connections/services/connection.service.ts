@@ -12,7 +12,9 @@ class ConnectionService {
   private api: ApiClient;
 
   constructor() {
-    this.api = new ApiClient(localStorage.getItem('opportunity-os-token'));
+    const session = localStorage.getItem('opportunity-os-session');
+    const token = session ? JSON.parse(session).accessToken : null;
+    this.api = new ApiClient(token);
   }
 
   async createImport(
