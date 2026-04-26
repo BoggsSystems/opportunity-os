@@ -12,9 +12,31 @@ class ConnectionService {
   private api: ApiClient;
 
   constructor() {
+    console.log('🔍 DEBUG: ConnectionService constructor called');
     const session = localStorage.getItem('opportunity-os-session');
-    const token = session ? JSON.parse(session).accessToken : null;
-    this.api = new ApiClient(token);
+    console.log('🔍 DEBUG: Raw session from localStorage:', session ? 'exists' : 'null');
+    
+    if (session) {
+      try {
+        const parsed = JSON.parse(session);
+        console.log('🔍 DEBUG: Parsed session:', {
+          hasAccessToken: !!parsed.accessToken,
+          accessTokenLength: parsed.accessToken?.length,
+          hasRefreshToken: !!parsed.refreshToken,
+          hasUser: !!parsed.user,
+          userId: parsed.user?.id
+        });
+        const token = parsed.accessToken;
+        console.log('🔍 DEBUG: Creating ApiClient with token:', token ? 'token provided' : 'no token');
+        this.api = new ApiClient(token);
+      } catch (error) {
+        console.error('🔍 DEBUG: Failed to parse session:', error);
+        this.api = new ApiClient(null);
+      }
+    } else {
+      console.log('🔍 DEBUG: No session found, creating ApiClient without token');
+      this.api = new ApiClient(null);
+    }
   }
 
   async createImport(
@@ -22,6 +44,14 @@ class ConnectionService {
     file: File,
     _userId: string
   ): Promise<ConnectionImport> {
+    console.log('🔍 DEBUG: createImport called with:', {
+      request,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      userId: _userId
+    });
+    
     try {
       const apiData: any = {
         name: request.name,
@@ -36,7 +66,11 @@ class ConnectionService {
         apiData.tags = request.tags;
       }
       
+      console.log('🔍 DEBUG: Prepared API data:', apiData);
+      console.log('🔍 DEBUG: Calling api.importConnections');
+      
       const result = await this.api.importConnections(file, apiData);
+      console.log('🔍 DEBUG: API call result:', result);
       
       // Map API response to ConnectionImport type
       return {

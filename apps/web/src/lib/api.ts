@@ -306,12 +306,23 @@ export class ApiClient {
 
   // Connection Import API Methods
   async importConnections(file: File, importData: { name: string; description?: string; source: string; tags?: string[] }) {
+    console.log('🔍 DEBUG: importConnections called with:', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+      importData
+    });
+    
     const formData = new FormData();
     formData.append('file', file);
     formData.append('source', importData.source);
     formData.append('name', importData.name);
     if (importData.description) formData.append('description', importData.description);
     if (importData.tags) formData.append('tags', JSON.stringify(importData.tags));
+
+    console.log('🔍 DEBUG: FormData prepared, calling requestForm');
+    console.log('🔍 DEBUG: Access token exists:', !!this.accessToken);
+    console.log('🔍 DEBUG: API URL:', import.meta.env['VITE_API_URL'] ?? 'http://localhost:3002');
 
     return this.requestForm<{
       success: boolean;
@@ -437,24 +448,48 @@ export class ApiClient {
   }
 
   private async requestForm<T>(path: string, body: FormData): Promise<T> {
+    console.log('🔍 DEBUG: requestForm called with:', {
+      path,
+      hasAccessToken: !!this.accessToken,
+      accessTokenLength: this.accessToken?.length,
+      bodyEntries: Array.from(body.entries())
+    });
+
     const headers: Record<string, string> = {};
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
 
-    const response = await fetch(`${API_URL}${path}`, {
+    const fullUrl = `${API_URL}${path}`;
+    console.log('🔍 DEBUG: Making fetch request to:', fullUrl);
+    console.log('🔍 DEBUG: Headers:', Object.keys(headers));
+
+    const response = await fetch(fullUrl, {
       method: 'POST',
       headers,
       body,
     });
 
+    console.log('🔍 DEBUG: Response received:', {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      headers: Object.fromEntries(response.headers.entries())
+    });
+
     const text = await response.text();
+    console.log('🔍 DEBUG: Response text length:', text.length);
+    console.log('🔍 DEBUG: Response text preview:', text.substring(0, 200));
+    
     const payload = text ? parseJson(text) : null;
+    console.log('🔍 DEBUG: Parsed payload:', payload);
 
     if (!response.ok) {
+      console.log('🔍 DEBUG: Response not OK, throwing ApiError');
       throw new ApiError(response.status, payload);
     }
 
+    console.log('🔍 DEBUG: Request successful, returning payload');
     return payload as T;
   }
 }

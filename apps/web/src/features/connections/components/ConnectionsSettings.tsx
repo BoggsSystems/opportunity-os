@@ -15,42 +15,88 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('🔍 DEBUG: handleFileSelect called');
+    
     const files = event.target.files;
-    if (!files || files.length === 0) return;
+    console.log('🔍 DEBUG: Files selected:', files);
+    
+    if (!files || files.length === 0) {
+      console.log('🔍 DEBUG: No files selected');
+      return;
+    }
 
     const file = files[0];
     if (!file) return;
+    
+    console.log('🔍 DEBUG: File details:', {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified
+    });
 
+    console.log('🔍 DEBUG: Setting upload status to uploading');
     setUploadStatus('uploading');
     setUploadMessage('Processing file...');
     setUploadedFileName(file.name);
 
     try {
+      console.log('🔍 DEBUG: Starting file validation');
       // Validate file
       const validation = connectionService.validateFile(file);
+      console.log('🔍 DEBUG: Validation result:', validation);
+      
       if (!validation.isValid) {
+        console.log('🔍 DEBUG: File validation failed:', validation.error);
         setUploadStatus('error');
         setUploadMessage(validation.error || 'Invalid file format');
         return;
       }
 
+      console.log('🔍 DEBUG: File validation passed');
+
+      // Check authentication
+      const session = localStorage.getItem('opportunity-os-session');
+      console.log('🔍 DEBUG: Session exists:', !!session);
+      if (session) {
+        const parsed = JSON.parse(session);
+        console.log('🔍 DEBUG: Session data:', {
+          hasAccessToken: !!parsed.accessToken,
+          hasRefreshToken: !!parsed.refreshToken,
+          userId: parsed.user?.id,
+          userEmail: parsed.user?.email
+        });
+      }
+
       // Create import
       const userId = 'current-user'; // TODO: Get from auth context
-      const importData = await connectionService.createImport(
-        {
-          name: `Connections Import - ${new Date().toLocaleDateString()}`,
-          source: ImportSource.LINKEDIN_EXPORT,
-          description: `LinkedIn connections import from ${file.name}`
-        },
-        file,
-        userId
-      );
+      console.log('🔍 DEBUG: Creating import with userId:', userId);
+      
+      const importRequest = {
+        name: `Connections Import - ${new Date().toLocaleDateString()}`,
+        source: ImportSource.LINKEDIN_EXPORT,
+        description: `LinkedIn connections import from ${file.name}`
+      };
+      console.log('🔍 DEBUG: Import request:', importRequest);
+      
+      console.log('🔍 DEBUG: Calling connectionService.createImport');
+      const importData = await connectionService.createImport(importRequest, file, userId);
+      console.log('🔍 DEBUG: Import successful:', importData);
 
       setUploadStatus('success');
       setUploadMessage(`Successfully imported ${importData.importedRecords} connections. ${importData.duplicateRecords} duplicates found.`);
 
     } catch (error) {
-      console.error('Import error:', error);
+      console.error('🔍 DEBUG: Import error:', error);
+      console.log('🔍 DEBUG: Error details:', {
+        name: (error as any)?.name,
+        message: (error as any)?.message,
+        stack: (error as any)?.stack,
+        response: (error as any)?.response,
+        status: (error as any)?.response?.status,
+        statusText: (error as any)?.response?.statusText
+      });
+      
       setUploadStatus('error');
       const errorMessage = error instanceof Error ? error.message : 'Failed to import connections';
       
@@ -64,9 +110,10 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
       } else if (errorMessage.includes('Network') || errorMessage.includes('fetch')) {
         setUploadMessage('Network error. Please check your connection and try again.');
       } else {
-        setUploadMessage(errorMessage);
+        setUploadMessage(`Error: ${errorMessage}`);
       }
     } finally {
+      console.log('🔍 DEBUG: Cleaning up file input');
       // Clear file input
       if (event.target) {
         event.target.value = '';
