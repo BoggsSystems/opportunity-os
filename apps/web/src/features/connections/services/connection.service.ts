@@ -6,92 +6,139 @@ import {
   ImportProgress,
   ImportStatus
 } from '../types/connection.types';
-
-const API_BASE = '/api/connections';
+import { ApiClient } from '../../../lib/api';
 
 class ConnectionService {
-  private baseUrl: string;
+  private api: ApiClient;
 
   constructor() {
-    this.baseUrl = process.env['NEXT_PUBLIC_API_URL'] || '';
+    this.api = new ApiClient(localStorage.getItem('opportunity-os-token'));
   }
 
   async createImport(
     request: CreateConnectionImportRequest,
     file: File,
-    userId: string
+    _userId: string
   ): Promise<ConnectionImport> {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('source', request.source);
-    formData.append('name', request.name);
-    formData.append('userId', userId);
-
-    if (request.description) {
-      formData.append('description', request.description);
+    try {
+      const apiData: any = {
+        name: request.name,
+        source: request.source.toString(),
+      };
+      
+      if (request.description) {
+        apiData.description = request.description;
+      }
+      
+      if (request.tags) {
+        apiData.tags = request.tags;
+      }
+      
+      const result = await this.api.importConnections(file, apiData);
+      
+      // Map API response to ConnectionImport type
+      return {
+        id: result.data.id,
+        name: result.data.name,
+        ...(result.data.description && { description: result.data.description }),
+        source: request.source,
+        status: result.data.status as ImportStatus,
+        totalRecords: result.data.totalRecords,
+        importedRecords: result.data.successfulImports,
+        duplicateRecords: result.data.duplicateRecords,
+        failedRecords: result.data.failedRecords,
+        userId: _userId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        errors: []
+      } as ConnectionImport;
+    } catch (error) {
+      throw new Error(`Failed to create import: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    if (request.tags) {
-      formData.append('tags', JSON.stringify(request.tags));
-    }
-
-    if (request.autoSegment !== undefined) {
-      formData.append('autoSegment', request.autoSegment.toString());
-    }
-
-    if (request.customSegments) {
-      formData.append('customSegments', JSON.stringify(request.customSegments));
-    }
-
-    const response = await fetch(`${this.baseUrl}${API_BASE}/import`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to create import: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    return result.data;
   }
 
-  async getImports(userId: string, status?: ImportStatus): Promise<ConnectionImport[]> {
-    const params = new URLSearchParams({ userId });
-    if (status) {
-      params.append('status', status);
+  async getImports(_userId: string, status?: ImportStatus): Promise<ConnectionImport[]> {
+    try {
+      const result = await this.api.getConnectionImports(status);
+      
+      // Map API response to ConnectionImport type
+      return result.data.map(item => ({
+        id: item.id,
+        name: item.name,
+        ...(item.description && { description: item.description }),
+        source: item.source as any,
+        status: item.status as ImportStatus,
+        totalRecords: item.totalRecords,
+        importedRecords: item.successfulImports,
+        duplicateRecords: item.duplicateRecords,
+        failedRecords: item.failedRecords,
+        userId: _userId,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        startedAt: item.startedAt,
+        completedAt: item.completedAt,
+        errors: []
+      }) as ConnectionImport);
+    } catch (error) {
+      throw new Error(`Failed to fetch imports: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    const response = await fetch(`${this.baseUrl}${API_BASE}/imports?${params}`);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch imports: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    return result.data;
   }
 
   async getImport(importId: string): Promise<ConnectionImport> {
-    const response = await fetch(`${this.baseUrl}${API_BASE}/imports/${importId}`);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch import: ${response.statusText}`);
+    try {
+      const result = await this.api.getConnectionImport(importId);
+      
+      // Map API response to ConnectionImport type
+      return {
+        id: result.data.id,
+        name: result.data.name,
+        ...(result.data.description && { description: result.data.description }),
+        source: result.data.source as any,
+        status: result.data.status as ImportStatus,
+        totalRecords: result.data.totalRecords,
+        importedRecords: result.data.successfulImports,
+        duplicateRecords: result.data.duplicateRecords,
+        failedRecords: result.data.failedRecords,
+        userId: 'current-user', // TODO: Get from auth context
+        createdAt: result.data.createdAt,
+        updatedAt: result.data.updatedAt,
+        startedAt: result.data.startedAt,
+        completedAt: result.data.completedAt,
+        errors: []
+      } as ConnectionImport;
+    } catch (error) {
+      throw new Error(`Failed to fetch import: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    const result = await response.json();
-    return result.data;
   }
 
   async getImportConnections(importId: string): Promise<ConnectionRecord[]> {
-    const response = await fetch(`${this.baseUrl}${API_BASE}/imports/${importId}/connections`);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch connections: ${response.statusText}`);
+    try {
+      const result = await this.api.getConnectionImportConnections(importId);
+      
+      // Map API response to ConnectionRecord type
+      return result.data.map(item => ({
+        id: item.id,
+        importBatchId: importId,
+        firstName: item.firstName,
+        lastName: item.lastName,
+        ...(item.email && { email: item.email }),
+        ...(item.phone && { phone: item.phone }),
+        ...(item.linkedinUrl && { linkedinUrl: item.linkedinUrl }),
+        ...(item.company && { company: item.company }),
+        ...(item.position && { position: item.position }),
+        ...(item.industry && { industry: item.industry }),
+        ...(item.location && { location: item.location }),
+        ...(item.connectionLevel && { connectionLevel: item.connectionLevel }),
+        ...(item.notes && { notes: item.notes }),
+        tags: item.tags || [],
+        isDuplicate: item.isDuplicate,
+        originalRow: item.originalRow,
+        createdAt: item.createdAt,
+        updatedAt: item.createdAt
+      }) as ConnectionRecord);
+    } catch (error) {
+      throw new Error(`Failed to fetch connections: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    const result = await response.json();
-    return result.data;
   }
 
   async pollImportProgress(importId: string): Promise<ImportProgress> {

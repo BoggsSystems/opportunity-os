@@ -318,6 +318,7 @@ export class ApiClient {
       data: {
         id: string;
         name: string;
+        description?: string;
         status: string;
         totalRecords: number;
         successfulImports: number;
