@@ -24,6 +24,11 @@ import {
 } from 'lucide-react';
 import { ApiClient, ApiError } from './lib/api';
 import { useUIStore } from './store';
+import { ConnectionsSettings } from './features/connections/components/ConnectionsSettings';
+import { ProfileSettings } from './components/settings/ProfileSettings';
+import { ConnectorsSettings } from './components/settings/ConnectorsSettings';
+import { UsageSettings } from './components/settings/UsageSettings';
+import { NotificationsSettings } from './components/settings/NotificationsSettings';
 import type {
   AuthResponse,
   CanvasAction,
@@ -34,7 +39,6 @@ import type {
   ConversationMessage,
   DiscoveryTargetSummary,
   EmailReadiness,
-  EntitlementSummary,
   OutreachDraft,
   PlanSummary,
   StrategicPlanResult,
@@ -66,7 +70,7 @@ interface UpgradePromptState {
   hint?: string | undefined;
 }
 
-type SettingsSection = 'profile' | 'connectors' | 'usage' | 'notifications';
+type SettingsSection = 'profile' | 'connectors' | 'connections' | 'usage' | 'notifications';
 
 type OutreachExecutionState = 'idle' | 'blocked' | 'sent';
 
@@ -1247,11 +1251,7 @@ function SettingsModal(props: {
   onStartOutlookOAuth: () => Promise<void>;
   onSyncEmail: () => Promise<void>;
 }) {
-  const aiUsage = props.usage?.usage?.find((item) => item.featureKey === 'ai_requests') ?? null;
-  const discoveryUsage = props.usage?.usage?.find((item) => item.featureKey === 'discovery_scans') ?? null;
-  const cycleUsage = props.usage?.usage?.find((item) => item.featureKey === 'next_action_cycles') ?? null;
-  const connectorName = props.emailReadiness?.connector?.providerDisplayName ?? 'Outlook / Hotmail';
-
+  
   return (
     <div className="settings-modal-overlay" onClick={props.onClose} role="presentation">
       <section
@@ -1284,6 +1284,12 @@ function SettingsModal(props: {
               onClick={() => props.onChangeSection('connectors')}
             />
             <SettingsNavButton
+              active={props.activeSection === 'connections'}
+              icon={<Users size={16} />}
+              label="Connections"
+              onClick={() => props.onChangeSection('connections')}
+            />
+            <SettingsNavButton
               active={props.activeSection === 'usage'}
               icon={<CircleGauge size={16} />}
               label="Usage & Plan"
@@ -1299,100 +1305,32 @@ function SettingsModal(props: {
 
           <div className="settings-panel">
             {props.activeSection === 'profile' ? (
-              <div className="settings-section">
-                <div className="surface-card">
-                  <p className="label">Profile</p>
-                  <h3>{props.user.fullName ?? 'Operator'}</h3>
-                  <div className="settings-detail-list">
-                    <div>
-                      <span>Email</span>
-                      <strong>{props.user.email}</strong>
-                    </div>
-                    <div>
-                      <span>Timezone</span>
-                      <strong>{Intl.DateTimeFormat().resolvedOptions().timeZone}</strong>
-                    </div>
-                    <div>
-                      <span>User ID</span>
-                      <strong>{props.user.id}</strong>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <ProfileSettings user={props.user} />
             ) : null}
 
             {props.activeSection === 'connectors' ? (
-              <div className="settings-section">
-                <div className="surface-card">
-                  <p className="label">Email connector</p>
-                  <h3>{connectorName}</h3>
-                  <p>
-                    {props.emailReadiness?.ready
-                      ? 'Connected. Real outreach and inbox sync are available.'
-                      : props.emailReadiness?.upgradeHint ?? 'Connect Outlook to enable real email send and reply sync.'}
-                  </p>
-                </div>
-                <div className="action-grid">
-                  <button
-                    className="primary-button"
-                    disabled={props.isWorking}
-                    onClick={() => void props.onStartOutlookOAuth()}
-                    type="button"
-                  >
-                    {props.isWorking ? <Loader2 className="spin" size={16} /> : <Mail size={16} />}
-                    {props.emailReadiness?.ready ? 'Reconnect Outlook' : 'Connect Outlook'}
-                  </button>
-                  <button
-                    className="secondary-button"
-                    disabled={props.isWorking || !props.emailReadiness?.ready}
-                    onClick={() => void props.onSyncEmail()}
-                    type="button"
-                  >
-                    {props.isWorking ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
-                    Sync inbox
-                  </button>
-                </div>
-              </div>
+              <ConnectorsSettings
+                emailReadiness={props.emailReadiness}
+                isWorking={props.isWorking}
+                onStartOutlookOAuth={props.onStartOutlookOAuth}
+                onSyncEmail={props.onSyncEmail}
+              />
+            ) : null}
+
+            {props.activeSection === 'connections' ? (
+              <ConnectionsSettings isWorking={props.isWorking} />
             ) : null}
 
             {props.activeSection === 'usage' ? (
-              <div className="settings-section">
-                <div className="surface-card">
-                  <p className="label">Plan</p>
-                  <h3>{props.subscription?.plan.name ?? props.commercialState?.subscription.plan.name ?? 'Unknown plan'}</h3>
-                  <p>
-                    {props.subscription?.status ?? props.commercialState?.subscription.status ?? 'No subscription status available'}
-                  </p>
-                </div>
-                <div className="settings-usage-grid">
-                  <UsageCard label="AI requests" usage={aiUsage} />
-                  <UsageCard label="Discovery scans" usage={discoveryUsage} />
-                  <UsageCard label="Action cycles" usage={cycleUsage} />
-                </div>
-              </div>
+              <UsageSettings
+                subscription={props.subscription}
+                commercialState={props.commercialState}
+                usage={props.usage}
+              />
             ) : null}
 
             {props.activeSection === 'notifications' ? (
-              <div className="settings-section">
-                <div className="surface-card">
-                  <p className="label">Notifications</p>
-                  <h3>Coaching and momentum prompts</h3>
-                  <p>
-                    Notification preferences are not configurable yet. This section will hold delivery controls for coaching nudges,
-                    momentum reminders, and blocked-action prompts.
-                  </p>
-                </div>
-                <div className="settings-detail-list muted-panel">
-                  <div>
-                    <span>Current state</span>
-                    <strong>Using in-product notices and signals</strong>
-                  </div>
-                  <div>
-                    <span>Next step</span>
-                    <strong>Add delivery preferences and reactivation controls</strong>
-                  </div>
-                </div>
-              </div>
+              <NotificationsSettings />
             ) : null}
           </div>
         </div>
@@ -1415,19 +1353,6 @@ function SettingsNavButton(props: {
   );
 }
 
-function UsageCard(props: { label: string; usage: EntitlementSummary | null | undefined }) {
-  return (
-    <article className="surface-card usage-card">
-      <p className="label">{props.label}</p>
-      <h3>{formatRemaining(props.usage ?? undefined)}</h3>
-      <p>
-        {props.usage
-          ? `${props.usage.used} used${typeof props.usage.limit === 'number' ? ` of ${props.usage.limit}` : ''}`
-          : 'No usage tracked yet'}
-      </p>
-    </article>
-  );
-}
 
 function ActiveWorkspace(props: {
   workspace: WorkspaceState | null;
