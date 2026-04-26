@@ -390,6 +390,10 @@ input:focus {
   align-items: start;
 }
 
+.workspace-grid.full-width {
+  grid-template-columns: 1fr;
+}
+
 .settings-modal-overlay {
   position: fixed;
   inset: 0;

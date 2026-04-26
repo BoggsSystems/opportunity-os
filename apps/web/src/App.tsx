@@ -878,7 +878,7 @@ export function App() {
           />
         ) : null}
 
-        <div className="workspace-grid">
+        <div className="workspace-grid full-width">
           <ActiveWorkspace
             workspace={workspace}
             campaignWorkspace={campaignWorkspace}
@@ -906,23 +906,6 @@ export function App() {
             onPreviewStrategicPlan={previewStrategicPlan}
             onFinalizeStrategicGoal={finalizeStrategicGoal}
             onContinueFromCampaignFeedback={continueFromCampaignFeedback}
-          />
-          <SignalsPanel
-            signals={workspace?.signals ?? []}
-            {...(workspace?.activeCycle?.refs.signalId ? { activeSignalId: workspace.activeCycle.refs.signalId } : {})}
-            isWorking={isWorking}
-            onActivate={(signal) => {
-              void runCommand(
-                { type: 'activate_signal', signalId: signal.id },
-                'Signal activated',
-              );
-            }}
-            onDismiss={(signal) => {
-              void runCommand(
-                { type: 'dismiss_signal', signalId: signal.id, reason: 'Dismissed from web workspace' },
-                'Signal dismissed',
-              );
-            }}
           />
         </div>
       </section>
@@ -1752,51 +1735,7 @@ function DraftWorkspace(props: {
   );
 }
 
-function SignalsPanel(props: {
-  signals: WorkspaceSignalSummary[];
-  activeSignalId?: string;
-  isWorking: boolean;
-  onActivate: (signal: WorkspaceSignalSummary) => void;
-  onDismiss: (signal: WorkspaceSignalSummary) => void;
-}) {
-  return (
-    <aside className="signals-panel">
-      <div className="panel-header">
-        <div>
-          <p className="label">Signals</p>
-          <h2>Needs attention</h2>
-        </div>
-        <CircleGauge size={20} />
-      </div>
 
-      <div className="signal-list">
-        {props.signals.length === 0 ? (
-          <p className="muted">No pending signals. Ask the Conductor to find the next opportunity cycle.</p>
-        ) : null}
-        {props.signals.map((signal) => (
-          <article key={signal.id} className={`signal-card ${props.activeSignalId === signal.id ? 'active' : ''}`}>
-            <div className="signal-heading">
-              <StatusBadge label={signal.importance} />
-              <span>{signal.priorityScore}</span>
-            </div>
-            <p className="label">Recommended: {actionLabel(actionFromMode(signal.recommendedWorkspaceMode))}</p>
-            <h3>{signal.title}</h3>
-            <p>{signal.summary ?? signal.reason ?? signal.recommendedAction}</p>
-            <div className="signal-actions">
-              <button disabled={props.isWorking} onClick={() => props.onActivate(signal)} type="button">
-                Activate in Canvas
-                <ChevronRight size={15} />
-              </button>
-              <button disabled={props.isWorking} onClick={() => props.onDismiss(signal)} type="button">
-                Dismiss
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
-    </aside>
-  );
-}
 
 function NoticeBanner(props: { notice: Notice; compact?: boolean; onDismiss?: () => void }) {
   return (
