@@ -13,29 +13,144 @@ class ConnectionService {
 
   constructor() {
     console.log('🔍 DEBUG: ConnectionService constructor called');
+    this.initializeApiClient();
+  }
+
+  private initializeApiClient() {
+    console.log('🔍 AUTH DEBUG: Starting API client initialization');
+    
     const session = localStorage.getItem('opportunity-os-session');
-    console.log('🔍 DEBUG: Raw session from localStorage:', session ? 'exists' : 'null');
+    console.log('🔍 AUTH DEBUG: Raw session from localStorage:', session ? 'EXISTS' : 'NULL');
     
     if (session) {
       try {
         const parsed = JSON.parse(session);
-        console.log('🔍 DEBUG: Parsed session:', {
+        console.log('🔍 AUTH DEBUG: Parsed session structure:', {
           hasAccessToken: !!parsed.accessToken,
-          accessTokenLength: parsed.accessToken?.length,
+          accessTokenLength: parsed.accessToken?.length || 0,
+          accessTokenPrefix: parsed.accessToken?.substring(0, 20) + '...',
           hasRefreshToken: !!parsed.refreshToken,
+          refreshTokenLength: parsed.refreshToken?.length || 0,
           hasUser: !!parsed.user,
-          userId: parsed.user?.id
+          userId: parsed.user?.id,
+          userEmail: parsed.user?.email,
+          userRole: parsed.user?.role
         });
+        
         const token = parsed.accessToken;
-        console.log('🔍 DEBUG: Creating ApiClient with token:', token ? 'token provided' : 'no token');
-        this.api = new ApiClient(token);
+        
+        if (!token) {
+          console.log('🔍 AUTH DEBUG: No access token found in session');
+          this.api = new ApiClient(null);
+          return;
+        }
+        
+        console.log('🔍 AUTH DEBUG: Access token found, checking expiration');
+        
+        // Check if token is expired
+        if (this.isTokenExpired(token)) {
+          console.log('🔍 AUTH DEBUG: Token is EXPIRED, attempting refresh');
+          this.refreshToken(parsed);
+        } else {
+          console.log('🔍 AUTH DEBUG: Token is VALID, creating ApiClient');
+          this.api = new ApiClient(token);
+          console.log('🔍 AUTH DEBUG: ApiClient created successfully with token');
+        }
       } catch (error) {
-        console.error('🔍 DEBUG: Failed to parse session:', error);
+        console.error('🔍 AUTH DEBUG: Failed to parse session:', error);
         this.api = new ApiClient(null);
       }
     } else {
-      console.log('🔍 DEBUG: No session found, creating ApiClient without token');
+      console.log('🔍 AUTH DEBUG: No session found, creating ApiClient without token');
       this.api = new ApiClient(null);
+    }
+  }
+
+  private isTokenExpired(token: string): boolean {
+    try {
+      console.log('🔍 AUTH DEBUG: Checking token expiration');
+      
+      // Check if token has proper JWT structure
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        console.log('🔍 AUTH DEBUG: Token does not have JWT structure (3 parts)');
+        return true;
+      }
+      
+      console.log('🔍 AUTH DEBUG: Token has JWT structure, decoding payload');
+      
+      // Simple JWT token expiration check
+      const payload = JSON.parse(atob(parts[1]));
+      const currentTime = Date.now() / 1000;
+      
+      console.log('🔍 AUTH DEBUG: Token payload:', {
+        exp: payload.exp,
+        iat: payload.iat,
+        currentTime: currentTime,
+        timeUntilExpiry: payload.exp - currentTime,
+        isExpired: payload.exp < currentTime,
+        expiresAt: new Date(payload.exp * 1000).toISOString()
+      });
+      
+      return payload.exp < currentTime;
+    } catch (error) {
+      console.error('🔍 AUTH DEBUG: Failed to check token expiration:', error);
+      return true; // Assume expired if we can't check
+    }
+  }
+
+  private async refreshToken(session: any): Promise<void> {
+    try {
+      console.log('🔍 DEBUG: Attempting token refresh');
+      
+      // For now, just clear the session and force re-login
+      // In a real implementation, you'd call a refresh endpoint
+      localStorage.removeItem('opportunity-os-session');
+      console.log('🔍 DEBUG: Session cleared due to expired token');
+      
+      // Force redirect to login or show auth error
+      this.api = new ApiClient(null);
+    } catch (error) {
+      console.error('🔍 DEBUG: Token refresh failed:', error);
+      localStorage.removeItem('opportunity-os-session');
+      this.api = new ApiClient(null);
+    }
+  }
+
+  private ensureValidToken(): boolean {
+    console.log('🔍 AUTH DEBUG: Starting token validation');
+    
+    const session = localStorage.getItem('opportunity-os-session');
+    if (!session) {
+      console.log('🔍 AUTH DEBUG: No session found in localStorage');
+      return false;
+    }
+
+    try {
+      const parsed = JSON.parse(session);
+      const token = parsed.accessToken;
+      
+      console.log('🔍 AUTH DEBUG: Token validation check:', {
+        hasToken: !!token,
+        tokenLength: token?.length || 0,
+        tokenPrefix: token?.substring(0, 20) + '...'
+      });
+      
+      if (!token) {
+        console.log('🔍 AUTH DEBUG: No access token found in session');
+        return false;
+      }
+      
+      if (this.isTokenExpired(token)) {
+        console.log('🔍 AUTH DEBUG: Token is expired');
+        return false;
+      }
+      
+      console.log('🔍 AUTH DEBUG: Token is VALID');
+      return true;
+    } catch (error) {
+      console.error('🔍 AUTH DEBUG: Failed to validate token:', error);
+      return false;
     }
   }
 
@@ -51,6 +166,23 @@ class ConnectionService {
       fileType: file.type,
       userId: _userId
     });
+
+    // Check authentication before proceeding
+    console.log('🔍 AUTH DEBUG: Checking authentication before import');
+    
+    const isTokenValid = this.ensureValidToken();
+    console.log('🔍 AUTH DEBUG: Token validation result:', isTokenValid);
+    
+    if (!isTokenValid) {
+      console.log('🔍 AUTH DEBUG: Authentication FAILED - token invalid or expired');
+      throw new Error('Authentication failed: Access token expired or invalid. Please log in again.');
+    }
+
+    console.log('🔍 AUTH DEBUG: Authentication PASSED, re-initializing API client');
+    // Re-initialize API client with fresh token
+    this.initializeApiClient();
+    
+    console.log('🔍 AUTH DEBUG: API client re-initialized, proceeding with import');
     
     try {
       const apiData: any = {

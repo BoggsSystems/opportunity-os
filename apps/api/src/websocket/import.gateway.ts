@@ -4,25 +4,63 @@ import {
   SubscribeMessage,
   MessageBody,
   ConnectedSocket,
+  OnGatewayInit,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @WebSocketGateway({
   cors: {
     origin: ['http://localhost:5174', 'http://localhost:3000'],
     credentials: true,
   },
+  transports: ['websocket', 'polling'],
 })
-export class ImportGateway {
+export class ImportGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
   private readonly logger = new Logger(ImportGateway.name);
-  private connectedClients = new Map<string, Socket>();
 
-  constructor() {
-    this.logger.log('🔌 Import WebSocket Gateway initialized');
+  constructor(private readonly eventEmitter: EventEmitter2) {
+    this.logger.log('🔌 Import WebSocket Gateway constructor called');
+    this.logger.log('🔌 EventEmitter2 injected successfully');
+  }
+
+  afterInit(server: Server) {
+    this.logger.log('🔌 WebSocket Gateway initialized with server');
+    this.logger.log(`🔌 Server instance type: ${server.constructor.name}`);
+    this.logger.log(`🔌 Server has socket.io: ${!!server.emit && !!server.on}`);
+    
+    // Listen to import progress events from services
+    this.eventEmitter.on('import.progress', (data) => {
+      this.logger.log(`📊 Emitting progress: ${data.percentage}%`);
+      this.sendImportProgress(data.importId, data);
+    });
+
+    this.eventEmitter.on('import.completed', (data) => {
+      this.logger.log(`✅ Emitting completion: ${data.importedRecords} imported`);
+      this.sendImportCompletion(data.importId, data);
+    });
+
+    this.eventEmitter.on('import.error', (data) => {
+      this.logger.log(`❌ Emitting error: ${data.message}`);
+      this.sendImportError(data.importId, data);
+    });
+  }
+
+  handleConnection(client: Socket) {
+    this.logger.log(`🔗 Client connected: ${client.id}`);
+    this.logger.log(`🔗 Client connected from: ${client.handshake.address}`);
+    this.logger.log(`🔗 Client handshake headers:`, client.handshake.headers);
+    this.logger.log(`🔗 Client transport: ${client.conn.transport.name}`);
+  }
+
+  handleDisconnect(client: Socket) {
+    this.logger.log(`🔌 Client disconnected: ${client.id}`);
   }
 
   // Subscribe to import updates
@@ -61,12 +99,20 @@ export class ImportGateway {
   }) {
     this.logger.log(`📊 Sending progress for import ${importId}:`, data);
     
-    this.server.to(`import-${importId}`).emit('import-progress', {
-      type: 'progress',
-      importId,
-      timestamp: new Date().toISOString(),
-      data,
-    });
+    try {
+      if (this.server && this.server.to) {
+        this.server.to(`import-${importId}`).emit('import-progress', {
+          type: 'progress',
+          importId,
+          timestamp: new Date().toISOString(),
+          data,
+        });
+      } else {
+        this.logger.warn('🔌 Server not available for sending progress');
+      }
+    } catch (error) {
+      this.logger.error('🔌 Error sending progress:', error);
+    }
   }
 
   // Send import completion
@@ -80,12 +126,20 @@ export class ImportGateway {
   }) {
     this.logger.log(`✅ Sending completion for import ${importId}:`, data);
     
-    this.server.to(`import-${importId}`).emit('import-completed', {
-      type: 'completed',
-      importId,
-      timestamp: new Date().toISOString(),
-      data,
-    });
+    try {
+      if (this.server && this.server.to) {
+        this.server.to(`import-${importId}`).emit('import-completed', {
+          type: 'completed',
+          importId,
+          timestamp: new Date().toISOString(),
+          data,
+        });
+      } else {
+        this.logger.warn('🔌 Server not available for sending completion');
+      }
+    } catch (error) {
+      this.logger.error('🔌 Error sending completion:', error);
+    }
   }
 
   // Send import error
@@ -95,12 +149,20 @@ export class ImportGateway {
   }) {
     this.logger.log(`❌ Sending error for import ${importId}:`, error);
     
-    this.server.to(`import-${importId}`).emit('import-error', {
-      type: 'error',
-      importId,
-      timestamp: new Date().toISOString(),
-      data: error,
-    });
+    try {
+      if (this.server && this.server.to) {
+        this.server.to(`import-${importId}`).emit('import-error', {
+          type: 'error',
+          importId,
+          timestamp: new Date().toISOString(),
+          data: error,
+        });
+      } else {
+        this.logger.warn('🔌 Server not available for sending error');
+      }
+    } catch (error) {
+      this.logger.error('🔌 Error sending error:', error);
+    }
   }
 
   // Send current import status (for new subscribers)

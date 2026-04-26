@@ -1237,15 +1237,17 @@ model DiscoveryEvidence {
 model ConnectionImportBatch {
   id                       String                @id @default(uuid()) @db.Uuid
   userId                   String                @db.Uuid
-  filename                 String
-  fileSize                 Int
-  totalRows                Int
+  name                     String?
+  source                   String?
+  filename                 String?
+  fileSize                 Int?
+  totalRows                Int                   @default(0)
   processedRows            Int                   @default(0)
   createdPeopleCount       Int                   @default(0)
   updatedPeopleCount       Int                   @default(0)
   duplicateCount           Int                   @default(0)
   errorCount               Int                   @default(0)
-  status                   ConnectionImportStatus @default(uploading)
+  status                   ConnectionImportStatus @default(parsing)
   errorMessage             String?
   processingStartedAt      DateTime?
   processingCompletedAt    DateTime?

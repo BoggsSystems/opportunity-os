@@ -488,31 +488,77 @@ export class AuthService {
   }
 
   async validateAccessToken(accessToken: string): Promise<AuthenticatedUser> {
-    const claims = this.tokenService.verifyAccessToken(accessToken);
-    const session = await prisma.authenticationSession.findUnique({
-      where: { id: claims.sid },
-      include: {
-        user: true,
-      },
-    });
+    console.log('🔐 AUTH SERVICE: validateAccessToken called');
+    console.log('🔐 AUTH SERVICE: Token length:', accessToken.length);
+    console.log('🔐 AUTH SERVICE: Token prefix:', accessToken.substring(0, 30) + '...');
+    
+    try {
+      const claims = this.tokenService.verifyAccessToken(accessToken);
+      console.log('🔐 AUTH SERVICE: Token claims:', {
+        sub: claims.sub,
+        sid: claims.sid,
+        email: claims.email,
+        identityId: claims.identityId,
+        exp: claims.exp,
+        iat: claims.iat
+      });
+      
+      console.log('🔐 AUTH SERVICE: Looking up session:', claims.sid);
+      const session = await prisma.authenticationSession.findUnique({
+        where: { id: claims.sid },
+        include: {
+          user: true,
+        },
+      });
 
-    if (
-      !session ||
-      session.userId !== claims.sub ||
-      !session.user.isActive ||
-      session.status !== AuthenticationSessionStatus.active ||
-      session.revokedAt ||
-      session.expiresAt <= new Date()
-    ) {
-      throw new UnauthorizedException('Session is invalid or expired');
+      console.log('🔐 AUTH SERVICE: Session found:', !!session);
+      if (session) {
+        console.log('🔐 AUTH SERVICE: Session details:', {
+          sessionId: session.id,
+          userId: session.userId,
+          userActive: session.user.isActive,
+          status: session.status,
+          revokedAt: session.revokedAt,
+          expiresAt: session.expiresAt,
+          isExpired: session.expiresAt <= new Date()
+        });
+      }
+
+      // Validation checks
+      const checks = {
+        sessionExists: !!session,
+        userIdMatches: session?.userId === claims.sub,
+        userActive: session?.user.isActive,
+        sessionActive: session?.status === AuthenticationSessionStatus.active,
+        notRevoked: !session?.revokedAt,
+        notExpired: session?.expiresAt > new Date()
+      };
+
+      console.log('🔐 AUTH SERVICE: Validation checks:', checks);
+
+      if (
+        !session ||
+        session.userId !== claims.sub ||
+        !session.user.isActive ||
+        session.status !== AuthenticationSessionStatus.active ||
+        session.revokedAt ||
+        session.expiresAt <= new Date()
+      ) {
+        console.log('🔐 AUTH SERVICE: Session validation FAILED');
+        throw new UnauthorizedException('Session is invalid or expired');
+      }
+
+      console.log('🔐 AUTH SERVICE: Session validation SUCCESS');
+      return {
+        id: session.userId,
+        email: claims.email,
+        sessionId: session.id,
+        authenticationIdentityId: session.authenticationIdentityId ?? undefined,
+      };
+    } catch (error) {
+      console.error('🔐 AUTH SERVICE: validateAccessToken error:', error);
+      throw error;
     }
-
-    return {
-      id: session.userId,
-      email: claims.email,
-      sessionId: session.id,
-      authenticationIdentityId: session.authenticationIdentityId ?? undefined,
-    };
   }
 
   private async findActiveVerificationToken(rawToken: string, tokenType: VerificationTokenType) {

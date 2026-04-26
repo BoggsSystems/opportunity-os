@@ -1,38 +1,19 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Users, Upload } from 'lucide-react';
 
-export const ConnectionDashboard: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+interface ConnectionDashboardProps {
+  onImportClick?: () => void;
+}
 
-  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('[DEBUG] File upload triggered');
-    console.log('[DEBUG] Event:', event);
-    console.log('[DEBUG] Files:', event.target.files);
-    
-    const file = event.target.files?.[0];
-    if (file) {
-      console.log('[DEBUG] Selected file:', file.name);
-      console.log('[DEBUG] File size:', file.size);
-      console.log('[DEBUG] File type:', file.type);
-      alert(`File "${file.name}" selected. Upload functionality will be implemented next.`);
-      // TODO: Implement actual file upload logic
-    } else {
-      console.log('[DEBUG] No file selected');
-    }
-  }, []);
+export const ConnectionDashboard: React.FC<ConnectionDashboardProps> = ({ onImportClick }) => {
+  const [loading, setLoading] = useState(true);
 
   const handleImportClick = useCallback(() => {
     console.log('[DEBUG] Import button clicked');
-    console.log('[DEBUG] fileInputRef.current:', fileInputRef.current);
-    
-    if (fileInputRef.current) {
-      console.log('[DEBUG] Triggering file input click');
-      fileInputRef.current.click();
-    } else {
-      console.log('[DEBUG] fileInputRef.current is null');
+    if (onImportClick) {
+      onImportClick();
     }
-  }, []);
+  }, [onImportClick]);
 
   useEffect(() => {
     // Simulate loading for now since the API might not be ready
@@ -86,14 +67,6 @@ export const ConnectionDashboard: React.FC = () => {
           </ol>
         </div>
         
-        {/* Test button to verify click events work */}
-        <button 
-          className="mb-4 px-4 py-2 bg-red-500 text-white rounded"
-          onClick={() => console.log('[TEST] Red button clicked!')}
-        >
-          TEST BUTTON
-        </button>
-        
         <button 
           className="inline-flex items-center space-x-3 px-8 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-base shadow-sm cursor-pointer"
           onClick={handleImportClick}
@@ -101,13 +74,6 @@ export const ConnectionDashboard: React.FC = () => {
           <Upload className="h-5 w-5" />
           <span>Import Your First Connections</span>
         </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv"
-          onChange={handleFileUpload}
-          style={{ display: 'none' }}
-        />
       </div>
     </div>
   );

@@ -7,5 +7,17 @@ export default defineConfig({
     port: 5174,
     host: '0.0.0.0',
     strictPort: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/socket.io': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
 });

@@ -174,13 +174,23 @@ export class ConnectionImportController {
   }
 
   private async parseFile(file: Express.Multer.File): Promise<any[]> {
+    console.log('🔧 ===== FILE PARSING START =====');
+    console.log(`📄 File info:`, {
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size
+    });
+    
     const content = file.buffer.toString('utf-8');
+    console.log(`📄 Content length: ${content.length} characters`);
     
     if (file.mimetype.includes('json')) {
+      console.log('📄 Parsing as JSON');
       return JSON.parse(content);
     }
     
     if (file.mimetype.includes('csv')) {
+      console.log('📄 Parsing as CSV');
       return this.parseCSV(content);
     }
     
@@ -189,17 +199,56 @@ export class ConnectionImportController {
 
   private parseCSV(content: string): any[] {
     this.logger.log('🔧 ===== BACKEND CSV PARSING START =====');
+    this.logger.log(`📄 File content length: ${content.length} characters`);
     
     const lines = content.split('\n').filter(line => line.trim());
-    if (lines.length === 0) return [];
+    this.logger.log(`📄 Total lines found: ${lines.length}`);
+    
+    if (lines.length === 0) {
+      this.logger.warn('⚠️ No content found in CSV file');
+      return [];
+    }
 
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-    this.logger.log('📋 BACKEND HEADERS FOUND:', headers);
+    // Log first few lines to debug
+    this.logger.log('📄 First 5 lines:');
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      this.logger.log(`  Line ${i + 1}: ${lines[i].substring(0, 100)}...`);
+    }
+
+    // Find the actual header row - skip descriptive text at the beginning
+    let headerIndex = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lowerLine = line.toLowerCase();
+      
+      // Count how many typical LinkedIn headers match
+      const matches = [
+        lowerLine.includes('first name'),
+        lowerLine.includes('last name'),
+        lowerLine.includes('email'),
+        lowerLine.includes('company'),
+        lowerLine.includes('position')
+      ].filter(Boolean).length;
+
+      // We need at least 2 matches to be confident it's the header row
+      // Also ensure it doesn't start with a quote (which is common for the disclaimer)
+      if (line.includes(',') && matches >= 2 && !line.trim().startsWith('"')) {
+        headerIndex = i;
+        this.logger.log(`✅ Found header at line ${headerIndex + 1}: ${line.substring(0, 50)}...`);
+        break;
+      }
+    }
+
+    this.logger.log(`📋 BACKEND FOUND HEADER AT LINE ${headerIndex + 1}: ${lines[headerIndex]}`);
+
+    const headers = lines[headerIndex].split(',').map(h => h.trim().replace(/"/g, ''));
+    this.logger.log('📋 BACKEND HEADERS PARSED:', headers);
+    this.logger.log(`📋 Header count: ${headers.length}`);
     
     const data = [];
     let parseErrors = 0;
 
-    for (let i = 1; i < lines.length; i++) {
+    for (let i = headerIndex + 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line.trim()) continue;
       

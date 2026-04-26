@@ -17,7 +17,7 @@ export const ConnectionsPage: React.FC = () => {
       />
       
       <div className="py-8">
-        {currentView === 'dashboard' && <ConnectionDashboard />}
+        {currentView === 'dashboard' && <ConnectionDashboard onImportClick={() => setCurrentView('import')} />}
         {currentView === 'import' && <ConnectionImport />}
       </div>
     </div>

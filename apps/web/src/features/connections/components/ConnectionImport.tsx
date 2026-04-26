@@ -5,13 +5,14 @@ import { DataPreview } from './DataPreview';
 import { ImportSettings } from './ImportSettings';
 import { ImportProgress as ImportProgressComponent } from './ImportProgress';
 import { connectionService } from '../services/connection.service';
-import type { 
+import { 
   ConnectionImport, 
   CreateConnectionImportRequest, 
   ImportPreview,
   ImportProgress as ImportProgressType
 } from '../types/connection.types';
 import { ImportStatus } from '../types/connection.types';
+import { importWebSocketService, ImportEvent } from '../services/importWebSocket.service';
 
 type ImportStep = 'upload' | 'preview' | 'settings' | 'progress' | 'completed';
 
@@ -24,28 +25,48 @@ const ConnectionImportComponent: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
 
-  // Poll for progress updates when processing
+  // Subscribe to WebSocket updates when processing
   useEffect(() => {
-    if (currentImport && currentImport.status === ImportStatus.PROCESSING) {
-      const interval = setInterval(async () => {
-        try {
-          const progress = await connectionService.pollImportProgress(currentImport.id);
-          setImportProgress(progress);
-          
-          if (progress.status === ImportStatus.COMPLETED || progress.status === ImportStatus.FAILED) {
-            setCurrentStep(progress.status === ImportStatus.COMPLETED ? 'completed' : 'progress');
-            clearInterval(interval);
-          }
-        } catch (err) {
-          console.error('Error polling progress:', err);
-          clearInterval(interval);
+    if (currentImport && (currentImport.status === ImportStatus.PROCESSING || currentStep === 'progress')) {
+      console.log(`🔌 Subscribing to WebSocket for import: ${currentImport.id}`);
+      
+      const handleImportEvent = (event: ImportEvent) => {
+        console.log('📡 Received WebSocket event:', event);
+        
+        if (event.type === 'progress') {
+          setImportProgress({
+            status: event.data.status as ImportStatus,
+            totalRecords: event.data.totalRecords || 0,
+            processedRecords: event.data.processedRecords || 0,
+            percentage: event.data.percentage || 0,
+            currentStep: event.data.message || 'Processing...',
+            errors: []
+          });
+        } else if (event.type === 'completed') {
+          setCurrentStep('completed');
+          // Update current import with final stats
+          setCurrentImport(prev => prev ? {
+            ...prev,
+            status: ImportStatus.COMPLETED,
+            totalRecords: event.data.totalRecords,
+            importedRecords: event.data.importedRecords,
+            duplicateRecords: event.data.duplicateRecords,
+            failedRecords: event.data.failedRecords
+          } : null);
+        } else if (event.type === 'error') {
+          setError(event.data.message);
         }
-      }, 2000); // Poll every 2 seconds
+      };
 
-      return () => clearInterval(interval);
+      importWebSocketService.subscribe(currentImport.id, handleImportEvent);
+      
+      return () => {
+        console.log(`🔌 Unsubscribing from WebSocket for import: ${currentImport.id}`);
+        importWebSocketService.unsubscribe(currentImport.id);
+      };
     }
     return undefined;
-  }, [currentImport]);
+  }, [currentImport, currentStep]);
 
   const handleFileSelect = (file: File) => {
     setSelectedFile(file);

@@ -41,6 +41,11 @@ export class ApiClient {
   private accessToken: string | null;
 
   constructor(accessToken: string | null) {
+    console.log('🔍 API DEBUG: ApiClient constructor called', {
+      hasAccessToken: !!accessToken,
+      accessTokenLength: accessToken?.length || 0,
+      accessTokenPrefix: accessToken?.substring(0, 20) + '...'
+    });
     this.accessToken = accessToken;
   }
 
@@ -458,11 +463,21 @@ export class ApiClient {
     const headers: Record<string, string> = {};
     if (this.accessToken) {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
+      console.log('🔍 API DEBUG: Authorization header set', {
+        headerLength: headers['Authorization']?.length,
+        headerPrefix: headers['Authorization']?.substring(0, 30) + '...'
+      });
+    } else {
+      console.log('🔍 API DEBUG: No access token available, no Authorization header');
     }
 
     const fullUrl = `${API_URL}${path}`;
-    console.log('🔍 DEBUG: Making fetch request to:', fullUrl);
-    console.log('🔍 DEBUG: Headers:', Object.keys(headers));
+    console.log('🔍 API DEBUG: Making fetch request to:', fullUrl);
+    console.log('🔍 API DEBUG: Request headers:', {
+      headerKeys: Object.keys(headers),
+      hasAuth: !!headers['Authorization'],
+      authLength: headers['Authorization']?.length || 0
+    });
 
     const response = await fetch(fullUrl, {
       method: 'POST',
