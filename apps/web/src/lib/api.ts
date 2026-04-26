@@ -304,6 +304,99 @@ export class ApiClient {
     });
   }
 
+  // Connection Import API Methods
+  async importConnections(file: File, importData: { name: string; description?: string; source: string; tags?: string[] }) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('source', importData.source);
+    formData.append('name', importData.name);
+    if (importData.description) formData.append('description', importData.description);
+    if (importData.tags) formData.append('tags', JSON.stringify(importData.tags));
+
+    return this.requestForm<{
+      success: boolean;
+      data: {
+        id: string;
+        name: string;
+        status: string;
+        totalRecords: number;
+        successfulImports: number;
+        duplicateRecords: number;
+        failedRecords: number;
+      };
+      message: string;
+    }>('/connections/import', formData);
+  }
+
+  async getConnectionImports(status?: string) {
+    const query = status ? `?status=${encodeURIComponent(status)}` : '';
+    return this.request<{
+      success: boolean;
+      data: Array<{
+        id: string;
+        name: string;
+        description?: string;
+        source: string;
+        status: string;
+        totalRecords: number;
+        successfulImports: number;
+        duplicateRecords: number;
+        failedRecords: number;
+        tags?: string[];
+        createdAt: string;
+        updatedAt: string;
+        startedAt?: string;
+        completedAt?: string;
+      }>;
+    }>(`/connections/imports${query}`);
+  }
+
+  async getConnectionImport(importId: string) {
+    return this.request<{
+      success: boolean;
+      data: {
+        id: string;
+        name: string;
+        description?: string;
+        source: string;
+        status: string;
+        totalRecords: number;
+        successfulImports: number;
+        duplicateRecords: number;
+        failedRecords: number;
+        tags?: string[];
+        createdAt: string;
+        updatedAt: string;
+        startedAt?: string;
+        completedAt?: string;
+      };
+    }>(`/connections/imports/${encodeURIComponent(importId)}`);
+  }
+
+  async getConnectionImportConnections(importId: string) {
+    return this.request<{
+      success: boolean;
+      data: Array<{
+        id: string;
+        firstName: string;
+        lastName: string;
+        email?: string;
+        phone?: string;
+        linkedinUrl?: string;
+        company?: string;
+        position?: string;
+        industry?: string;
+        location?: string;
+        connectionLevel?: string;
+        notes?: string;
+        tags?: string[];
+        isDuplicate: boolean;
+        originalRow: number;
+        createdAt: string;
+      }>;
+    }>(`/connections/imports/${encodeURIComponent(importId)}/connections`);
+  }
+
   private async request<T>(
     path: string,
     options: {

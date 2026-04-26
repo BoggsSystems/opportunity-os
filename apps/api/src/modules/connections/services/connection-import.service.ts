@@ -139,20 +139,42 @@ export class ConnectionImportService {
       let failedCount = 0;
       const errors: any[] = [];
 
-      // Process each row
+      // Process each row with LinkedIn-specific validation
+      this.logger.log(`🔄 PROCESSING ${fileData.length} ROWS FOR LINKEDIN IMPORT`);
+      
       for (let i = 0; i < fileData.length; i++) {
         try {
           const row = fileData[i];
           const connection = this.parseConnectionRow(row, importId, i + 1);
           
-          // Check for duplicates (simplified check)
+          // LinkedIn validation: require names but email is optional
+          if (!connection.firstName || !connection.firstName.trim() || 
+              !connection.lastName || !connection.lastName.trim()) {
+            failedCount++;
+            errors.push({
+              row: i + 1,
+              field: 'name',
+              error: 'Missing required name fields (First Name and Last Name)',
+              data: fileData[i],
+            });
+            continue;
+          }
+          
+          // Check for duplicates (enhanced check)
           const isDuplicate = await this.checkForDuplicate(connection);
           if (isDuplicate) {
             duplicateCount++;
             connection.isDuplicate = true;
+            this.logger.log(`🔄 DUPLICATE FOUND: ${connection.firstName} ${connection.lastName}`);
           }
 
           connections.push(connection);
+          
+          // Log progress for every 100 records
+          if ((i + 1) % 100 === 0) {
+            this.logger.log(`📈 PROCESSED ${i + 1}/${fileData.length} RECORDS`);
+          }
+          
         } catch (error) {
           failedCount++;
           errors.push({
@@ -161,6 +183,7 @@ export class ConnectionImportService {
             error: error instanceof Error ? error.message : 'Unknown error',
             data: fileData[i],
           });
+          this.logger.error(`❌ FAILED TO PROCESS ROW ${i + 1}:`, error);
         }
       }
 
@@ -189,36 +212,105 @@ export class ConnectionImportService {
   }
 
   private parseConnectionRow(row: any, importId: string, rowNum: number): ConnectionRecordData {
-    return {
+    this.logger.log(`🔍 LINKEDIN ROW PARSING:`, { rowNum, rawRow: row });
+    
+    // LinkedIn-specific field mapping
+    const firstName = row['First Name'] || row['FirstName'] || row['First'] || '';
+    const lastName = row['Last Name'] || row['LastName'] || row['Last'] || '';
+    const email = row['Email Address'] || row['Email'] || row['email'] || '';
+    const linkedinUrl = row['URL'] || row['LinkedIn URL'] || row['linkedinUrl'] || '';
+    const company = row['Company'] || row['company'] || '';
+    const position = row['Position'] || row['position'] || '';
+    const connectedOn = row['Connected On'] || row['ConnectedOn'] || '';
+    
+    const connection = {
       id: `conn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       importBatchId: importId,
-      firstName: row.firstName || row['First Name'] || '',
-      lastName: row.lastName || row['Last Name'] || '',
-      email: row.email || row.Email,
-      phone: row.phone || row.Phone,
-      linkedinUrl: row.linkedinUrl || row['LinkedIn URL'],
-      company: row.company || row.Company,
-      position: row.position || row.Position,
-      industry: row.industry || row.Industry,
-      location: row.location || row.Location,
-      connectionLevel: row.connectionLevel || row['Connection Level'],
-      notes: row.notes || row.Notes,
-      tags: row.tags ? (Array.isArray(row.tags) ? row.tags : row.tags.split(',').map((t: string) => t.trim())) : [],
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim(),
+      phone: row['Phone'] || row['phone'] || '',
+      linkedinUrl: linkedinUrl.trim(),
+      company: company.trim(),
+      position: position.trim(),
+      industry: row['Industry'] || row['industry'] || '',
+      location: row['Location'] || row['location'] || '',
+      connectionLevel: row['Connection Level'] || row['connectionLevel'] || '',
+      notes: connectedOn ? `Connected on ${connectedOn}` : '',
+      tags: row['tags'] ? (Array.isArray(row['tags']) ? row['tags'] : row['tags'].split(',').map((t: string) => t.trim())) : [],
       isDuplicate: false,
       originalRow: rowNum,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
+    
+    // Log parsing results for first few records
+    if (rowNum <= 3) {
+      this.logger.log(`✅ PARSED CONNECTION ${rowNum}:`, {
+        firstName: connection.firstName,
+        lastName: connection.lastName,
+        email: connection.email,
+        company: connection.company,
+        position: connection.position,
+        hasRequiredFields: !!(connection.firstName && connection.lastName)
+      });
+    }
+    
+    return connection;
   }
 
   private async checkForDuplicate(connection: ConnectionRecordData): Promise<boolean> {
-    // Simplified duplicate check - in real implementation, this would check against existing connections
+    // Enhanced duplicate detection for LinkedIn connections
     const allConnections = Array.from(this.connections.values()).flat();
-    return allConnections.some(existing => 
-      existing.email === connection.email && 
+    
+    // Primary check: Email match (most reliable)
+    if (connection.email) {
+      const emailMatch = allConnections.some(existing => 
+        existing.email === connection.email
+      );
+      if (emailMatch) {
+        this.logger.log(`🔄 DUPLICATE BY EMAIL: ${connection.email}`);
+        return true;
+      }
+    }
+    
+    // Secondary check: Name + Company match
+    const nameCompanyMatch = allConnections.some(existing => 
       existing.firstName.toLowerCase() === connection.firstName.toLowerCase() &&
-      existing.lastName.toLowerCase() === connection.lastName.toLowerCase()
+      existing.lastName.toLowerCase() === connection.lastName.toLowerCase() &&
+      existing.company && connection.company &&
+      existing.company.toLowerCase() === connection.company.toLowerCase()
     );
+    if (nameCompanyMatch) {
+      this.logger.log(`🔄 DUPLICATE BY NAME+COMPANY: ${connection.firstName} ${connection.lastName} at ${connection.company}`);
+      return true;
+    }
+    
+    // Tertiary check: Name + LinkedIn URL match
+    if (connection.linkedinUrl) {
+      const linkedinMatch = allConnections.some(existing => 
+        existing.firstName.toLowerCase() === connection.firstName.toLowerCase() &&
+        existing.lastName.toLowerCase() === connection.lastName.toLowerCase() &&
+        existing.linkedinUrl === connection.linkedinUrl
+      );
+      if (linkedinMatch) {
+        this.logger.log(`🔄 DUPLICATE BY NAME+LINKEDIN: ${connection.firstName} ${connection.lastName}`);
+        return true;
+      }
+    }
+    
+    // Final check: Name only (less reliable, but better than missing duplicates)
+    const nameMatch = allConnections.some(existing => 
+      existing.firstName.toLowerCase() === connection.firstName.toLowerCase() &&
+      existing.lastName.toLowerCase() === connection.lastName.toLowerCase() &&
+      !existing.email && !connection.email // Only match by name if both have no email
+    );
+    if (nameMatch) {
+      this.logger.log(`🔄 DUPLICATE BY NAME ONLY: ${connection.firstName} ${connection.lastName}`);
+      return true;
+    }
+    
+    return false;
   }
 
   private mapToDto(importData: ConnectionImportData): ConnectionImportDto {

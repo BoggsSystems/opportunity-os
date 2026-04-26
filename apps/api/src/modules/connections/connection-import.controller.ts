@@ -8,6 +8,7 @@ import {
   UploadedFile,
   UseInterceptors,
   Logger,
+  Request,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
@@ -15,8 +16,11 @@ import { ConnectionImportService } from './services/connection-import.service';
 import { CreateConnectionImportDto } from './dto/create-connection-import.dto';
 import { ConnectionImportDto } from './dto/connection-import.dto';
 import { ConnectionRecordDto } from './dto/connection-record.dto';
+import { AuthGuard } from '../auth/auth.guard';
+import { UseGuards } from '@nestjs/common';
 
 @ApiTags('Connection Import')
+@UseGuards(AuthGuard)
 @Controller('connections')
 export class ConnectionImportController {
   private readonly logger = new Logger(ConnectionImportController.name);
@@ -29,12 +33,14 @@ export class ConnectionImportController {
   @ApiOperation({ summary: 'Create a new connection import' })
   @ApiResponse({ status: 201, description: 'Connection import created successfully', type: ConnectionImportDto })
   @ApiResponse({ status: 400, description: 'Invalid input' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async createImport(
     @Body() createImportDto: CreateConnectionImportDto,
     @UploadedFile() file: Express.Multer.File,
-    @Query('userId') userId: string,
+    @Request() req: any,
   ) {
-    this.logger.log(`Creating connection import for user: ${userId}`);
+    const userId = req.user?.sub || req.user?.id;
+    this.logger.log(`🔐 AUTHENTICATED USER: Creating connection import for user: ${userId}`);
 
     try {
       if (!file) {
@@ -88,11 +94,13 @@ export class ConnectionImportController {
   @Get('imports')
   @ApiOperation({ summary: 'Get connection imports for a user' })
   @ApiResponse({ status: 200, description: 'Connection imports retrieved successfully', type: [ConnectionImportDto] })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getImports(
-    @Query('userId') userId: string,
+    @Request() req: any,
     @Query('status') status?: string,
   ) {
-    this.logger.log(`Retrieving connection imports for user: ${userId}, status: ${status}`);
+    const userId = req.user?.sub || req.user?.id;
+    this.logger.log(`🔐 AUTHENTICATED USER: Retrieving connection imports for user: ${userId}, status: ${status}`);
 
     try {
       const imports = await this.connectionImportService.getImports(
@@ -180,22 +188,73 @@ export class ConnectionImportController {
   }
 
   private parseCSV(content: string): any[] {
+    this.logger.log('🔧 ===== BACKEND CSV PARSING START =====');
+    
     const lines = content.split('\n').filter(line => line.trim());
     if (lines.length === 0) return [];
 
     const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    this.logger.log('📋 BACKEND HEADERS FOUND:', headers);
+    
     const data = [];
+    let parseErrors = 0;
 
     for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
-      if (values.length === headers.length) {
-        const row: any = {};
-        headers.forEach((header, index) => {
-          row[header] = values[index];
-        });
-        data.push(row);
+      const line = lines[i];
+      if (!line.trim()) continue;
+      
+      try {
+        // Handle CSV with quoted fields that may contain commas
+        const values = [];
+        let currentValue = '';
+        let inQuotes = false;
+        
+        for (let char of line) {
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            values.push(currentValue.trim().replace(/"/g, ''));
+            currentValue = '';
+          } else {
+            currentValue += char;
+          }
+        }
+        values.push(currentValue.trim().replace(/"/g, '')); // Add last value
+        
+        if (values.length === headers.length) {
+          const row: any = {};
+          headers.forEach((header, index) => {
+            row[header] = values[index] || '';
+          });
+          data.push(row);
+          
+          // Log first few records for debugging
+          if (i <= 3) {
+            this.logger.log(`📝 BACKEND RECORD ${i}:`, {
+              firstName: row['First Name'] || row['FirstName'] || '',
+              lastName: row['Last Name'] || row['LastName'] || '',
+              email: row['Email Address'] || row['Email'] || '',
+              company: row['Company'] || '',
+              position: row['Position'] || ''
+            });
+          }
+        } else {
+          parseErrors++;
+          this.logger.warn(`⚠️ BACKEND PARSE ERROR - Field count mismatch on line ${i}: expected ${headers.length}, got ${values.length}`);
+        }
+      } catch (error) {
+        parseErrors++;
+        this.logger.warn(`⚠️ BACKEND PARSE ERROR on line ${i}:`, error);
       }
     }
+
+    this.logger.log('✅ ===== BACKEND CSV PARSING COMPLETE =====');
+    this.logger.log(`📊 BACKEND PARSING SUMMARY:`, {
+      totalLines: lines.length - 1,
+      successfullyParsed: data.length,
+      parseErrors: parseErrors,
+      successRate: `${((data.length / (lines.length - 1)) * 100).toFixed(1)}%`
+    });
 
     return data;
   }
