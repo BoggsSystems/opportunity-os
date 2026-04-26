@@ -71,23 +71,34 @@ class ConnectionService {
       
       const result = await this.api.importConnections(file, apiData);
       console.log('🔍 DEBUG: API call result:', result);
+      console.log('🔍 DEBUG: Response data structure:', {
+        dataKeys: Object.keys(result.data || {}),
+        data: result.data,
+        successfulImports: result.data?.successfulImports,
+        totalRecords: result.data?.totalRecords,
+        duplicateRecords: result.data?.duplicateRecords,
+        failedRecords: result.data?.failedRecords
+      });
       
       // Map API response to ConnectionImport type
-      return {
+      const mappedResult = {
         id: result.data.id,
         name: result.data.name,
         ...(result.data.description && { description: result.data.description }),
         source: request.source,
         status: result.data.status as ImportStatus,
-        totalRecords: result.data.totalRecords,
-        importedRecords: result.data.successfulImports,
-        duplicateRecords: result.data.duplicateRecords,
-        failedRecords: result.data.failedRecords,
+        totalRecords: result.data.totalRecords || 0,
+        importedRecords: result.data.successfulImports || 0,
+        duplicateRecords: result.data.duplicateRecords || 0,
+        failedRecords: result.data.failedRecords || 0,
         userId: _userId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         errors: []
-      } as ConnectionImport;
+      };
+      
+      console.log('🔍 DEBUG: Mapped result:', mappedResult);
+      return mappedResult as ConnectionImport;
     } catch (error) {
       throw new Error(`Failed to create import: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
