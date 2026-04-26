@@ -13,6 +13,7 @@ export const ConnectionsPage: React.FC = () => {
       <ConnectionsNavigation
         currentView={currentView}
         onViewChange={setCurrentView}
+        onClose={() => {}}
       />
       
       <div className="py-8">
