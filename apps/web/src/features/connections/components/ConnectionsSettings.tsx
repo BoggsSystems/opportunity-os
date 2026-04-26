@@ -14,7 +14,7 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
   const [uploadMessage, setUploadMessage] = useState<string>('');
   const [uploadedFileName, setUploadedFileName] = useState<string>('');
   const [showAnalysis, setShowAnalysis] = useState(false);
-  const [recentImportId, setRecentImportId] = useState<string>('');
+  const [recentImportData, setRecentImportData] = useState<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -87,16 +87,26 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
       console.log('🔍 DEBUG: Import successful:', importData);
 
       setUploadStatus('success');
-      setRecentImportId(importData.id);
+      setRecentImportData(importData);
       
-      // Enhanced success message with immediate value insights
-      const insights = generateBasicInsights(importData);
-      setUploadMessage(`
-        ✅ Successfully imported ${importData.importedRecords} connections
-        ${insights.topCompanies ? `📊 Found ${insights.topCompanies} target companies` : ''}
-        ${insights.highValueContacts ? `🎯 Identified ${insights.highValueContacts} high-priority contacts` : ''}
-        🚀 Ready for first campaign suggestions
-      `);
+      // Check if import actually processed records
+      if (importData.importedRecords === 0 && importData.totalRecords === 0) {
+        setUploadMessage(`
+          ⚠️ Import completed but no connections were processed
+          📁 File uploaded: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)
+          🔍 The backend may not have processed the CSV file correctly
+          🚀 Check browser console for debugging details
+        `);
+      } else {
+        // Enhanced success message with immediate value insights
+        const insights = generateBasicInsights(importData);
+        setUploadMessage(`
+          ✅ Successfully imported ${importData.importedRecords} connections
+          ${insights.topCompanies ? `📊 Found ${insights.topCompanies} target companies` : ''}
+          ${insights.highValueContacts ? `🎯 Identified ${insights.highValueContacts} high-priority contacts` : ''}
+          🚀 Ready for first campaign suggestions
+        `);
+      }
 
     } catch (error) {
       console.error('🔍 DEBUG: Import error:', error);
@@ -283,7 +293,7 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
             </header>
             
             <div style={{ padding: '1rem' }}>
-              <NetworkAnalysis importId={recentImportId} />
+              <NetworkAnalysis importData={recentImportData} />
             </div>
           </section>
         </div>

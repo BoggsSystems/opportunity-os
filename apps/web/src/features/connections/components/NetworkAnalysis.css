@@ -65,6 +65,11 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
+.insight-card.error-card {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+
 .insight-icon {
   flex-shrink: 0;
   width: 48px;
