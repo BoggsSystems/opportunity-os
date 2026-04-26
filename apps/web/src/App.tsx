@@ -28,6 +28,7 @@ import { ConnectorsSettings } from './components/settings/ConnectorsSettings';
 import { UsageSettings } from './components/settings/UsageSettings';
 import { NotificationsSettings } from './components/settings/NotificationsSettings';
 import { ConductorPane } from './components/conductor/ConductorPane';
+import { OnboardingWizard } from './features/onboarding/components/OnboardingWizard';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { WorkspaceTopBar } from './components/workspace/WorkspaceTopBar';
 import { ActiveWorkspace } from './components/workspace/ActiveWorkspace';
@@ -122,6 +123,7 @@ export function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('profile');
   const [isBooting, setIsBooting] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
   
   // UI store for conductor expanded state
   const { conductorExpanded, toggleConductor } = useUIStore();
@@ -150,6 +152,12 @@ export function App() {
       setCommercialState(commercial);
       setPlans(availablePlans);
       setEmailReadiness(emailState);
+      
+      // Auto-open onboarding if it's the first time
+      const onboardingCompleted = localStorage.getItem(`onboarding_completed_${session.user.id}`);
+      if (!onboardingCompleted) {
+        setOnboardingOpen(true);
+      }
       setMessages((current) => {
         if (current.length > 0) return current;
         const summary = workspaceState.conductor.currentReasoningSummary;
@@ -922,6 +930,16 @@ export function App() {
           onChangeSection={setSettingsSection}
           onStartOutlookOAuth={startOutlookOAuth}
           onSyncEmail={syncEmail}
+        />
+      ) : null}
+      {onboardingOpen && session ? (
+        <OnboardingWizard 
+          user={session.user} 
+          onComplete={() => {
+            localStorage.setItem(`onboarding_completed_${session.user.id}`, 'true');
+            setOnboardingOpen(false);
+            void loadWorkspace();
+          }} 
         />
       ) : null}
     </main>
