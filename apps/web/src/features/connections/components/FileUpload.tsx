@@ -16,6 +16,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string>('');
   const [isValidating, setIsValidating] = useState(false);
+  const [selectedFileName, setSelectedFileName] = useState<string>('');
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -48,6 +49,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     const file = files[0];
     if (file) {
       await processFile(file);
+      // Reset the input value to allow selecting the same file again
+      e.target.value = '';
     }
   }, []);
 
@@ -56,26 +59,38 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     setIsValidating(true);
 
     try {
+      console.log('Processing file:', file.name, file.type, file.size);
+      
       // Validate file
       const validation = connectionService.validateFile(file);
+      console.log('Validation result:', validation);
+      
       if (!validation.isValid) {
         setError(validation.error || 'Invalid file');
         setIsValidating(false);
         return;
       }
 
-      // Generate preview for CSV files
+      // Always call onFileSelect first to ensure the file is selected
+      onFileSelect(file);
+      setSelectedFileName(file.name);
+
+      // Generate preview for CSV files (non-blocking)
       if (file.name.endsWith('.csv') || file.type === 'text/csv') {
         try {
+          console.log('Generating preview for CSV file...');
           const preview = await connectionService.previewCSVFile(file);
+          console.log('Preview generated:', preview);
           onPreview?.(preview);
         } catch (previewError) {
           console.warn('Could not generate preview:', previewError);
+          // Don't fail the whole process if preview fails
+          setError('Preview generation failed, but file was selected. You can continue.');
         }
       }
 
-      onFileSelect(file);
     } catch (error) {
+      console.error('Error processing file:', error);
       setError(error instanceof Error ? error.message : 'Failed to process file');
     } finally {
       setIsValidating(false);
@@ -126,6 +141,23 @@ Jane,Smith,jane.smith@startup.com,+1-555-0124,https://linkedin.com/in/janesmith,
             <>
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
               <p className="text-gray-600">Validating file...</p>
+            </>
+          ) : selectedFileName ? (
+            <>
+              <div className="rounded-full h-12 w-12 bg-green-100 flex items-center justify-center">
+                <Upload className="h-6 w-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-lg font-medium text-gray-900">
+                  File selected: {selectedFileName}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Processing preview...
+                </p>
+              </div>
+              <div className="text-xs text-gray-400">
+                Click to select a different file
+              </div>
             </>
           ) : (
             <>

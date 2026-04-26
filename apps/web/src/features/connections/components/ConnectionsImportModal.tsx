@@ -55,7 +55,7 @@ export const ConnectionsImportModal: React.FC<ConnectionsImportModalProps> = ({ 
         </div>
 
         <div style={{ padding: '1rem' }}>
-          {currentView === 'import' && <ConnectionImport />}
+          {currentView === 'import' && <ConnectionImport key={`import-${isOpen}`} />}
           {currentView === 'dashboard' && (
             <div className="surface-card">
               <p className="label">Connections Dashboard</p>
