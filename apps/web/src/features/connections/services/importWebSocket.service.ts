@@ -50,10 +50,12 @@ export class ImportWebSocketService {
   private reconnectDelay = 1000;
 
   constructor() {
-    this.connect();
+    // Don't connect automatically, wait for subscription
   }
 
   private connect() {
+    if (this.socket?.connected) return;
+    
     console.log('🔌 Connecting to Import WebSocket...');
     
     this.socket = io('http://localhost:3002', {
@@ -61,6 +63,9 @@ export class ImportWebSocketService {
       upgrade: false,
       rememberUpgrade: false,
       timeout: 5000,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
     this.socket.on('connect', () => {
@@ -70,12 +75,10 @@ export class ImportWebSocketService {
 
     this.socket.on('disconnect', (reason) => {
       console.log('🔌 Disconnected from Import WebSocket:', reason);
-      this.handleReconnect();
     });
 
     this.socket.on('connect_error', (error) => {
       console.error('❌ Import WebSocket connection error:', error);
-      this.handleReconnect();
     });
 
     // Import event listeners
@@ -125,8 +128,13 @@ export class ImportWebSocketService {
     // Add listener
     this.listeners.set(importId, callback);
     
+    // Ensure connected
+    if (!this.socket || !this.socket.connected) {
+      this.connect();
+    }
+    
     // Tell server we want updates for this import
-    if (this.socket?.connected) {
+    if (this.socket) {
       this.socket.emit('subscribe-import', importId);
     }
   }

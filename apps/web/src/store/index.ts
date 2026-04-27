@@ -169,6 +169,7 @@ export const useSubscriptionStore = create<SubscriptionStore>()(
 interface UIStore {
   sidebarOpen: boolean;
   conductorExpanded: boolean;
+  podiumMode: boolean;
   theme: 'light' | 'dark' | 'system';
   notifications: Array<{
     id: string;
@@ -184,6 +185,7 @@ interface UIStore {
   setSidebarOpen: (open: boolean) => void;
   toggleConductor: () => void;
   setConductorExpanded: (expanded: boolean) => void;
+  setPodiumMode: (active: boolean) => void;
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
   addNotification: (notification: Omit<UIStore['notifications'][0], 'id' | 'timestamp'>) => void;
   removeNotification: (id: string) => void;
@@ -196,13 +198,15 @@ export const useUIStore = create<UIStore>()(
       (set, get) => ({
         sidebarOpen: true,
         conductorExpanded: true,
+        podiumMode: false,
         theme: 'system',
         notifications: [],
-
+        
         toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
         setSidebarOpen: (open) => set({ sidebarOpen: open }),
         toggleConductor: () => set((state) => ({ conductorExpanded: !state.conductorExpanded })),
         setConductorExpanded: (expanded) => set({ conductorExpanded: expanded }),
+        setPodiumMode: (active) => set({ podiumMode: active }),
         setTheme: (theme) => set({ theme }),
         
         addNotification: (notification) => {

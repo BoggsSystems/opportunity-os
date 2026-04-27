@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { Users, Target, Rocket, ArrowRight, Upload, CheckCircle, Database } from 'lucide-react';
 import { connectionService } from '../../connections/services/connection.service';
 import { ImportSource } from '../../connections/types/connection.types';
@@ -10,9 +10,10 @@ interface OnboardingWizardProps {
   user: { id: string; email: string };
 }
 
-type Step = 'welcome' | 'goal' | 'import' | 'reveal';
+type Step = 'welcome' | 'archive' | 'strategy' | 'goal' | 'import' | 'reveal';
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, user }) => {
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user }) => {
+  console.log('🏗️ OnboardingWizard MOUNTED/RE-RENDERED');
   const [currentStep, setCurrentStep] = useState<Step>('welcome');
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'success' | 'error'>('idle');
@@ -24,8 +25,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, 
     duplicateRecords: 0,
   });
   const [finalAnalysis, setFinalAnalysis] = useState<any>(null);
+  const [strategicDraft, setStrategicDraft] = useState<any>(null);
   
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Cleanup WebSocket on unmount
   useEffect(() => {
@@ -41,17 +42,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, 
     { id: 'career', title: 'Career Acceleration', description: 'Map out your next move by finding leaders at your target companies.' },
   ];
 
+
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    window.alert('Selection detected in browser!');
     const file = event.target.files?.[0];
-    if (!file) return;
+    console.log('📂 handleFileSelect TRIGGERED:', file?.name, file?.type, file?.size);
+    if (!file) {
+      console.warn('⚠️ No file in event.target.files');
+      return;
+    }
 
     setUploadStatus('uploading');
+    console.log('⏳ Status set to UPLOADING');
     
     try {
+      console.log('🔍 Validating file...');
       const validation = connectionService.validateFile(file);
       if (!validation.isValid) {
+        console.error('❌ Validation failed:', validation.error);
         setUploadStatus('error');
-        alert(validation.error);
+        alert(`Validation Error: ${validation.error}`);
         return;
       }
 
@@ -60,12 +70,50 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, 
         source: ImportSource.LINKEDIN_EXPORT,
         description: `Initial network import for ${user.email}`
       };
+      
+      console.log('🚀 Sending to server...');
+      if (file.name.endsWith('.zip')) {
+        console.log('📦 Identified as ZIP, calling ingestZip');
+        const result = await connectionService.ingestZip(importRequest, file);
+        console.log('✅ ZIP Ingest successful response:', result);
+        setStrategicDraft(result.strategicDraft);
+        
+        // We still subscribe to the connections part of the import in the background
+        importWebSocketService.subscribe(result.importId, (event: ImportEvent) => {
+          console.log('📡 Import WebSocket event:', event.type);
+          if (event.type === 'progress') {
+            setImportProgress({
+              percentage: event.data.percentage || 0,
+              processedRecords: event.data.processedRecords || 0,
+              totalRecords: event.data.totalRecords || 0,
+              importedRecords: event.data.importedRecords || 0,
+              duplicateRecords: event.data.duplicateRecords || 0,
+            });
+          } else if (event.type === 'completed') {
+            setFinalAnalysis({
+              total: event.data.totalRecords,
+              imported: event.data.importedRecords,
+              duplicates: event.data.duplicateRecords,
+              targetCompanies: Math.max(5, Math.floor(event.data.importedRecords * 0.3)),
+              highValueContacts: Math.max(10, Math.floor(event.data.importedRecords * 0.15))
+            });
+          }
+        });
 
+        setUploadStatus('success');
+        setCurrentStep('strategy');
+        console.log('⏭️ Transitioned to STRATEGY step');
+        return;
+      }
+
+      console.log('📄 Identified as CSV/Other, calling createImport');
       const importData = await connectionService.createImport(importRequest, file, user.id);
+      console.log('✅ Import created:', importData.id);
       setUploadStatus('processing');
 
       // Subscribe to real-time updates
       importWebSocketService.subscribe(importData.id, (event: ImportEvent) => {
+        console.log('📡 CSV Import WebSocket event:', event.type);
         if (event.type === 'progress') {
           setImportProgress({
             percentage: event.data.percentage || 0,
@@ -75,25 +123,30 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, 
             duplicateRecords: event.data.duplicateRecords || 0,
           });
         } else if (event.type === 'completed') {
+          console.log('🏁 CSV Import completed');
           setFinalAnalysis({
             total: event.data.totalRecords,
             imported: event.data.importedRecords,
             duplicates: event.data.duplicateRecords,
-            // Mocked insights for the "Aha!" moment
             targetCompanies: Math.max(5, Math.floor(event.data.importedRecords * 0.3)),
             highValueContacts: Math.max(10, Math.floor(event.data.importedRecords * 0.15))
           });
           setUploadStatus('success');
           setCurrentStep('reveal');
         } else if (event.type === 'error') {
+          console.error('❌ Import WebSocket error');
           setUploadStatus('error');
-          alert('Import failed. Please try again.');
+          alert('Import failed in background. Please try again.');
         }
       });
 
     } catch (error) {
-      console.error('Import failed:', error);
+      console.error('❌ CRITICAL ERROR in handleFileSelect:', error);
       setUploadStatus('error');
+      alert(`Critical error: ${error instanceof Error ? error.message : 'Unknown error'}. Check console for details.`);
+    } finally {
+      console.log('🏁 handleFileSelect FINISHED');
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -108,7 +161,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, 
       </div>
       <div className="onboarding-footer">
         <div />
-        <button className="onboarding-btn-primary" onClick={() => setCurrentStep('goal')}>
+        <button className="onboarding-btn-primary" onClick={() => setCurrentStep('archive')}>
           Initialize System <ArrowRight size={18} style={{ marginLeft: 8 }} />
         </button>
       </div>
@@ -146,17 +199,58 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, 
     </div>
   );
 
+  const renderArchiveUpload = () => (
+    <div className="onboarding-content">
+      <div className="onboarding-header">
+        <h1>Inject Your Professional Portfolio.</h1>
+        <p>Upload your full LinkedIn data archive (ZIP). I'll audit your history to extract your core offerings and strategic posture.</p>
+      </div>
+      
+      <div className={`import-zone ${uploadStatus === 'uploading' || uploadStatus === 'processing' ? 'uploading' : ''} ${uploadStatus === 'error' ? 'error' : ''}`} style={{ position: 'relative' }}>
+
+        <div className="import-icon">
+          {uploadStatus === 'idle' || uploadStatus === 'error' ? <Rocket size={32} /> : <Upload className="animate-spin" size={32} />}
+        </div>
+        
+        {uploadStatus === 'idle' ? (
+          <>
+            <h3>Click to upload LinkedInDataExport.zip</h3>
+            <p>Your history is the foundation of our strategy.</p>
+          </>
+        ) : uploadStatus === 'error' ? (
+          <>
+            <h3 style={{ color: '#ef4444' }}>Analysis Failed</h3>
+            <p>Something went wrong during the audit. Please try again or skip to manual setup.</p>
+          </>
+        ) : (
+          <div className="progress-container">
+            <h3>{uploadStatus === 'uploading' ? 'Analyzing Archive...' : 'Auditing History...'}</h3>
+            <div className="progress-bar-bg">
+              <div className="progress-bar-fill" style={{ width: `${importProgress.percentage || 25}%` }} />
+            </div>
+            <p style={{ marginTop: 10, fontSize: '0.9rem', color: '#94a3b8' }}>Extracting offerings and identifying themes...</p>
+          </div>
+        )}
+      </div>
+
+
+
+      <div className="onboarding-footer">
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('welcome')} disabled={uploadStatus !== 'idle'}>Back</button>
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('goal')} disabled={uploadStatus !== 'idle'}>Skip archive</button>
+      </div>
+    </div>
+  );
+
   const renderImport = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <h1>Turbocharge Your Workspace.</h1>
-        <p>Upload your LinkedIn Connections CSV to map your territory.</p>
+        <h1>Initialize Your Network.</h1>
+        <p>Now, let's map your territory. Upload your LinkedIn Connections CSV to populate the Canvas.</p>
       </div>
       
-      <div 
-        className={`import-zone ${uploadStatus !== 'idle' ? 'uploading' : ''}`}
-        onClick={() => uploadStatus === 'idle' && fileInputRef.current?.click()}
-      >
+      <div className={`import-zone ${uploadStatus !== 'idle' ? 'uploading' : ''}`} style={{ position: 'relative' }}>
+
         <div className="import-icon">
           {uploadStatus === 'idle' ? <Users size={32} /> : <Upload className="animate-spin" size={32} />}
         </div>
@@ -164,7 +258,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, 
         {uploadStatus === 'idle' ? (
           <>
             <h3>Click to upload Connections.csv</h3>
-            <p>Your data stays private and secure.</p>
+            <p>Your connections are the nodes of your execution engine.</p>
           </>
         ) : (
           <div className="progress-container">
@@ -180,17 +274,76 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, 
         )}
       </div>
 
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        style={{ display: 'none' }} 
-        accept=".csv"
-        onChange={handleFileSelect}
-      />
-
       <div className="onboarding-footer">
         <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('goal')} disabled={uploadStatus !== 'idle'}>Back</button>
-        <button className="onboarding-btn-secondary" onClick={() => onComplete()} disabled={uploadStatus !== 'idle'}>Skip for now</button>
+        <button className="onboarding-btn-secondary" onClick={() => onComplete()} disabled={uploadStatus !== 'idle'}>Skip network map</button>
+      </div>
+    </div>
+  );
+
+  const renderStrategy = () => (
+    <div className="onboarding-content">
+      <div className="onboarding-header">
+        <h1>Your Strategic Engine is Active.</h1>
+        <p>I've audited your LinkedIn profile and mapped out your core expertise. How does this look?</p>
+      </div>
+
+      <div className="strategy-review">
+        <section className="strategy-section">
+          <div className="section-header">
+            <Users size={20} color="#3b82f6" />
+            <h3>Proposed Posture</h3>
+          </div>
+          <div className="posture-card">
+            <p>{strategicDraft?.posture?.text}</p>
+            <div className="objectives-list">
+              {strategicDraft?.posture?.objectives?.map((obj: string, i: number) => (
+                <span key={i} className="objective-tag">{obj}</span>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="strategy-section">
+          <div className="section-header">
+            <Rocket size={20} color="#10b981" />
+            <h3>Identified Offerings</h3>
+          </div>
+          <div className="offerings-grid">
+            {strategicDraft?.offerings?.map((off: any, i: number) => (
+              <div key={i} className="mini-offering-card">
+                <h4>{off.title}</h4>
+                <p>{off.description}</p>
+                <span className="type-badge">{off.type}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="strategy-section">
+          <div className="section-header">
+            <Database size={20} color="#f59e0b" />
+            <h3>Strategic Theses</h3>
+          </div>
+          <div className="theses-list">
+            {strategicDraft?.theses?.map((thesis: any, i: number) => (
+              <div key={i} className="mini-thesis-card">
+                <h4>{thesis.title}</h4>
+                <p>{thesis.content.substring(0, 100)}...</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="onboarding-footer">
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('archive')}>Back</button>
+        <button 
+          className="onboarding-btn-primary" 
+          onClick={() => setCurrentStep('goal')}
+        >
+          Confirm Strategy <ArrowRight size={18} style={{ marginLeft: 8 }} />
+        </button>
       </div>
     </div>
   );
@@ -236,16 +389,60 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete, 
       <div className="onboarding-card">
         <div className="onboarding-steps">
           <div className={`onboarding-step-dot ${currentStep === 'welcome' ? 'active' : ''}`} />
+          <div className={`onboarding-step-dot ${currentStep === 'archive' ? 'active' : ''}`} />
+          <div className={`onboarding-step-dot ${currentStep === 'strategy' ? 'active' : ''}`} />
           <div className={`onboarding-step-dot ${currentStep === 'goal' ? 'active' : ''}`} />
           <div className={`onboarding-step-dot ${currentStep === 'import' ? 'active' : ''}`} />
           <div className={`onboarding-step-dot ${currentStep === 'reveal' ? 'active' : ''}`} />
         </div>
         
         {currentStep === 'welcome' && renderWelcome()}
+        {currentStep === 'archive' && renderArchiveUpload()}
+        {currentStep === 'strategy' && renderStrategy()}
         {currentStep === 'goal' && renderGoal()}
         {currentStep === 'import' && renderImport()}
         {currentStep === 'reveal' && renderReveal()}
+
+        {/* PERMANENT STABLE INPUTS - Hidden but always present in DOM */}
+        {currentStep === 'archive' && (
+          <input 
+            type="file" 
+            style={{
+              position: 'absolute',
+              top: '200px', // Roughly over the drop zone
+              left: '50px',
+              right: '50px',
+              height: '300px',
+              opacity: 0.3,
+              cursor: 'pointer',
+              zIndex: 100,
+              background: 'rgba(255, 0, 0, 0.2)'
+            }} 
+            accept=".zip"
+            onChange={handleFileSelect}
+            disabled={uploadStatus !== 'idle' && uploadStatus !== 'error'}
+          />
+        )}
+        {currentStep === 'import' && (
+          <input 
+            type="file" 
+            style={{
+              position: 'absolute',
+              top: '200px',
+              left: '50px',
+              right: '50px',
+              height: '300px',
+              opacity: 0.3,
+              cursor: 'pointer',
+              zIndex: 100,
+              background: 'rgba(255, 0, 0, 0.2)'
+            }} 
+            accept=".csv"
+            onChange={handleFileSelect}
+            disabled={uploadStatus !== 'idle'}
+          />
+        )}
       </div>
     </div>
   );
-};
+});

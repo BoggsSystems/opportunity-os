@@ -345,6 +345,22 @@ export class ApiClient {
     }>('/connections/import', formData);
   }
 
+  async ingestZip(file: File, importData: { name: string; source: string }) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('source', importData.source);
+    formData.append('name', importData.name);
+
+    return this.requestForm<{
+      success: boolean;
+      data: {
+        importId: string;
+        strategicDraft: any;
+      };
+      message: string;
+    }>('/connections/ingest-zip', formData);
+  }
+
   async getConnectionImports(status?: string) {
     const query = status ? `?status=${encodeURIComponent(status)}` : '';
     return this.request<{

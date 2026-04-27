@@ -19,13 +19,55 @@ import { ConnectionRecordDto } from './dto/connection-record.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { UseGuards } from '@nestjs/common';
 
+import { LinkedInIngestService } from './services/linkedin-ingest.service';
+
 @ApiTags('Connection Import')
 @UseGuards(AuthGuard)
 @Controller('connections')
 export class ConnectionImportController {
   private readonly logger = new Logger(ConnectionImportController.name);
 
-  constructor(private readonly connectionImportService: ConnectionImportService) {}
+  constructor(
+    private readonly connectionImportService: ConnectionImportService,
+    private readonly linkedInIngestService: LinkedInIngestService,
+  ) {}
+
+  @Post('ingest-zip')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Ingest a full LinkedIn data export ZIP' })
+  @ApiResponse({ status: 201, description: 'ZIP ingested successfully, strategic draft returned' })
+  async ingestZip(
+    @Body() createImportDto: CreateConnectionImportDto,
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req: any,
+  ) {
+    const userId = req.user?.sub || req.user?.id;
+    this.logger.log(`Ingesting LinkedIn ZIP for user: ${userId}`);
+
+    if (!file || !file.originalname.endsWith('.zip')) {
+      return {
+        success: false,
+        message: 'Invalid file',
+        error: 'A LinkedIn data export ZIP file is required',
+      };
+    }
+
+    // 1. Create a dummy import record for the connections part
+    const importRecord = await this.connectionImportService.createImport(createImportDto, userId);
+
+    // 2. Process the ZIP (Strategic Extraction + Connection Processing)
+    const strategicDraft = await this.linkedInIngestService.processFullZip(file.buffer, userId, importRecord.id);
+
+    return {
+      success: true,
+      message: 'LinkedIn ZIP ingested. Strategic draft generated.',
+      data: {
+        importId: importRecord.id,
+        strategicDraft
+      }
+    };
+  }
 
   @Post('import')
   @UseInterceptors(FileInterceptor('file'))

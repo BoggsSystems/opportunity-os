@@ -579,9 +579,17 @@ Response should be the explanation text only, no preamble.
                            lowerReply.includes('goal confirmed') ||
                            lowerReply.includes('ready to start');
       
-      this.logger.debug(`[detectStrategicIntent] Goal phrase check: ${hasGoalPhrase}`);
+      const isDailyRitual = message.toLowerCase().includes('good morning') || 
+                            message.toLowerCase().includes('start the day') ||
+                            message.toLowerCase().includes('initialize today') ||
+                            message.toLowerCase().includes('daily brief');
       
-      if (hasGoalPhrase) {
+      this.logger.debug(`[detectStrategicIntent] Goal phrase check: ${hasGoalPhrase}, Daily ritual check: ${isDailyRitual}`);
+      
+      if (isDailyRitual) {
+        suggestedAction = 'ORCHESTRATE_DAILY_HABIT';
+        this.logger.debug(`[detectStrategicIntent] → Detected ORCHESTRATE_DAILY_HABIT from user ritual`);
+      } else if (hasGoalPhrase) {
         suggestedAction = 'PROPOSE_GOAL';
         this.logger.debug(`[detectStrategicIntent] → Detected PROPOSE_GOAL from AI reply`);
       } else {

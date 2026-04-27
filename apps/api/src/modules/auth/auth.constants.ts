@@ -1,4 +1,4 @@
-export const ACCESS_TOKEN_TTL_SECONDS = 60 * 15;
+export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60 * 24;
 export const REFRESH_TOKEN_TTL_DAYS = 30;
 export const VERIFICATION_TOKEN_TTL_HOURS = 24;
 export const PASSWORD_RESET_TOKEN_TTL_HOURS = 1;

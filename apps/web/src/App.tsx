@@ -126,7 +126,7 @@ export function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   
   // UI store for conductor expanded state
-  const { conductorExpanded, toggleConductor } = useUIStore();
+  const { conductorExpanded, toggleConductor, podiumMode, setPodiumMode } = useUIStore();
 
   const loadWorkspace = useCallback(async () => {
     if (!session) return;
@@ -157,6 +157,7 @@ export function App() {
       const onboardingCompleted = localStorage.getItem(`onboarding_completed_${session.user.id}`);
       if (!onboardingCompleted) {
         setOnboardingOpen(true);
+        setPodiumMode(true);
       }
       setMessages((current) => {
         if (current.length > 0) return current;
@@ -350,6 +351,13 @@ export function App() {
         setNotice({
           title: 'Campaign proposal ready',
           detail: 'Review the proposed campaign update in the Canvas.',
+          tone: 'info',
+        });
+      } else if (result.suggestedAction === 'ORCHESTRATE_DAILY_HABIT') {
+        setPodiumMode(true);
+        setNotice({
+          title: 'Daily Brief Active',
+          detail: 'I am preparing your strategic orchestration for the day.',
           tone: 'info',
         });
       }
@@ -839,6 +847,14 @@ export function App() {
     await runCommand({ type: 'complete_cycle', cycleId }, 'Cycle completed');
   }
 
+  const handleOnboardingComplete = useCallback(() => {
+    if (!session) return;
+    localStorage.setItem(`onboarding_completed_${session.user.id}`, 'true');
+    setOnboardingOpen(false);
+    setPodiumMode(false);
+    void loadWorkspace();
+  }, [session, loadWorkspace, setOnboardingOpen, setPodiumMode]);
+
   if (!session) {
     return (
       <AuthScreen
@@ -861,6 +877,7 @@ export function App() {
         onSend={sendMessage}
         onLogout={logout}
         expanded={conductorExpanded}
+        onToggleExpanded={toggleConductor}
         onToggleExpanded={toggleConductor}
       />
 
@@ -932,16 +949,13 @@ export function App() {
           onSyncEmail={syncEmail}
         />
       ) : null}
-      {onboardingOpen && session ? (
+      {/* Onboarding Wizard Disabled in favor of Settings flow */}
+      {/* onboardingOpen && session ? (
         <OnboardingWizard 
           user={session.user} 
-          onComplete={() => {
-            localStorage.setItem(`onboarding_completed_${session.user.id}`, 'true');
-            setOnboardingOpen(false);
-            void loadWorkspace();
-          }} 
+          onComplete={handleOnboardingComplete} 
         />
-      ) : null}
+      ) : null */}
     </main>
   );
 }

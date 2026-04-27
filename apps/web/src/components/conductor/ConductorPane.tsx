@@ -12,6 +12,8 @@ interface ConductorPaneProps {
   onLogout: () => void;
   expanded: boolean;
   onToggleExpanded: () => void;
+  onboardingActive?: boolean;
+  onboardingComponent?: React.ReactNode;
 }
 
 export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
@@ -81,14 +83,14 @@ export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
           )}
         </div>
         <div className="conductor-actions">
-          <button 
-            className="icon-button" 
-            onClick={props.onToggleExpanded} 
-            title={props.expanded ? "Collapse conductor" : "Expand conductor"}
-            type="button"
-          >
-            {props.expanded ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
-          </button>
+            <button 
+              className="icon-button" 
+              onClick={props.onToggleExpanded} 
+              title={props.expanded ? "Collapse conductor" : "Expand conductor"}
+              type="button"
+            >
+              {props.expanded ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
+            </button>
           {props.expanded && (
             <button className="icon-button" onClick={props.onLogout} title="Log out" type="button">
               <UserRound size={18} />
@@ -103,7 +105,6 @@ export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
         </>
       )}
 
-      {/* Resize handle */}
       {props.expanded && (
         <div 
           className="resize-handle"
@@ -122,17 +123,25 @@ export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
           ) : null}
 
           <div ref={scrollRef} className="conversation-thread">
-            {props.messages.map((message) => (
-              <article key={message.id} className={`message ${message.role}`}>
-                <p>{message.text}</p>
-              </article>
-            ))}
-            {props.isWorking ? (
-              <article className="message assistant pending">
-                <Loader2 className="spin" size={16} />
-                <p>Working through the current cycle...</p>
-              </article>
-            ) : null}
+            {props.onboardingActive && props.onboardingComponent ? (
+              <div className="onboarding-embedded">
+                {props.onboardingComponent}
+              </div>
+            ) : (
+              <>
+                {props.messages.map((message) => (
+                  <article key={message.id} className={`message ${message.role}`}>
+                    <p>{message.text}</p>
+                  </article>
+                ))}
+                {props.isWorking ? (
+                  <article className="message assistant pending">
+                    <Loader2 className="spin" size={16} />
+                    <p>Working through the current cycle...</p>
+                  </article>
+                ) : null}
+              </>
+            )}
           </div>
 
           <div className="prompt-row">

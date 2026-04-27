@@ -580,6 +580,8 @@ model User {
   momentumStates               MomentumState[]
   coachingNudges               CoachingNudge[]
   campaignMetrics              CampaignMetric[]
+  strategicTheses              StrategicThesis[]
+  userPosture                  UserPosture?
 
   @@map("users")
 }
@@ -1478,6 +1480,7 @@ model Offering {
   aiTasks        AITask[]              @relation("AITaskOffering")
   weeklyTargets  WeeklyTarget[]
   momentumStates MomentumState[]
+  thesisMappings OfferingThesisMapping[]
 
   @@index([userId])
   @@index([offeringType, status])
@@ -1557,6 +1560,49 @@ model OfferingAsset {
   @@index([offeringPositioningId])
   @@index([assetType])
   @@map("offering_assets")
+}
+
+model StrategicThesis {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  title           String
+  content         String
+  embedding       Unsupported("vector(1536)")?
+  relevanceTags   String[]
+  performanceScore Float    @default(0)
+  lastRefined     DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offerings OfferingThesisMapping[]
+
+  @@index([userId])
+  @@map("strategic_theses")
+}
+
+model OfferingThesisMapping {
+  offeringId String @db.Uuid
+  thesisId   String @db.Uuid
+
+  offering Offering        @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  thesis   StrategicThesis @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+
+  @@id([offeringId, thesisId])
+  @@map("offering_thesis_mappings")
+}
+
+model UserPosture {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @unique @db.Uuid
+  postureText   String
+  objectives    String[]
+  preferredTone String?
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_postures")
 }
 
 model AIConversation {

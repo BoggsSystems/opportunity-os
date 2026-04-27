@@ -45,17 +45,8 @@ class ConnectionService {
           return;
         }
         
-        console.log('🔍 AUTH DEBUG: Access token found, checking expiration');
-        
-        // Check if token is expired
-        if (this.isTokenExpired(token)) {
-          console.log('🔍 AUTH DEBUG: Token is EXPIRED, attempting refresh');
-          this.refreshToken(parsed);
-        } else {
-          console.log('🔍 AUTH DEBUG: Token is VALID, creating ApiClient');
-          this.api = new ApiClient(token);
-          console.log('🔍 AUTH DEBUG: ApiClient created successfully with token');
-        }
+        console.log('🔍 AUTH DEBUG: Creating ApiClient with existing token');
+        this.api = new ApiClient(token);
       } catch (error) {
         console.error('🔍 AUTH DEBUG: Failed to parse session:', error);
         this.api = new ApiClient(null);
@@ -100,21 +91,11 @@ class ConnectionService {
   }
 
   private async refreshToken(session: any): Promise<void> {
-    try {
-      console.log('🔍 DEBUG: Attempting token refresh');
-      
-      // For now, just clear the session and force re-login
-      // In a real implementation, you'd call a refresh endpoint
-      localStorage.removeItem('opportunity-os-session');
-      console.log('🔍 DEBUG: Session cleared due to expired token');
-      
-      // Force redirect to login or show auth error
-      this.api = new ApiClient(null);
-    } catch (error) {
-      console.error('🔍 DEBUG: Token refresh failed:', error);
-      localStorage.removeItem('opportunity-os-session');
-      this.api = new ApiClient(null);
-    }
+    console.log('🔍 DEBUG: Token refresh requested, but not fully implemented. Keeping session for now to avoid zombie state.');
+    // We don't wipe the session here anymore. 
+    // Instead, we let the ApiClient handle 401s if the token is truly dead.
+    // This prevents the UI from becoming desynced from localStorage.
+    this.api = new ApiClient(session.accessToken);
   }
 
   private ensureValidToken(): boolean {
@@ -233,6 +214,27 @@ class ConnectionService {
       return mappedResult as ConnectionImport;
     } catch (error) {
       throw new Error(`Failed to create import: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async ingestZip(
+    request: { name: string; source: ImportSource },
+    file: File
+  ): Promise<{ importId: string; strategicDraft: any }> {
+    const isTokenValid = this.ensureValidToken();
+    if (!isTokenValid) {
+      throw new Error('Authentication failed. Please log in again.');
+    }
+    this.initializeApiClient();
+
+    try {
+      const result = await this.api.ingestZip(file, {
+        name: request.name,
+        source: request.source.toString(),
+      });
+      return result.data;
+    } catch (error) {
+      throw new Error(`Failed to ingest ZIP: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -358,15 +360,20 @@ class ConnectionService {
 
   // Helper method to validate file before upload
   validateFile(file: File): { isValid: boolean; error?: string } {
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    const allowedTypes = ['text/csv', 'application/json', 'text/plain'];
+    const maxSize = 50 * 1024 * 1024; // Increased to 50MB for ZIPs
+    const allowedTypes = ['text/csv', 'application/json', 'text/plain', 'application/zip', 'application/x-zip-compressed'];
 
     if (file.size > maxSize) {
-      return { isValid: false, error: 'File size must be less than 10MB' };
+      return { isValid: false, error: 'File size must be less than 50MB' };
     }
 
-    if (!allowedTypes.includes(file.type) && !file.name.endsWith('.csv') && !file.name.endsWith('.json')) {
-      return { isValid: false, error: 'Only CSV and JSON files are supported' };
+    if (
+      !allowedTypes.includes(file.type) && 
+      !file.name.endsWith('.csv') && 
+      !file.name.endsWith('.json') &&
+      !file.name.endsWith('.zip')
+    ) {
+      return { isValid: false, error: 'Only CSV, JSON, and ZIP files are supported' };
     }
 
     return { isValid: true };

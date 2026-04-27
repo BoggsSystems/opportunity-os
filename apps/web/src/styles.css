@@ -62,6 +62,8 @@ button:disabled {
   grid-template-columns: 60px minmax(0, 1fr);
 }
 
+
+
 .conductor-pane {
   display: flex;
   min-height: 100vh;
@@ -321,6 +323,7 @@ input:focus {
 .workspace-pane {
   min-width: 0;
   padding: 24px;
+  transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .workspace-topbar {

@@ -24,7 +24,6 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
     failedRecords: 0,
     status: 'pending'
   });
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Cleanup WebSocket subscriptions on unmount
   useEffect(() => {
@@ -260,9 +259,6 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
     }
   };
 
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
 
   const generateBasicInsights = (importData: any) => {
     // For now, generate basic insights from import data
@@ -283,6 +279,56 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
     };
   };
 
+  const handleArchiveSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    console.log('📦 handleArchiveSelect TRIGGERED', {
+      name: file?.name,
+      size: file?.size,
+      type: file?.type
+    });
+    if (!file) {
+      console.warn('⚠️ No file selected in archive input');
+      return;
+    }
+
+    setUploadStatus('uploading');
+    setUploadMessage('Analyzing your full LinkedIn archive...');
+    setUploadedFileName(file.name);
+
+    try {
+      const validation = connectionService.validateFile(file);
+      if (!validation.isValid) {
+        setUploadStatus('error');
+        setUploadMessage(validation.error || 'Invalid file format');
+        return;
+      }
+
+      const importRequest = {
+        name: `Strategic Audit - ${new Date().toLocaleDateString()}`,
+        source: ImportSource.LINKEDIN_EXPORT,
+        description: `LinkedIn Archive Audit from ${file.name}`
+      };
+
+      const result = await connectionService.ingestZip(importRequest, file);
+      
+      setUploadStatus('success');
+      setUploadMessage(`Strategic audit complete! I've identified your core offerings and strategic posture.`);
+      setRecentImportData({
+        ...result,
+        status: 'COMPLETED',
+        importedRecords: result.connectionsCount || 0
+      });
+
+    } catch (error) {
+      console.error('Archive ingest error:', error);
+      setUploadStatus('error');
+      setUploadMessage(error instanceof Error ? error.message : 'Failed to process archive');
+    } finally {
+      if (event.target) event.target.value = '';
+    }
+  };
+
+
   const resetUpload = () => {
     setUploadStatus('idle');
     setUploadMessage('');
@@ -292,13 +338,86 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
   return (
     <>
       <div className="settings-section" style={{ maxHeight: '80vh', overflowY: 'auto', paddingRight: '1rem' }}>
+        <div className="surface-card" style={{ marginBottom: '1.5rem', borderLeft: '4px solid #8b5cf6' }}>
+          <p className="label" style={{ color: '#8b5cf6' }}>Strategic Audit (Deep Ingest)</p>
+          <h3>Extract your core offerings and strategic posture</h3>
+          <p>
+            Upload your full LinkedIn data archive (ZIP). We'll audit your entire history to automatically 
+            identify your core expertise, key network nodes, and strategic market theses.
+          </p>
+          <div style={{ marginTop: '1rem' }}>
+            <button
+              className="primary-button"
+              style={{ 
+                background: '#8b5cf6',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              disabled={isWorking || uploadStatus === 'uploading'}
+              type="button"
+            >
+              <Target size={16} style={{ marginRight: '8px' }} />
+              Audit LinkedIn Archive
+              
+              {/* NATIVE OVERLAY - Bypasses ref/click issues */}
+              <input 
+                type="file" 
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  opacity: 0,
+                  cursor: 'pointer',
+                  zIndex: 10
+                }} 
+                accept=".zip"
+                onChange={handleArchiveSelect}
+                disabled={isWorking || uploadStatus === 'uploading'}
+              />
+            </button>
+          </div>
+        </div>
+
         <div className="surface-card">
-          <p className="label">LinkedIn Connections</p>
+          <p className="label">LinkedIn Connections (Standard Ingest)</p>
           <h3>Import and manage your professional network</h3>
           <p>
-            Import your LinkedIn connections to build a comprehensive prospecting database. 
-            The system handles LinkedIn's CSV export format and automatically detects duplicates.
+            Import your LinkedIn connections CSV to build your prospecting database. 
+            The system handles LinkedIn's standard CSV export format.
           </p>
+          <div style={{ marginTop: '1rem' }}>
+            <button
+              className="secondary-button"
+              style={{ 
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              disabled={isWorking || uploadStatus === 'uploading'}
+              type="button"
+            >
+              <Users size={16} style={{ marginRight: '8px' }} />
+              Import Connections.csv
+              
+              <input 
+                type="file" 
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  opacity: 0,
+                  cursor: 'pointer',
+                  zIndex: 10
+                }} 
+                accept=".csv"
+                onChange={handleFileSelect}
+                disabled={isWorking || uploadStatus === 'uploading'}
+              />
+            </button>
+          </div>
         </div>
         
         {uploadStatus !== 'idle' && (
@@ -441,35 +560,7 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
           </div>
         )}
 
-        <div className="action-grid">
-          <button
-            className="primary-button"
-            disabled={isWorking || uploadStatus === 'uploading'}
-            onClick={handleImportClick}
-            type="button"
-          >
-            <Users size={16} />
-            Import Connections
-          </button>
-          <button
-            className="secondary-button"
-            disabled={isWorking}
-            onClick={() => window.open('/connections', '_blank')}
-            type="button"
-          >
-            <Database size={16} />
-            View All Connections
-          </button>
-        </div>
         
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,.json,text/csv,application/json"
-          onChange={handleFileSelect}
-          style={{ display: 'none' }}
-          disabled={isWorking || uploadStatus === 'uploading'}
-        />
         
         <div className="surface-card" style={{ marginTop: '1rem' }}>
           <p className="label">Import Features</p>
