@@ -8,6 +8,8 @@ import {
 import {
   AuthenticationSessionStatus,
   VerificationTokenType,
+  OfferingStatus,
+  OfferingType,
   prisma,
 } from '@opportunity-os/db';
 import { getConfig } from '@opportunity-os/config';
@@ -143,6 +145,51 @@ export class AuthService {
           where: { guestSessionId: dto.guestSessionId, userId: null },
           data: { userId: user.id },
         });
+      }
+
+      // Handle Initial Strategy from Pre-Auth Audit
+      if (dto.initialStrategy) {
+        const strategy = typeof dto.initialStrategy === 'string' 
+          ? JSON.parse(dto.initialStrategy) 
+          : dto.initialStrategy;
+        
+        if (strategy.posture) {
+          await tx.userPosture.create({
+            data: {
+              userId: user.id,
+              postureText: strategy.posture.text,
+              objectives: strategy.posture.objectives,
+              preferredTone: strategy.posture.preferredTone
+            }
+          });
+        }
+
+        if (strategy.offerings && Array.isArray(strategy.offerings)) {
+          for (const offering of strategy.offerings) {
+            await tx.offering.create({
+              data: {
+                userId: user.id,
+                title: offering.title,
+                description: offering.description,
+                offeringType: (offering.type as OfferingType) || OfferingType.service,
+                status: OfferingStatus.draft
+              }
+            });
+          }
+        }
+
+        if (strategy.theses && Array.isArray(strategy.theses)) {
+          for (const thesis of strategy.theses) {
+            await tx.strategicThesis.create({
+              data: {
+                userId: user.id,
+                title: thesis.title,
+                content: thesis.content,
+                relevanceTags: thesis.tags
+              }
+            });
+          }
+        }
       }
 
       return {

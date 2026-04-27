@@ -19,4 +19,7 @@ export class SignUpDto {
   @IsOptional()
   @IsString()
   guestSessionId?: string;
+
+  @IsOptional()
+  initialStrategy?: any;
 }

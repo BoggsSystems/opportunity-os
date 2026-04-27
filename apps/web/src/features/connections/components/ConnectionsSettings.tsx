@@ -110,7 +110,7 @@ const ConnectionsSettingsComponent: React.FC<ConnectionsSettingsProps> = ({ isWo
       console.log('🔍 DEBUG: Import request:', importRequest);
       
       console.log('🔍 DEBUG: Calling connectionService.createImport');
-      const importData = await connectionService.createImport(importRequest, file, userId);
+      const importData = await connectionService.createImport(importRequest, file);
       console.log('🔍 DEBUG: Import successful:', importData);
 
       setUploadStatus('success');

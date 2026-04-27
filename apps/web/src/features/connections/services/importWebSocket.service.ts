@@ -98,18 +98,6 @@ export class ImportWebSocketService {
     });
   }
 
-  private handleReconnect() {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      console.log(`🔄 Reconnecting... Attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
-      
-      setTimeout(() => {
-        this.connect();
-      }, this.reconnectDelay * this.reconnectAttempts);
-    } else {
-      console.error('❌ Max reconnection attempts reached');
-    }
-  }
 
   private notifyListeners(event: ImportEvent) {
     this.listeners.forEach((listener) => {

@@ -30,6 +30,7 @@ import { NotificationsSettings } from './components/settings/NotificationsSettin
 import { ConductorPane } from './components/conductor/ConductorPane';
 import { OnboardingWizard } from './features/onboarding/components/OnboardingWizard';
 import { AuthScreen } from './components/auth/AuthScreen';
+import { LandingPage } from './features/marketing/components/LandingPage';
 import { WorkspaceTopBar } from './components/workspace/WorkspaceTopBar';
 import { ActiveWorkspace } from './components/workspace/ActiveWorkspace';
 import type {
@@ -129,6 +130,12 @@ export function App() {
   const [isBooting, setIsBooting] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [view, setView] = useState<'landing' | 'onboarding' | 'auth' | 'app'>(() => {
+    // For local testing/iteration, we can force the landing page
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('landing') === 'true') return 'landing';
+    return session ? 'app' : 'landing';
+  });
   
   // UI store for conductor expanded state
   const { conductorExpanded, toggleConductor, podiumMode, setPodiumMode } = useUIStore();
@@ -229,9 +236,10 @@ export function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     setSession(stored);
     setSubscription(auth.subscription ?? null);
+    setView('app');
   }
 
-  async function handleAuth(mode: 'login' | 'signup', email: string, password: string, fullName?: string) {
+  async function handleAuth(mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) {
     setIsWorking(true);
     setNotice(null);
     try {
@@ -243,6 +251,7 @@ export function App() {
               password,
               fullName: fullName || 'Test Operator',
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              initialStrategy
             });
       commitSession(auth);
     } catch (error) {
@@ -274,6 +283,7 @@ export function App() {
     setPlans([]);
     setEmailReadiness(null);
     setUpgradePrompt(null);
+    setView('landing');
   }
 
   async function runCommand(body: Record<string, unknown>, success: string) {
@@ -861,6 +871,25 @@ export function App() {
   }, [session, loadWorkspace, setOnboardingOpen, setPodiumMode]);
 
   if (!session) {
+    if (view === 'landing') {
+      return <LandingPage onStart={(mode) => {
+        if (mode === 'signup') setView('onboarding');
+        else setView('auth');
+      }} />;
+    }
+    
+    if (view === 'onboarding') {
+      return (
+        <OnboardingWizard 
+          onComplete={() => setView('app')}
+          user={session?.user}
+          isWorking={isWorking}
+          notice={notice}
+          onAuth={handleAuth}
+        />
+      );
+    }
+
     return (
       <AuthScreen
         apiBaseUrl={api.baseUrl}
@@ -869,6 +898,10 @@ export function App() {
         onAuth={handleAuth}
       />
     );
+  }
+
+  if (view === 'landing') {
+    return <LandingPage onStart={(mode) => setView(mode || 'auth')} />;
   }
 
   return (
@@ -882,7 +915,6 @@ export function App() {
         onSend={sendMessage}
         onLogout={logout}
         expanded={conductorExpanded}
-        onToggleExpanded={toggleConductor}
         onToggleExpanded={toggleConductor}
       />
 
@@ -954,13 +986,12 @@ export function App() {
           onSyncEmail={syncEmail}
         />
       ) : null}
-      {/* Onboarding Wizard Disabled in favor of Settings flow */}
-      {/* onboardingOpen && session ? (
+      {onboardingOpen && session ? (
         <OnboardingWizard 
           user={session.user} 
           onComplete={handleOnboardingComplete} 
         />
-      ) : null */}
+      ) : null}
     </main>
   );
 }

@@ -232,123 +232,13 @@ export class ConnectionImportController {
     }
     
     if (file.mimetype.includes('csv')) {
-      console.log('📄 Parsing as CSV');
-      return this.parseCSV(content);
+      console.log('📄 Parsing as CSV via service');
+      return this.connectionImportService.parseCSV(content);
     }
     
     throw new Error('Unsupported file format');
   }
 
-  private parseCSV(content: string): any[] {
-    this.logger.log('🔧 ===== BACKEND CSV PARSING START =====');
-    this.logger.log(`📄 File content length: ${content.length} characters`);
-    
-    const lines = content.split('\n').filter(line => line.trim());
-    this.logger.log(`📄 Total lines found: ${lines.length}`);
-    
-    if (lines.length === 0) {
-      this.logger.warn('⚠️ No content found in CSV file');
-      return [];
-    }
-
-    // Log first few lines to debug
-    this.logger.log('📄 First 5 lines:');
-    for (let i = 0; i < Math.min(5, lines.length); i++) {
-      this.logger.log(`  Line ${i + 1}: ${lines[i].substring(0, 100)}...`);
-    }
-
-    // Find the actual header row - skip descriptive text at the beginning
-    let headerIndex = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const lowerLine = line.toLowerCase();
-      
-      // Count how many typical LinkedIn headers match
-      const matches = [
-        lowerLine.includes('first name'),
-        lowerLine.includes('last name'),
-        lowerLine.includes('email'),
-        lowerLine.includes('company'),
-        lowerLine.includes('position')
-      ].filter(Boolean).length;
-
-      // We need at least 2 matches to be confident it's the header row
-      // Also ensure it doesn't start with a quote (which is common for the disclaimer)
-      if (line.includes(',') && matches >= 2 && !line.trim().startsWith('"')) {
-        headerIndex = i;
-        this.logger.log(`✅ Found header at line ${headerIndex + 1}: ${line.substring(0, 50)}...`);
-        break;
-      }
-    }
-
-    this.logger.log(`📋 BACKEND FOUND HEADER AT LINE ${headerIndex + 1}: ${lines[headerIndex]}`);
-
-    const headers = lines[headerIndex].split(',').map(h => h.trim().replace(/"/g, ''));
-    this.logger.log('📋 BACKEND HEADERS PARSED:', headers);
-    this.logger.log(`📋 Header count: ${headers.length}`);
-    
-    const data = [];
-    let parseErrors = 0;
-
-    for (let i = headerIndex + 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line.trim()) continue;
-      
-      try {
-        // Handle CSV with quoted fields that may contain commas
-        const values = [];
-        let currentValue = '';
-        let inQuotes = false;
-        
-        for (let char of line) {
-          if (char === '"') {
-            inQuotes = !inQuotes;
-          } else if (char === ',' && !inQuotes) {
-            values.push(currentValue.trim().replace(/"/g, ''));
-            currentValue = '';
-          } else {
-            currentValue += char;
-          }
-        }
-        values.push(currentValue.trim().replace(/"/g, '')); // Add last value
-        
-        if (values.length === headers.length) {
-          const row: any = {};
-          headers.forEach((header, index) => {
-            row[header] = values[index] || '';
-          });
-          data.push(row);
-          
-          // Log first few records for debugging
-          if (i <= 3) {
-            this.logger.log(`📝 BACKEND RECORD ${i}:`, {
-              firstName: row['First Name'] || row['FirstName'] || '',
-              lastName: row['Last Name'] || row['LastName'] || '',
-              email: row['Email Address'] || row['Email'] || '',
-              company: row['Company'] || '',
-              position: row['Position'] || ''
-            });
-          }
-        } else {
-          parseErrors++;
-          this.logger.warn(`⚠️ BACKEND PARSE ERROR - Field count mismatch on line ${i}: expected ${headers.length}, got ${values.length}`);
-        }
-      } catch (error) {
-        parseErrors++;
-        this.logger.warn(`⚠️ BACKEND PARSE ERROR on line ${i}:`, error);
-      }
-    }
-
-    this.logger.log('✅ ===== BACKEND CSV PARSING COMPLETE =====');
-    this.logger.log(`📊 BACKEND PARSING SUMMARY:`, {
-      totalLines: lines.length - 1,
-      successfullyParsed: data.length,
-      parseErrors: parseErrors,
-      successRate: `${((data.length / (lines.length - 1)) * 100).toFixed(1)}%`
-    });
-
-    return data;
-  }
 
   private async getConnectionsByImportId(_importId: string): Promise<ConnectionRecordDto[]> {
     // Placeholder implementation - in real version, this would query the database

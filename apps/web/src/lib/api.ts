@@ -57,7 +57,7 @@ export class ApiClient {
     return API_URL;
   }
 
-  async signup(input: { email: string; password: string; fullName?: string; timezone?: string }) {
+  async signup(input: { email: string; password: string; fullName?: string; timezone?: string; initialStrategy?: any }) {
     return this.request<AuthResponse>('/auth/signup', {
       method: 'POST',
       body: input,
@@ -361,6 +361,23 @@ export class ApiClient {
       };
       message: string;
     }>('/connections/ingest-zip', formData);
+  }
+
+  async auditLinkedInZip(file: File) {
+    console.log('🔍 API DEBUG: auditLinkedInZip called', { fileName: file.name, fileSize: file.size });
+    const formData = new FormData();
+    formData.append('file', file);
+
+    return this.requestForm<{
+      success: boolean;
+      data: {
+        connectionCount: number;
+        posture: any;
+        offerings: any[];
+        theses: any[];
+      };
+      message: string;
+    }>('/onboarding/audit', formData);
   }
 
   async getConnectionImports(status?: string) {

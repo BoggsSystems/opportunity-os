@@ -29,6 +29,7 @@ import { CampaignOrchestrationModule } from './modules/campaign-orchestration/ca
 import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { BrowserModule } from './modules/browser/browser.module';
 import { ConnectionsModule } from './modules/connections/connections.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { WebSocketModule } from './websocket/websocket.module';
 import { DevContextInterceptor } from './common/dev-context.interceptor';
 
@@ -65,6 +66,7 @@ import { DevContextInterceptor } from './common/dev-context.interceptor';
     WorkspaceModule,
     BrowserModule,
     ConnectionsModule,
+    OnboardingModule,
     WebSocketModule,
   ],
   controllers: [TestValidationController],

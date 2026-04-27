@@ -86,8 +86,7 @@ const ConnectionImportComponent: React.FC = () => {
 
     try {
       // Create import
-      const userId = 'current-user'; // TODO: Get from auth context
-      const importData = await connectionService.createImport(settings, selectedFile, userId);
+      const importData = await connectionService.createImport(settings, selectedFile);
       
       setCurrentImport(importData);
       setCurrentStep('progress');

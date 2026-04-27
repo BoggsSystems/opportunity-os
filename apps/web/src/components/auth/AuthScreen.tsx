@@ -9,13 +9,15 @@ interface AuthScreenProps {
     detail: string;
     tone: 'info' | 'success' | 'warning' | 'error';
   } | null;
-  onAuth: (mode: 'login' | 'signup', email: string, password: string, fullName?: string) => Promise<void>;
+  onAuth: (mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>;
+  initialMode?: 'login' | 'signup';
+  initialStrategy?: any;
 }
 
 const TEST_PASSWORD = 'Password123!';
 
 export const AuthScreen: React.FC<AuthScreenProps> = (props) => {
-  const [mode, setMode] = useState<'login' | 'signup'>('signup');
+  const [mode, setMode] = useState<'login' | 'signup'>(props.initialMode || 'signup');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState(TEST_PASSWORD);
   const [fullName, setFullName] = useState('Test Operator');
@@ -59,7 +61,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = (props) => {
           className="auth-form"
           onSubmit={(event) => {
             event.preventDefault();
-            void props.onAuth(mode, email, password, fullName);
+            void props.onAuth(mode, email, password, fullName, props.initialStrategy);
           }}
         >
           {mode === 'signup' ? (

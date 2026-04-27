@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import AdmZip from 'adm-zip';
-import { parse } from 'csv-parse/sync';
 import { prisma, OfferingType, OfferingStatus } from '@opportunity-os/db';
 import { ConnectionImportService } from './connection-import.service';
 import { AiService } from '../../ai/ai.service';
@@ -32,8 +31,8 @@ export class LinkedInIngestService {
     private readonly aiService: AiService
   ) {}
 
-  async processFullZip(buffer: Buffer, userId: string, importId: string): Promise<StrategicDraft> {
-    this.logger.log(`Processing full LinkedIn ZIP for user: ${userId}`);
+  async processFullZip(buffer: Buffer, userId?: string, importId?: string): Promise<StrategicDraft & { connectionCount: number }> {
+    this.logger.log(`Processing full LinkedIn ZIP. userId: ${userId || 'ANONYMOUS'}`);
     
     try {
       const zip = new AdmZip(buffer);
@@ -45,11 +44,7 @@ export class LinkedInIngestService {
         if (entry.entryName.endsWith('.csv')) {
           try {
             const content = entry.getData().toString('utf8');
-            const records = parse(content, {
-              columns: true,
-              skip_empty_lines: true,
-              trim: true,
-            });
+            const records = this.connectionImportService.parseCSV(content);
             dataMap[entry.entryName] = records;
           } catch (e) {
             this.logger.warn(`Failed to parse CSV entry: ${entry.entryName}`);
@@ -57,14 +52,36 @@ export class LinkedInIngestService {
         }
       }
 
-      // 1. Handle Connections (Async)
-      const connectionsData = dataMap['Connections.csv'] || 
-                              dataMap['connections/Connections.csv'] || 
-                              dataMap['Connections.csv'];
-                              
-      if (connectionsData) {
+      // 1. Handle Connections
+      // 1. Handle Connections - Be more aggressive in finding the connections file
+      const connectionsEntry = zipEntries.find(e => {
+        const name = e.entryName.toLowerCase();
+        return name.endsWith('.csv') && 
+               (name.includes('connections.csv') || name.includes('connection.csv')) &&
+               !name.includes('sync') &&
+               !name.includes('contact'); // Avoid Contacts.csv which is different
+      });
+      
+      let connectionsData = null;
+      if (connectionsEntry) {
+        try {
+          const content = connectionsEntry.getData().toString('utf8');
+          connectionsData = this.connectionImportService.parseCSV(content);
+          this.logger.log(`Successfully extracted ${connectionsData.length} connections from ${connectionsEntry.entryName}`);
+        } catch (e) {
+          this.logger.warn(`Failed to parse connections CSV: ${connectionsEntry.entryName}`);
+        }
+      }
+                               
+      const connectionCount = connectionsData?.length || 0;
+
+      if (connectionsData && userId && importId) {
+        this.logger.log(`Found ${connectionsData.length} connections. Starting background processing for importId: ${importId}`);
         this.connectionImportService.processImportFile(importId, connectionsData)
-          .catch(err => this.logger.error('Failed to process connections from ZIP', err));
+          .then(() => this.logger.log(`Background processing completed for importId: ${importId}`))
+          .catch(err => this.logger.error(`Failed to process connections for importId: ${importId}`, err));
+      } else {
+        this.logger.warn(`Skipping connection processing. connectionsData: ${!!connectionsData}, userId: ${!!userId}, importId: ${!!importId}`);
       }
 
       // 2. Extract Strategic Context
@@ -74,10 +91,15 @@ export class LinkedInIngestService {
 
       const draft = await this.generateStrategicDraft(profileData, positionsData, skillsData);
       
-      // 3. Persist Strategic Draft to Database
-      await this.persistStrategicDraft(userId, draft);
+      // 3. Persist Strategic Draft to Database (Only if authenticated)
+      if (userId) {
+        await this.persistStrategicDraft(userId, draft);
+      }
       
-      return draft;
+      return {
+        ...draft,
+        connectionCount
+      };
     } catch (error) {
       this.logger.error('Failed to process LinkedIn ZIP archive', error);
       throw new Error(`Failed to process ZIP archive: ${error instanceof Error ? error.message : 'Invalid ZIP file'}`);
@@ -214,6 +236,7 @@ Only return the JSON. No other text.
     if (t.includes('product')) return OfferingType.product;
     return OfferingType.other;
   }
+
 
   private getFallbackDraft(headline: string, summary: string): StrategicDraft {
     return {

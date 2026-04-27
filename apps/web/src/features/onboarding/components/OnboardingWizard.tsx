@@ -1,21 +1,30 @@
-import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
-import { Users, Target, Rocket, ArrowRight, Upload, CheckCircle, Database } from 'lucide-react';
+import React, { useState, useRef, useEffect, memo } from 'react';
+import { 
+  Users, Target, Rocket, ArrowRight, Upload, CheckCircle, 
+  Database, ShieldCheck, Award, Eye, PenTool, Briefcase, 
+  Mail, Search, RefreshCw, Zap, ChevronRight 
+} from 'lucide-react';
 import { connectionService } from '../../connections/services/connection.service';
 import { ImportSource } from '../../connections/types/connection.types';
 import { importWebSocketService, ImportEvent } from '../../connections/services/importWebSocket.service';
+import { AuthScreen } from '../../../components/auth/AuthScreen';
+import { useUIStore } from '../../../store';
 import './OnboardingWizard.css';
 
 interface OnboardingWizardProps {
   onComplete: () => void;
-  user: { id: string; email: string };
+  user?: { id: string; email: string };
+  isWorking?: boolean;
+  notice?: any;
+  onAuth?: (mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>;
 }
 
-type Step = 'welcome' | 'archive' | 'strategy' | 'goal' | 'import' | 'reveal';
+type Step = 'briefing' | 'intent' | 'relationships' | 'knowledge' | 'analysis' | 'activation' | 'welcome';
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user }) => {
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user, isWorking, notice, onAuth }) => {
   console.log('🏗️ OnboardingWizard MOUNTED/RE-RENDERED');
-  const [currentStep, setCurrentStep] = useState<Step>('welcome');
-  const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [currentStep, setCurrentStep] = useState<Step>('briefing');
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'success' | 'error'>('idle');
   const [importProgress, setImportProgress] = useState({
     percentage: 0,
@@ -26,7 +35,25 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   });
   const [finalAnalysis, setFinalAnalysis] = useState<any>(null);
   const [strategicDraft, setStrategicDraft] = useState<any>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [connectionCount, setConnectionCount] = useState<number>(0);
+  const [activeImportId, setActiveImportId] = useState<string | null>(null);
   
+  // Conductor Orchestration State
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const [conductorMessage, setConductorMessage] = useState<string | null>(null);
+  const [isConductorThinking, setIsConductorThinking] = useState(false);
+  
+  const { setPodiumMode } = useUIStore();
+
+  const missions = [
+    { id: 'clients', title: 'Scale New Clients', description: 'Consultants and founders looking for direct revenue growth.', icon: Users },
+    { id: 'ip', title: 'Monetize My Book / IP', description: 'Authors and creators looking to sell their knowledge.', icon: Award },
+    { id: 'dream', title: 'Target Dream Companies', description: 'Map your "Way In" to specific targets via your network.', icon: Target },
+    { id: 'hidden', title: 'Surface Hidden Roles', description: 'Find "Hiring Clusters" before roles are even posted.', icon: Eye },
+    { id: 'partners', title: 'Build Strategic Partnerships', description: 'Find collaborators, investors, or advisors.', icon: Briefcase },
+    { id: 'authority', title: 'Establish Thought Leadership', description: 'Build your audience and authority through assets.', icon: Rocket },
+  ];
 
   // Cleanup WebSocket on unmount
   useEffect(() => {
@@ -35,350 +62,371 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     };
   }, []);
 
-  const goals = [
-    { id: 'sales', title: 'Drive More Sales', description: 'Find new customers and manage high-value deals in your network.' },
-    { id: 'partners', title: 'Find Strategic Partners', description: 'Identify key stakeholders at companies you want to partner with.' },
-    { id: 'recruiting', title: 'Talent Acquisition', description: 'Leverage your 1st-degree connections to find top engineering or sales talent.' },
-    { id: 'career', title: 'Career Acceleration', description: 'Map out your next move by finding leaders at your target companies.' },
-  ];
+  // Consolidated Import Progress Subscription
+  useEffect(() => {
+    if (!activeImportId) return;
 
+    console.log(`📡 Subscribing to import: ${activeImportId}`);
+    importWebSocketService.subscribe(activeImportId, (event: ImportEvent) => {
+      console.log('📡 Import event:', event.type);
+      if (event.type === 'progress') {
+        setImportProgress({
+          percentage: event.data.percentage || 0,
+          processedRecords: event.data.processedRecords || 0,
+          totalRecords: event.data.totalRecords || 0,
+          importedRecords: event.data.importedRecords || 0,
+          duplicateRecords: event.data.duplicateRecords || 0,
+        });
+      } else if (event.type === 'completed') {
+        setFinalAnalysis({
+          total: event.data.totalRecords,
+          imported: event.data.importedRecords,
+          duplicates: event.data.duplicateRecords,
+        });
+        setUploadStatus('success');
+      } else if (event.type === 'error') {
+        console.error('❌ Import error:', event.data);
+        setUploadStatus('error');
+      }
+    });
+
+    return () => {
+      importWebSocketService.disconnect();
+    };
+  }, [activeImportId]);
+
+  // Handle transition from anonymous to authenticated
+  useEffect(() => {
+    if (user && currentStep === 'analysis') {
+      console.log('🔐 Auth successful, transitioning wizard');
+      if (pendingFile && !activeImportId) {
+        setUploadStatus('uploading');
+        const importRequest = {
+          name: `Onboarding Import - ${new Date().toLocaleDateString()}`,
+          source: ImportSource.LINKEDIN_EXPORT,
+          description: `Post-auth automated ingest`
+        };
+        connectionService.ingestZip(importRequest, pendingFile)
+          .then(result => {
+            if (result.importId) {
+              setActiveImportId(result.importId);
+              setUploadStatus('processing');
+            }
+          })
+          .catch(err => {
+            console.error('❌ Background ingest FAILED:', err);
+            setUploadStatus('error');
+          });
+      }
+    }
+  }, [user, currentStep, pendingFile, activeImportId]);
+
+  const handleMissionSelect = (missionId: string) => {
+    setExpandedCard(missionId);
+    setIsConductorThinking(true);
+    
+    // Simulate Conductor responding
+    setTimeout(() => {
+      const mission = missions.find(m => m.id === missionId);
+      setConductorMessage(`Excellent choice. Since we're focusing on ${mission?.title.toLowerCase()}, let's talk about your strategic 'Hook'. Are you looking for high-velocity outreach or deep-dive personalization?`);
+      setIsConductorThinking(false);
+    }, 1200);
+  };
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    window.alert('Selection detected in browser!');
     const file = event.target.files?.[0];
-    console.log('📂 handleFileSelect TRIGGERED:', file?.name, file?.type, file?.size);
-    if (!file) {
-      console.warn('⚠️ No file in event.target.files');
-      return;
-    }
+    if (!file) return;
 
     setUploadStatus('uploading');
-    console.log('⏳ Status set to UPLOADING');
-    
     try {
-      console.log('🔍 Validating file...');
-      const validation = connectionService.validateFile(file);
-      if (!validation.isValid) {
-        console.error('❌ Validation failed:', validation.error);
-        setUploadStatus('error');
-        alert(`Validation Error: ${validation.error}`);
+      if (!user) {
+        // Anonymous Audit Case
+        console.log('🔍 Starting anonymous audit...');
+        const result = await connectionService.audit(file);
+        setStrategicDraft(result);
+        setConnectionCount(result.connectionCount || 0);
+        setPendingFile(file);
+        setUploadStatus('success');
         return;
       }
 
+      // Authenticated Ingest Case
       const importRequest = {
         name: `Onboarding Import - ${new Date().toLocaleDateString()}`,
         source: ImportSource.LINKEDIN_EXPORT,
-        description: `Initial network import for ${user.email}`
+        description: `Initial network import`
       };
       
-      console.log('🚀 Sending to server...');
-      if (file.name.endsWith('.zip')) {
-        console.log('📦 Identified as ZIP, calling ingestZip');
-        const result = await connectionService.ingestZip(importRequest, file);
-        console.log('✅ ZIP Ingest successful response:', result);
-        setStrategicDraft(result.strategicDraft);
-        
-        // We still subscribe to the connections part of the import in the background
-        importWebSocketService.subscribe(result.importId, (event: ImportEvent) => {
-          console.log('📡 Import WebSocket event:', event.type);
-          if (event.type === 'progress') {
-            setImportProgress({
-              percentage: event.data.percentage || 0,
-              processedRecords: event.data.processedRecords || 0,
-              totalRecords: event.data.totalRecords || 0,
-              importedRecords: event.data.importedRecords || 0,
-              duplicateRecords: event.data.duplicateRecords || 0,
-            });
-          } else if (event.type === 'completed') {
-            setFinalAnalysis({
-              total: event.data.totalRecords,
-              imported: event.data.importedRecords,
-              duplicates: event.data.duplicateRecords,
-              targetCompanies: Math.max(5, Math.floor(event.data.importedRecords * 0.3)),
-              highValueContacts: Math.max(10, Math.floor(event.data.importedRecords * 0.15))
-            });
-          }
-        });
-
-        setUploadStatus('success');
-        setCurrentStep('strategy');
-        console.log('⏭️ Transitioned to STRATEGY step');
-        return;
-      }
-
-      console.log('📄 Identified as CSV/Other, calling createImport');
-      const importData = await connectionService.createImport(importRequest, file, user.id);
-      console.log('✅ Import created:', importData.id);
-      setUploadStatus('processing');
-
-      // Subscribe to real-time updates
-      importWebSocketService.subscribe(importData.id, (event: ImportEvent) => {
-        console.log('📡 CSV Import WebSocket event:', event.type);
-        if (event.type === 'progress') {
-          setImportProgress({
-            percentage: event.data.percentage || 0,
-            processedRecords: event.data.processedRecords || 0,
-            totalRecords: event.data.totalRecords || 0,
-            importedRecords: event.data.importedRecords || 0,
-            duplicateRecords: event.data.duplicateRecords || 0,
-          });
-        } else if (event.type === 'completed') {
-          console.log('🏁 CSV Import completed');
-          setFinalAnalysis({
-            total: event.data.totalRecords,
-            imported: event.data.importedRecords,
-            duplicates: event.data.duplicateRecords,
-            targetCompanies: Math.max(5, Math.floor(event.data.importedRecords * 0.3)),
-            highValueContacts: Math.max(10, Math.floor(event.data.importedRecords * 0.15))
-          });
-          setUploadStatus('success');
-          setCurrentStep('reveal');
-        } else if (event.type === 'error') {
-          console.error('❌ Import WebSocket error');
-          setUploadStatus('error');
-          alert('Import failed in background. Please try again.');
-        }
-      });
-
+      console.log('🚀 Starting authenticated ingest...');
+      const result = await connectionService.ingestZip(importRequest, file);
+      setStrategicDraft(result.strategicDraft);
+      setActiveImportId(result.importId);
+      setPendingFile(file);
+      setUploadStatus('processing'); // Wait for WebSocket to set success
     } catch (error) {
-      console.error('❌ CRITICAL ERROR in handleFileSelect:', error);
+      console.error('❌ Error in handleFileSelect:', error);
       setUploadStatus('error');
-      alert(`Critical error: ${error instanceof Error ? error.message : 'Unknown error'}. Check console for details.`);
-    } finally {
-      console.log('🏁 handleFileSelect FINISHED');
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
+
+  const renderBriefing = () => (
+    <div className="onboarding-content briefing-step">
+      <div className="onboarding-header">
+        <div className="conductor-badge">
+          <div className="badge-pulse" />
+          <span>The Conductor</span>
+        </div>
+        <h1>Increase and Improve Your Outreach.</h1>
+        <p>I am your strategic execution partner. Let's turn your network and expertise into high-quality conversations.</p>
+      </div>
+
+      <div className="cycle-diagram-container">
+        <div className="cycle-diagram">
+          <svg className="cycle-connectors" viewBox="0 0 400 400">
+            <defs>
+              <linearGradient id="beam-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="transparent" />
+                <stop offset="50%" stopColor="#3b82f6" />
+                <stop offset="100%" stopColor="transparent" />
+              </linearGradient>
+            </defs>
+            <path d="M 200,80 Q 300,100 320,200" className="connector-path-bg" />
+            <path d="M 320,200 Q 300,300 200,320" className="connector-path-bg" />
+            <path d="M 200,320 Q 100,300 80,200" className="connector-path-bg" />
+            <path d="M 80,200 Q 100,100 200,80" className="connector-path-bg" />
+            <path d="M 200,80 Q 300,100 320,200" className="connector-path-glow path-1" />
+            <path d="M 320,200 Q 300,300 200,320" className="connector-path-glow path-2" />
+            <path d="M 200,320 Q 100,300 80,200" className="connector-path-glow path-3" />
+            <path d="M 80,200 Q 100,100 200,80" className="connector-path-glow path-4" />
+          </svg>
+
+          <div className="cycle-core">
+            <div className="core-inner"><div className="core-hexa"><div className="core-icon">C</div></div></div>
+            <div className="core-glow" />
+          </div>
+
+          <div className="cycle-node node-intelligence">
+            <div className="node-icon"><Database size={24} /></div>
+            <div className="node-content"><h4>1. Intelligence</h4><p>Gathering global market insights and data.</p></div>
+          </div>
+          <div className="cycle-node node-strategy">
+            <div className="node-icon"><Target size={24} /></div>
+            <div className="node-content"><h4>2. Strategy</h4><p>Synthesizing intelligence into actionable plans.</p></div>
+          </div>
+          <div className="cycle-node node-execution">
+            <div className="node-icon"><Rocket size={24} /></div>
+            <div className="node-content"><h4>3. Execution</h4><p>Deploying resources to achieve strategic objectives.</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="onboarding-footer">
+        <div />
+        <button className="onboarding-btn-primary glow-btn" onClick={() => setCurrentStep('intent')}>
+          Begin Mission <ArrowRight size={18} />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderIntent = () => (
+    <div className="onboarding-content">
+      <div className="onboarding-header">
+        <h1>What is your primary mission today?</h1>
+        <p>I will tailor your sensing and orchestration to this objective.</p>
+      </div>
+
+      <div className={`mission-grid ${expandedCard ? 'has-expanded' : ''}`}>
+        {missions.map(mission => {
+          const isExpanded = expandedCard === mission.id;
+          const isHidden = expandedCard && !isExpanded;
+          const Icon = mission.icon;
+          
+          return (
+            <div 
+              key={mission.id} 
+              className={`mission-card ${isExpanded ? 'expanded' : ''} ${isHidden ? 'hidden' : ''}`}
+              onClick={() => !expandedCard && handleMissionSelect(mission.id)}
+            >
+              <div className="card-content">
+                <div className="mission-icon"><Icon size={32} /></div>
+                <h3>{mission.title}</h3>
+                <p>{mission.description}</p>
+                
+                {isExpanded && (
+                  <div className="conductor-chat-section">
+                    <div className="conductor-message">
+                      {isConductorThinking ? <div className="typing-indicator"><span></span><span></span><span></span></div> : <p>{conductorMessage}</p>}
+                    </div>
+                    {!isConductorThinking && (
+                      <div className="chat-actions">
+                        <button className="chat-btn" onClick={() => setCurrentStep('relationships')}>High Velocity <ArrowRight size={14} /></button>
+                        <button className="chat-btn" onClick={() => setCurrentStep('relationships')}>Deep Dive <ArrowRight size={14} /></button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      
+      {!expandedCard && (
+        <div className="onboarding-footer">
+          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('briefing')}>Back</button>
+          <div />
+        </div>
+      )}
+    </div>
+  );
+
+  const renderRelationships = () => (
+    <div className="onboarding-content">
+      <div className="onboarding-header">
+        <div className="phase-indicator">Phase 03: Relationships</div>
+        <h1>Who do you know?</h1>
+        <p>Upload your LinkedIn ZIP archive. I'll map your network topography and identify high-value nodes.</p>
+      </div>
+
+      <div className="single-bucket-container">
+        <div className="context-bucket large">
+          <div className="bucket-icon"><Users size={48} /></div>
+          <h3>Relationship Source</h3>
+          <p>LinkedIn Data Export (ZIP)</p>
+          <div className="drop-zone" onClick={() => fileInputRef.current?.click()}>
+            <Upload size={32} />
+            <span>Drop LinkedIn ZIP here</span>
+            <p className="drop-hint">I'll map your network in seconds</p>
+          </div>
+        </div>
+      </div>
+
+      {uploadStatus !== 'idle' && (
+        <div className="sensing-feedback">
+          <div className="sensing-status">
+            <RefreshCw className="spin" size={18} />
+            <span>Sensing: {uploadStatus === 'uploading' ? 'Ingesting network...' : `Mapping ${connectionCount || 'nodes'}...`}</span>
+          </div>
+          <div className="sensing-progress">
+             <div className="progress-bar-fill" style={{ width: `${importProgress.percentage || 25}%` }} />
+          </div>
+        </div>
+      )}
+
+      <div className="onboarding-footer">
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('intent')}>Back</button>
+        <button className="onboarding-btn-primary" onClick={() => setCurrentStep('knowledge')} disabled={uploadStatus !== 'success' && uploadStatus !== 'idle'}>
+          Confirm Relationships <ArrowRight size={18} />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderKnowledge = () => (
+    <div className="onboarding-content">
+      <div className="onboarding-header">
+        <div className="phase-indicator">Phase 04: Knowledge</div>
+        <h1>What have you built?</h1>
+        <p>Upload your book PDF, decks, or portfolio. I'll extract your core frameworks to ground our outreach.</p>
+      </div>
+
+      <div className="single-bucket-container">
+        <div className="context-bucket large">
+          <div className="bucket-icon"><Database size={48} /></div>
+          <h3>Knowledge Source</h3>
+          <p>Book PDF, Decks, Portfolio</p>
+          <div className="drop-zone secondary">
+            <Upload size={32} />
+            <span>Drop Strategic Assets here</span>
+            <p className="drop-hint">PDF, PPTX, or Keynote</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="onboarding-footer">
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('relationships')}>Back</button>
+        <button className="onboarding-btn-primary" onClick={() => setCurrentStep('analysis')}>
+          Confirm Knowledge <ArrowRight size={18} />
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderAnalysis = () => (
+    <div className="onboarding-content">
+      <div className="onboarding-header">
+        <h1>Intelligence Report: Strategy Primed.</h1>
+        <p>I've synthesized your network and your expertise.</p>
+      </div>
+
+      <div className="analysis-summary">
+        <div className="leverage-card">
+          <div className="leverage-icon"><Zap size={24} /></div>
+          <div className="leverage-text">
+            <h4>Primary Leverage Identified</h4>
+            <p>Your "AI-Native Engineering" framework aligns with <strong>850 CTOs</strong> in your network.</p>
+          </div>
+        </div>
+
+        <div className="stats-mini-grid">
+          <div className="stat-mini"><div className="val">{connectionCount || 14640}</div><div className="lbl">Network Nodes</div></div>
+          <div className="stat-mini"><div className="val">42</div><div className="lbl">Target Clusters</div></div>
+        </div>
+      </div>
+
+      {!user ? (
+        <div className="signup-integration">
+          <h3>Claim this Strategy</h3>
+          <p>Create your secure vault to initialize the workspace and campaign.</p>
+          <AuthScreen onAuth={onAuth} isWorking={isWorking} notice={notice} initialStrategy={strategicDraft} />
+        </div>
+      ) : (
+        <div className="onboarding-footer">
+          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('knowledge')}>Back</button>
+          <button className="onboarding-btn-primary" onClick={() => setCurrentStep('activation')}>
+            Generate Campaign <ArrowRight size={18} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderActivation = () => (
+    <div className="onboarding-content">
+      <div className="onboarding-header">
+        <h1>Campaign Ready. Let's start the outreach.</h1>
+        <p>I've drafted your first mission based on your book mission.</p>
+      </div>
+
+      <div className="campaign-preview-card">
+        <div className="preview-header"><Target size={20} /><h4>Mission: Monetize AI-Native IP</h4></div>
+        <div className="preview-body">
+          <div className="preview-prospect"><div className="avatar" /><div className="details"><strong>Alex Chen</strong><span>CTO at TechScale</span></div></div>
+          <div className="preview-draft">
+            <p>"Hey Alex, I noticed TechScale is scaling its AI-native engineering team. I recently published a framework on the 'New Physics of Velocity' that might save you some headaches..."</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="onboarding-footer">
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('analysis')}>Back</button>
+        <button className="onboarding-btn-primary" onClick={() => onComplete()}>
+          Initialize Workspace <Rocket size={18} />
+        </button>
+      </div>
+    </div>
+  );
 
   const renderWelcome = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <h1>Welcome to the Future of Strategy.</h1>
-        <p>Opportunity OS transforms your professional network into a high-precision execution engine.</p>
+        <h1>Welcome to Opportunity OS.</h1>
+        <p>Your intelligence partner for high-impact outreach.</p>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'center', margin: '40px 0' }}>
-        <Rocket size={80} color="#3b82f6" />
-      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', margin: '40px 0' }}><Rocket size={80} color="#3b82f6" /></div>
       <div className="onboarding-footer">
-        <div />
-        <button className="onboarding-btn-primary" onClick={() => setCurrentStep('archive')}>
-          Initialize System <ArrowRight size={18} style={{ marginLeft: 8 }} />
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderGoal = () => (
-    <div className="onboarding-content">
-      <div className="onboarding-header">
-        <h1>Define Your Mission.</h1>
-        <p>Choose your primary focus to help the Conductor prioritize your opportunities.</p>
-      </div>
-      <div className="goal-selection">
-        {goals.map(goal => (
-          <div 
-            key={goal.id} 
-            className={`goal-card ${selectedGoal === goal.id ? 'active' : ''}`}
-            onClick={() => setSelectedGoal(goal.id)}
-          >
-            <h3>{goal.title}</h3>
-            <p>{goal.description}</p>
-          </div>
-        ))}
-      </div>
-      <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('welcome')}>Back</button>
-        <button 
-          className="onboarding-btn-primary" 
-          disabled={!selectedGoal} 
-          onClick={() => setCurrentStep('import')}
-        >
-          Next Step <ArrowRight size={18} style={{ marginLeft: 8 }} />
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderArchiveUpload = () => (
-    <div className="onboarding-content">
-      <div className="onboarding-header">
-        <h1>Inject Your Professional Portfolio.</h1>
-        <p>Upload your full LinkedIn data archive (ZIP). I'll audit your history to extract your core offerings and strategic posture.</p>
-      </div>
-      
-      <div className={`import-zone ${uploadStatus === 'uploading' || uploadStatus === 'processing' ? 'uploading' : ''} ${uploadStatus === 'error' ? 'error' : ''}`} style={{ position: 'relative' }}>
-
-        <div className="import-icon">
-          {uploadStatus === 'idle' || uploadStatus === 'error' ? <Rocket size={32} /> : <Upload className="animate-spin" size={32} />}
-        </div>
-        
-        {uploadStatus === 'idle' ? (
-          <>
-            <h3>Click to upload LinkedInDataExport.zip</h3>
-            <p>Your history is the foundation of our strategy.</p>
-          </>
-        ) : uploadStatus === 'error' ? (
-          <>
-            <h3 style={{ color: '#ef4444' }}>Analysis Failed</h3>
-            <p>Something went wrong during the audit. Please try again or skip to manual setup.</p>
-          </>
-        ) : (
-          <div className="progress-container">
-            <h3>{uploadStatus === 'uploading' ? 'Analyzing Archive...' : 'Auditing History...'}</h3>
-            <div className="progress-bar-bg">
-              <div className="progress-bar-fill" style={{ width: `${importProgress.percentage || 25}%` }} />
-            </div>
-            <p style={{ marginTop: 10, fontSize: '0.9rem', color: '#94a3b8' }}>Extracting offerings and identifying themes...</p>
-          </div>
-        )}
-      </div>
-
-
-
-      <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('welcome')} disabled={uploadStatus !== 'idle'}>Back</button>
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('goal')} disabled={uploadStatus !== 'idle'}>Skip archive</button>
-      </div>
-    </div>
-  );
-
-  const renderImport = () => (
-    <div className="onboarding-content">
-      <div className="onboarding-header">
-        <h1>Initialize Your Network.</h1>
-        <p>Now, let's map your territory. Upload your LinkedIn Connections CSV to populate the Canvas.</p>
-      </div>
-      
-      <div className={`import-zone ${uploadStatus !== 'idle' ? 'uploading' : ''}`} style={{ position: 'relative' }}>
-
-        <div className="import-icon">
-          {uploadStatus === 'idle' ? <Users size={32} /> : <Upload className="animate-spin" size={32} />}
-        </div>
-        
-        {uploadStatus === 'idle' ? (
-          <>
-            <h3>Click to upload Connections.csv</h3>
-            <p>Your connections are the nodes of your execution engine.</p>
-          </>
-        ) : (
-          <div className="progress-container">
-            <h3>{uploadStatus === 'uploading' ? 'Uploading File...' : 'Analyzing Network...'}</h3>
-            <div className="progress-bar-bg">
-              <div className="progress-bar-fill" style={{ width: `${importProgress.percentage}%` }} />
-            </div>
-            <div className="progress-stats">
-              <span>{importProgress.processedRecords} of {importProgress.totalRecords} records</span>
-              <span>{importProgress.percentage}%</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('goal')} disabled={uploadStatus !== 'idle'}>Back</button>
-        <button className="onboarding-btn-secondary" onClick={() => onComplete()} disabled={uploadStatus !== 'idle'}>Skip network map</button>
-      </div>
-    </div>
-  );
-
-  const renderStrategy = () => (
-    <div className="onboarding-content">
-      <div className="onboarding-header">
-        <h1>Your Strategic Engine is Active.</h1>
-        <p>I've audited your LinkedIn profile and mapped out your core expertise. How does this look?</p>
-      </div>
-
-      <div className="strategy-review">
-        <section className="strategy-section">
-          <div className="section-header">
-            <Users size={20} color="#3b82f6" />
-            <h3>Proposed Posture</h3>
-          </div>
-          <div className="posture-card">
-            <p>{strategicDraft?.posture?.text}</p>
-            <div className="objectives-list">
-              {strategicDraft?.posture?.objectives?.map((obj: string, i: number) => (
-                <span key={i} className="objective-tag">{obj}</span>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="strategy-section">
-          <div className="section-header">
-            <Rocket size={20} color="#10b981" />
-            <h3>Identified Offerings</h3>
-          </div>
-          <div className="offerings-grid">
-            {strategicDraft?.offerings?.map((off: any, i: number) => (
-              <div key={i} className="mini-offering-card">
-                <h4>{off.title}</h4>
-                <p>{off.description}</p>
-                <span className="type-badge">{off.type}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="strategy-section">
-          <div className="section-header">
-            <Database size={20} color="#f59e0b" />
-            <h3>Strategic Theses</h3>
-          </div>
-          <div className="theses-list">
-            {strategicDraft?.theses?.map((thesis: any, i: number) => (
-              <div key={i} className="mini-thesis-card">
-                <h4>{thesis.title}</h4>
-                <p>{thesis.content.substring(0, 100)}...</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      </div>
-
-      <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('archive')}>Back</button>
-        <button 
-          className="onboarding-btn-primary" 
-          onClick={() => setCurrentStep('goal')}
-        >
-          Confirm Strategy <ArrowRight size={18} style={{ marginLeft: 8 }} />
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderReveal = () => (
-    <div className="onboarding-content">
-      <div className="onboarding-header">
-        <h1>System Armed.</h1>
-        <p>We've analyzed your network. You're ready to execute.</p>
-      </div>
-      
-      <div className="analysis-grid">
-        <div className="analysis-card">
-          <div className="value">{finalAnalysis?.imported || 0}</div>
-          <div className="label">New Connections</div>
-        </div>
-        <div className="analysis-card">
-          <div className="value">{finalAnalysis?.targetCompanies || 0}</div>
-          <div className="label">Target Companies</div>
-        </div>
-        <div className="analysis-card">
-          <div className="value">{finalAnalysis?.highValueContacts || 0}</div>
-          <div className="label">High-Value Contacts</div>
-        </div>
-        <div className="analysis-card">
-          <div className="value">{finalAnalysis?.duplicates || 0}</div>
-          <div className="label">Sync Deduplicated</div>
-        </div>
-      </div>
-
-      <div className="onboarding-footer" style={{ marginTop: '40px' }}>
-        <div />
-        <button className="onboarding-btn-primary" onClick={() => onComplete()}>
-          Enter Workspace <CheckCircle size={18} style={{ marginLeft: 8 }} />
-        </button>
+        <div /><button className="onboarding-btn-primary" onClick={() => setCurrentStep('briefing')}>Initialize System <ArrowRight size={18} /></button>
       </div>
     </div>
   );
@@ -388,60 +436,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
       <div className="onboarding-background-mesh" />
       <div className="onboarding-card">
         <div className="onboarding-steps">
-          <div className={`onboarding-step-dot ${currentStep === 'welcome' ? 'active' : ''}`} />
-          <div className={`onboarding-step-dot ${currentStep === 'archive' ? 'active' : ''}`} />
-          <div className={`onboarding-step-dot ${currentStep === 'strategy' ? 'active' : ''}`} />
-          <div className={`onboarding-step-dot ${currentStep === 'goal' ? 'active' : ''}`} />
-          <div className={`onboarding-step-dot ${currentStep === 'import' ? 'active' : ''}`} />
-          <div className={`onboarding-step-dot ${currentStep === 'reveal' ? 'active' : ''}`} />
+          {['briefing', 'intent', 'relationships', 'knowledge', 'analysis', 'activation'].map((s) => (
+            <div key={s} className={`onboarding-step-dot ${currentStep === s ? 'active' : ''}`} />
+          ))}
         </div>
         
+        {currentStep === 'briefing' && renderBriefing()}
+        {currentStep === 'intent' && renderIntent()}
+        {currentStep === 'relationships' && renderRelationships()}
+        {currentStep === 'knowledge' && renderKnowledge()}
+        {currentStep === 'analysis' && renderAnalysis()}
+        {currentStep === 'activation' && renderActivation()}
         {currentStep === 'welcome' && renderWelcome()}
-        {currentStep === 'archive' && renderArchiveUpload()}
-        {currentStep === 'strategy' && renderStrategy()}
-        {currentStep === 'goal' && renderGoal()}
-        {currentStep === 'import' && renderImport()}
-        {currentStep === 'reveal' && renderReveal()}
 
-        {/* PERMANENT STABLE INPUTS - Hidden but always present in DOM */}
-        {currentStep === 'archive' && (
-          <input 
-            type="file" 
-            style={{
-              position: 'absolute',
-              top: '200px', // Roughly over the drop zone
-              left: '50px',
-              right: '50px',
-              height: '300px',
-              opacity: 0.3,
-              cursor: 'pointer',
-              zIndex: 100,
-              background: 'rgba(255, 0, 0, 0.2)'
-            }} 
-            accept=".zip"
-            onChange={handleFileSelect}
-            disabled={uploadStatus !== 'idle' && uploadStatus !== 'error'}
-          />
-        )}
-        {currentStep === 'import' && (
-          <input 
-            type="file" 
-            style={{
-              position: 'absolute',
-              top: '200px',
-              left: '50px',
-              right: '50px',
-              height: '300px',
-              opacity: 0.3,
-              cursor: 'pointer',
-              zIndex: 100,
-              background: 'rgba(255, 0, 0, 0.2)'
-            }} 
-            accept=".csv"
-            onChange={handleFileSelect}
-            disabled={uploadStatus !== 'idle'}
-          />
-        )}
+        <input 
+          type="file" 
+          ref={fileInputRef}
+          style={{ display: 'none' }} 
+          accept=".zip,.pdf"
+          onChange={handleFileSelect}
+        />
       </div>
     </div>
   );

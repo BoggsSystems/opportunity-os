@@ -278,4 +278,67 @@ export class ConnectionImportService {
       completedAt: batch.processingCompletedAt || undefined,
     };
   }
+
+  public parseCSV(content: string): any[] {
+    const lines = content.split('\n').filter(line => line.trim());
+    if (lines.length === 0) return [];
+
+    // Find the actual header row - skip descriptive text at the beginning
+    let headerIndex = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lowerLine = line.toLowerCase();
+      
+      const matches = [
+        lowerLine.includes('first name'),
+        lowerLine.includes('last name'),
+        lowerLine.includes('email'),
+        lowerLine.includes('company'),
+        lowerLine.includes('position')
+      ].filter(Boolean).length;
+
+      if (line.includes(',') && matches >= 2 && !line.trim().startsWith('"')) {
+        headerIndex = i;
+        break;
+      }
+    }
+
+    const headers = lines[headerIndex].split(',').map(h => h.trim().replace(/"/g, ''));
+    const data = [];
+
+    for (let i = headerIndex + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      
+      try {
+        const values = [];
+        let currentValue = '';
+        let inQuotes = false;
+        
+        for (let char of line) {
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            values.push(currentValue.trim().replace(/"/g, ''));
+            currentValue = '';
+          } else {
+            currentValue += char;
+          }
+        }
+        values.push(currentValue.trim().replace(/"/g, ''));
+        
+        if (values.length === headers.length) {
+          const row: any = {};
+          headers.forEach((header, index) => {
+            row[header] = values[index] || '';
+          });
+          data.push(row);
+        }
+      } catch (error) {
+        // Skip malformed lines
+      }
+    }
+
+    return data;
+  }
 }

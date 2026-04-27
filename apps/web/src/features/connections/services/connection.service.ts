@@ -4,6 +4,7 @@ import {
   CreateConnectionImportRequest,
   ImportPreview,
   ImportProgress,
+  ImportSource,
   ImportStatus
 } from '../types/connection.types';
 import { ApiClient } from '../../../lib/api';
@@ -90,13 +91,6 @@ class ConnectionService {
     }
   }
 
-  private async refreshToken(session: any): Promise<void> {
-    console.log('🔍 DEBUG: Token refresh requested, but not fully implemented. Keeping session for now to avoid zombie state.');
-    // We don't wipe the session here anymore. 
-    // Instead, we let the ApiClient handle 401s if the token is truly dead.
-    // This prevents the UI from becoming desynced from localStorage.
-    this.api = new ApiClient(session.accessToken);
-  }
 
   private ensureValidToken(): boolean {
     console.log('🔍 AUTH DEBUG: Starting token validation');
@@ -137,15 +131,13 @@ class ConnectionService {
 
   async createImport(
     request: CreateConnectionImportRequest,
-    file: File,
-    _userId: string
+    file: File
   ): Promise<ConnectionImport> {
     console.log('🔍 DEBUG: createImport called with:', {
       request,
       fileName: file.name,
       fileSize: file.size,
-      fileType: file.type,
-      userId: _userId
+      fileType: file.type
     });
 
     // Check authentication before proceeding
@@ -204,7 +196,7 @@ class ConnectionService {
         importedRecords: result.data.successfulImports || 0,
         duplicateRecords: result.data.duplicateRecords || 0,
         failedRecords: result.data.failedRecords || 0,
-        userId: _userId,
+        userId: 'current-user',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         errors: []
@@ -243,7 +235,19 @@ class ConnectionService {
     }
   }
 
-  async getImports(_userId: string, status?: ImportStatus): Promise<ConnectionImport[]> {
+  async audit(file: File): Promise<any> {
+    console.log('🔍 ConnectionService.audit START', { fileSize: file.size });
+    try {
+      const result = await this.api.auditLinkedInZip(file);
+      console.log('🔍 ConnectionService.audit SUCCESS:', result);
+      return result.data;
+    } catch (error) {
+      console.error('🔍 ConnectionService.audit ERROR:', error);
+      throw new Error(`Failed to perform audit: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getImports(status?: ImportStatus): Promise<ConnectionImport[]> {
     try {
       const result = await this.api.getConnectionImports(status);
       
@@ -258,7 +262,7 @@ class ConnectionService {
         importedRecords: item.successfulImports,
         duplicateRecords: item.duplicateRecords,
         failedRecords: item.failedRecords,
-        userId: _userId,
+        userId: 'current-user',
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         startedAt: item.startedAt,
