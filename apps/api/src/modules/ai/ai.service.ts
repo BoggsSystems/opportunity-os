@@ -127,7 +127,7 @@ QUERY:`;
     this.logger.log(`Interpreting discovery relevance for goal: ${context.goalTitle}`);
     
     const prompt = `
-You are an expert business strategist. Analyze the following content and explain why it matters to the user's current business goal.
+You are a High-Signal Strategic Commander. Analyze the following intellectual property (IP) and extract its core tactical value.
 
 Content to analyze:
 "${content}"
@@ -136,19 +136,24 @@ User's Active Goal: "${context.goalTitle}"
 ${context.campaignTitle ? `Current Campaign: "${context.campaignTitle}"` : ''}
 ${context.targetSegment ? `Target Segment: "${context.targetSegment}"` : ''}
 
-Rules:
-- Be extremely concise (1-2 sentences max).
-- Focus on the "Leverage" - how this helps the user achieve their goal.
-- Avoid generic phrases like "this is relevant because."
-- If the content is clearly irrelevant, state that briefly.
+Your Task:
+You must respond with ONLY a valid JSON object with the following structure:
+{
+  "summary": "A punchy, one-sentence summary of the core thesis.",
+  "interpretation": "A comprehensive 2-3 paragraph overview of the asset. What is the fundamental logic? What unique perspective or high-signal insight can be used to grab a prospect's attention? How does this IP create leverage for the user's active goal?",
+  "frameworks": ["Framework Name 1", "Framework Name 2", "Framework Name 3"]
+}
 
-Response should be the explanation text only, no preamble.
+Rules:
+- Be punchy and professional.
+- Focus on "Weaponizable" insights—things that can be used in a real conversation.
+- Extract exactly 3-5 frameworks from the text.
 `.trim();
 
     const request: AiRequest = {
       prompt,
-      temperature: 0.3,
-      maxTokens: 200,
+      temperature: 0.4,
+      maxTokens: 800,
     };
 
     const response = await this.aiProviderFactory.getProvider().generateText(request);
@@ -177,6 +182,7 @@ Response should be the explanation text only, no preamble.
     message: string;
     history?: ConversationTurn[];
     context?: ConversationContext;
+    strategicContext?: { phase: string; mission: string };
   }): Promise<{ sessionId: string; reply: string; shouldBeSilent: boolean; suggestedAction?: string; onboardingPlan?: StrategicResult | null }> {
     this.logger.log(
       `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} guestSessionId=${input.guestSessionId ?? 'none'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
@@ -218,7 +224,7 @@ Response should be the explanation text only, no preamble.
       `Conversation state prepared sessionId=${sessionId} mergedHistoryCount=${history.length} dbHistoryCount=${dbHistory.length} summaryCount=${summaries.length}`,
     );
 
-    const strategicContext = await this.determineStrategicContext(input.userId, input.guestSessionId);
+    const strategicContext = input.strategicContext ?? await this.determineStrategicContext(input.userId, input.guestSessionId);
     this.logger.log(`Determined strategic context: ${strategicContext.phase}`);
 
     let searchResults: string | undefined;
@@ -233,6 +239,8 @@ Response should be the explanation text only, no preamble.
 
     const messages = this.buildConversationMessages({
       ...input,
+      message: input.message.startsWith('[SYSTEM:') ? '' : input.message,
+      systemOverride: input.message.startsWith('[SYSTEM:') ? input.message.replace('[SYSTEM:', '').replace(']', '') : undefined,
       history,
       summaries,
       strategicContext,
@@ -967,13 +975,15 @@ Please provide a JSON response with this structure:
     summaries?: string[];
     strategicContext?: { phase: string; mission: string };
     searchResults?: string;
+    systemOverride?: string;
   }): AiMessage[] {
     const phase = input.strategicContext?.phase ?? 'DISCOVERY';
     const phaseRules = this.phaseSpecificPromptRules(phase);
-
     const systemPrompt = `
-You are Opportunity OS, a friendly and proactive voice-first assistant.
+You are Opportunity OS, a powerful and proactive strategic assistant.
 You are talking to ${input.userName ?? 'the user'}.
+
+${input.systemOverride ? `[NARRATION DIRECTIVE]: ${input.systemOverride}\n` : ''}
 
 Your Core Mission:
 - Acknowledge every user message warmly and concisely.

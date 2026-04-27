@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, ChevronLeft, ChevronRight, UserRound, Loader2, Send } from 'lucide-react';
+import { Bot, ChevronLeft, ChevronRight, UserRound } from 'lucide-react';
 import type { ConversationMessage } from '../../types';
+import { ConductorChat } from './ConductorChat';
 
 interface ConductorPaneProps {
   userEmail: string;
@@ -17,15 +18,10 @@ interface ConductorPaneProps {
 }
 
 export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
-  const [draftMessage, setDraftMessage] = useState('');
   const [isResizing, setIsResizing] = useState(false);
   const [paneWidth, setPaneWidth] = useState(420);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const paneRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [props.messages]);
 
   // Set CSS variable for grid layout
   useEffect(() => {
@@ -114,7 +110,7 @@ export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
       )}
 
       {props.expanded && (
-        <>
+        <div className="pane-content-wrapper">
           {props.currentReasoningSummary ? (
             <div className="reasoning-card">
               <p className="label">Current reasoning</p>
@@ -122,57 +118,14 @@ export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
             </div>
           ) : null}
 
-          <div ref={scrollRef} className="conversation-thread">
-            {props.onboardingActive && props.onboardingComponent ? (
-              <div className="onboarding-embedded">
-                {props.onboardingComponent}
-              </div>
-            ) : (
-              <>
-                {props.messages.map((message) => (
-                  <article key={message.id} className={`message ${message.role}`}>
-                    <p>{message.text}</p>
-                  </article>
-                ))}
-                {props.isWorking ? (
-                  <article className="message assistant pending">
-                    <Loader2 className="spin" size={16} />
-                    <p>Working through the current cycle...</p>
-                  </article>
-                ) : null}
-              </>
-            )}
-          </div>
-
-          <div className="prompt-row">
-            {props.suggestedPrompts.slice(0, 3).map((prompt) => (
-              <button key={prompt} onClick={() => void props.onSend(prompt)} type="button">
-                {prompt}
-              </button>
-            ))}
-          </div>
-
-          <form
-            className="composer"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const message = draftMessage.trim();
-              setDraftMessage('');
-              void props.onSend(message);
-            }}
-          >
-            <textarea
-              aria-label="Message the Conductor"
-              onChange={(event) => setDraftMessage(event.target.value)}
-              placeholder="Tell the assistant what you want to create, review, or execute..."
-              rows={3}
-              value={draftMessage}
-            />
-            <button className="send-button" disabled={!draftMessage.trim() || props.isWorking} title="Send message" type="submit">
-              <Send size={18} />
-            </button>
-          </form>
-        </>
+          <ConductorChat
+            messages={props.messages}
+            isWorking={props.isWorking}
+            onSend={props.onSend}
+            suggestedPrompts={props.suggestedPrompts}
+            variant="pane"
+          />
+        </div>
       )}
     </aside>
   );

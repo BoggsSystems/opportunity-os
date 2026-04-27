@@ -71,6 +71,12 @@ export class ImportWebSocketService {
     this.socket.on('connect', () => {
       console.log('✅ Connected to Import WebSocket');
       this.reconnectAttempts = 0;
+      
+      // Resubscribe to all active listeners on reconnect
+      this.listeners.forEach((_, importId) => {
+        console.log(`📡 Re-subscribing to import: ${importId}`);
+        this.socket?.emit('subscribe-import', importId);
+      });
     });
 
     this.socket.on('disconnect', (reason) => {

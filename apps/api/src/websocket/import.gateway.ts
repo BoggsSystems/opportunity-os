@@ -10,7 +10,8 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { OnEvent } from '@nestjs/event-emitter';
+import { prisma } from '@opportunity-os/db';
 
 @WebSocketGateway({
   cors: {
@@ -25,31 +26,30 @@ export class ImportGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   private readonly logger = new Logger(ImportGateway.name);
 
-  constructor(private readonly eventEmitter: EventEmitter2) {
+  constructor() {
     this.logger.log('🔌 Import WebSocket Gateway constructor called');
-    this.logger.log('🔌 EventEmitter2 injected successfully');
   }
 
-  afterInit(server: Server) {
-    this.logger.log('🔌 WebSocket Gateway initialized with server');
-    this.logger.log(`🔌 Server instance type: ${server.constructor.name}`);
-    this.logger.log(`🔌 Server has socket.io: ${!!server.emit && !!server.on}`);
-    
-    // Listen to import progress events from services
-    this.eventEmitter.on('import.progress', (data) => {
-      this.logger.log(`📊 Emitting progress: ${data.percentage}%`);
-      this.sendImportProgress(data.importId, data);
-    });
+  afterInit() {
+    this.logger.log('🔌 WebSocket Gateway initialized');
+  }
+  
+  @OnEvent('import.progress')
+  handleImportProgressEvent(data: any) {
+    this.logger.log(`📊 Received import.progress event for ${data.importId}: ${data.percentage}%`);
+    this.sendImportProgress(data.importId, data);
+  }
 
-    this.eventEmitter.on('import.completed', (data) => {
-      this.logger.log(`✅ Emitting completion: ${data.importedRecords} imported`);
-      this.sendImportCompletion(data.importId, data);
-    });
+  @OnEvent('import.completed')
+  handleImportCompletedEvent(data: any) {
+    this.logger.log(`✅ Received import.completed event for ${data.importId}`);
+    this.sendImportCompletion(data.importId, data);
+  }
 
-    this.eventEmitter.on('import.error', (data) => {
-      this.logger.log(`❌ Emitting error: ${data.message}`);
-      this.sendImportError(data.importId, data);
-    });
+  @OnEvent('import.error')
+  handleImportErrorEvent(data: any) {
+    this.logger.log(`❌ Received import.error event for ${data.importId}: ${data.message}`);
+    this.sendImportError(data.importId, data);
   }
 
   handleConnection(client: Socket) {
@@ -66,9 +66,16 @@ export class ImportGateway implements OnGatewayInit, OnGatewayConnection, OnGate
   // Subscribe to import updates
   @SubscribeMessage('subscribe-import')
   handleSubscribeImport(
-    @MessageBody() importId: string,
+    @MessageBody() data: any,
     @ConnectedSocket() client: Socket,
   ) {
+    const importId = typeof data === 'string' ? data : data?.importId;
+    
+    if (!importId) {
+      this.logger.warn(`📡 Client ${client.id} tried to subscribe with invalid importId:`, data);
+      return;
+    }
+
     this.logger.log(`📡 Client ${client.id} subscribed to import: ${importId}`);
     client.join(`import-${importId}`);
     
@@ -167,8 +174,40 @@ export class ImportGateway implements OnGatewayInit, OnGatewayConnection, OnGate
 
   // Send current import status (for new subscribers)
   private async sendImportStatus(importId: string) {
-    // This would fetch current status from the import service
-    // For now, we'll implement this in the service
     this.logger.log(`📋 Sending current status for import ${importId}`);
+    try {
+      const batch = await prisma.connectionImportBatch.findUnique({
+        where: { id: importId }
+      });
+
+      if (batch) {
+        const percentage = batch.totalRows > 0 
+          ? Math.round(((batch.createdPeopleCount + batch.duplicateCount + batch.errorCount) / batch.totalRows) * 100)
+          : 0;
+
+        this.sendImportProgress(importId, {
+          status: batch.status.toString(),
+          totalRecords: batch.totalRows,
+          processedRecords: batch.createdPeopleCount + batch.duplicateCount + batch.errorCount,
+          importedRecords: batch.createdPeopleCount,
+          duplicateRecords: batch.duplicateCount,
+          failedRecords: batch.errorCount,
+          percentage
+        });
+
+        if (batch.status === 'completed') {
+          this.sendImportCompletion(importId, {
+            status: 'completed',
+            totalRecords: batch.totalRows,
+            importedRecords: batch.createdPeopleCount,
+            duplicateRecords: batch.duplicateCount,
+            failedRecords: batch.errorCount,
+            duration: 0 // Unknown
+          });
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(`Error sending initial status: ${error.message}`);
+    }
   }
 }

@@ -178,7 +178,7 @@ export class ApiClient {
     });
   }
 
-  async converse(body: { sessionId?: string; message: string; context?: Record<string, unknown> }) {
+  async converse(body: { sessionId?: string; guestSessionId?: string; message: string; context?: Record<string, unknown> }) {
     return this.request<{
       success: boolean;
       sessionId: string;
@@ -378,6 +378,23 @@ export class ApiClient {
       };
       message: string;
     }>('/onboarding/audit', formData);
+  }
+
+  async auditKnowledge(file: File) {
+    console.log('📚 API DEBUG: auditKnowledge called', { fileName: file.name, fileSize: file.size });
+    const formData = new FormData();
+    formData.append('file', file);
+
+    return this.requestForm<{
+      success: boolean;
+      data: {
+        title: string;
+        interpretation: string;
+        summary: string;
+        frameworks: string[];
+      };
+      message: string;
+    }>('/onboarding/knowledge', formData);
   }
 
   async getConnectionImports(status?: string) {

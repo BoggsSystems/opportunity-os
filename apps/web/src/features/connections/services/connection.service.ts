@@ -247,6 +247,18 @@ class ConnectionService {
     }
   }
 
+  async auditKnowledge(file: File): Promise<any> {
+    console.log('📚 ConnectionService.auditKnowledge START', { fileSize: file.size });
+    try {
+      const result = await this.api.auditKnowledge(file);
+      console.log('📚 ConnectionService.auditKnowledge SUCCESS:', result);
+      return result.data;
+    } catch (error) {
+      console.error('📚 ConnectionService.auditKnowledge ERROR:', error);
+      throw new Error(`Failed to perform knowledge audit: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   async getImports(status?: ImportStatus): Promise<ConnectionImport[]> {
     try {
       const result = await this.api.getConnectionImports(status);
@@ -370,7 +382,14 @@ class ConnectionService {
   // Helper method to validate file before upload
   validateFile(file: File): { isValid: boolean; error?: string } {
     const maxSize = 50 * 1024 * 1024; // Increased to 50MB for ZIPs
-    const allowedTypes = ['text/csv', 'application/json', 'text/plain', 'application/zip', 'application/x-zip-compressed'];
+    const allowedTypes = [
+      'text/csv', 
+      'application/json', 
+      'text/plain', 
+      'application/zip', 
+      'application/x-zip-compressed',
+      'application/pdf'
+    ];
 
     if (file.size > maxSize) {
       return { isValid: false, error: 'File size must be less than 50MB' };
@@ -378,11 +397,12 @@ class ConnectionService {
 
     if (
       !allowedTypes.includes(file.type) && 
-      !file.name.endsWith('.csv') && 
-      !file.name.endsWith('.json') &&
-      !file.name.endsWith('.zip')
+      !file.name.toLowerCase().endsWith('.csv') && 
+      !file.name.toLowerCase().endsWith('.json') &&
+      !file.name.toLowerCase().endsWith('.zip') &&
+      !file.name.toLowerCase().endsWith('.pdf')
     ) {
-      return { isValid: false, error: 'Only CSV, JSON, and ZIP files are supported' };
+      return { isValid: false, error: 'Only CSV, JSON, ZIP, and PDF files are supported' };
     }
 
     return { isValid: true };

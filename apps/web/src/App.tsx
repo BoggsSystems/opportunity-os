@@ -883,6 +883,7 @@ export function App() {
         <OnboardingWizard 
           onComplete={() => setView('app')}
           user={session?.user}
+          api={api}
           isWorking={isWorking}
           notice={notice}
           onAuth={handleAuth}
@@ -989,6 +990,7 @@ export function App() {
       {onboardingOpen && session ? (
         <OnboardingWizard 
           user={session.user} 
+          api={api}
           onComplete={handleOnboardingComplete} 
         />
       ) : null}

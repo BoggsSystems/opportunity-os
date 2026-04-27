@@ -32,8 +32,10 @@ export class AuthGuard implements CanActivate {
       context.getClass(),
     ]);
 
+    this.logger.log(`🔐 AUTH GUARD: isPublic=${isPublic} for ${method} ${url}`);
+
     if (isPublic) {
-      this.logger.log(`🔐 AUTH GUARD: Public endpoint, allowing access`);
+      this.logger.log(`🔐 AUTH GUARD: Public endpoint, allowing access without user injection`);
       return true;
     }
 

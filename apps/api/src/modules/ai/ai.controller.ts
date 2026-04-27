@@ -4,6 +4,7 @@ import { AiService } from './ai.service';
 import { TtsService } from './tts.service';
 import { prisma } from '@opportunity-os/db';
 import { CommercialService } from '../commercial/commercial.service';
+import { Public } from '../auth/public.decorator';
 
 @Controller('ai')
 export class AiController {
@@ -110,6 +111,7 @@ export class AiController {
     }
   }
 
+  @Public()
   @Post('converse')
   async converse(@Body() body: {
     sessionId?: string;
@@ -119,7 +121,10 @@ export class AiController {
     context?: Record<string, unknown>;
   }, @Req() req: any) {
     const userId = req.user?.id;
+    const isOnboarding = body.context?.['currentStep'] !== undefined;
     
+    this.logger.log(`🎤 CONVERSE DEBUG: userId=${userId ?? 'GUEST'} isOnboarding=${isOnboarding} req.user=${JSON.stringify(req.user ?? 'NONE')}`);
+
     let userName: string | undefined = undefined;
     if (userId) {
       const user = await prisma.user.findUnique({
@@ -137,22 +142,36 @@ export class AiController {
     }
 
     try {
-      const aiAllowance = await this.consumeAiRequest(userId);
-      if (aiAllowance) {
-        return aiAllowance;
+      // Exempt onboarding from strict allowance checks to ensure smooth UX
+      if (!isOnboarding) {
+        const aiAllowance = await this.consumeAiRequest(userId);
+        if (aiAllowance) {
+          this.logger.warn(`🎤 CONVERSE DEBUG: Allowance BLOCKED for userId=${userId}`);
+          return aiAllowance;
+        }
+      } else {
+        this.logger.log(`🎤 CONVERSE DEBUG: Onboarding turn - bypassing allowance check`);
       }
 
+      const strategicContext = isOnboarding 
+        ? { phase: 'STRATEGY', mission: `Onboarding: ${body.context?.['currentStep']}. Maintain narration, avoid goal-verification loops.` }
+        : body.context?.['strategicContext'];
+
       this.logger.log(
-        `🎤 VOICE PIPELINE: converse request userId=${userId ?? 'GUEST'} userName=${userName ?? 'unknown'} sessionId=${body.sessionId ?? 'new'} message="${body.message}"`,
+        `🎤 CONVERSE DEBUG: Calling aiService.converse for sessionId=${body.sessionId ?? 'GUEST'}`,
       );
       const reply = await this.aiService.converse({
         userId,
         userName,
-        sessionId: body.sessionId,
+        sessionId: body.sessionId || body.guestSessionId || 'default',
         guestSessionId: body.guestSessionId,
         message: body.message,
         history: body.history,
-        context: body.context as any,
+        context: {
+          ...body.context,
+          workspaceState: (isOnboarding ? 'ONBOARDING' : body.context?.['workspaceState']) as string
+        },
+        strategicContext: strategicContext as any,
       });
       this.logger.log(
         `🎤 VOICE PIPELINE: converse response sessionId=${reply.sessionId} reply="${reply.reply.slice(0, 200)}..."`,
@@ -378,6 +397,7 @@ export class AiController {
     }
   }
 
+  @Public()
   @Post('finalize-strategic-goal')
   async finalizeStrategicGoal(
     @Body() body: { sessionId: string; guestSessionId?: string },

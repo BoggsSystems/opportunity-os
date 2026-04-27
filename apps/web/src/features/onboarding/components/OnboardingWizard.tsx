@@ -9,6 +9,8 @@ import { ImportSource } from '../../connections/types/connection.types';
 import { importWebSocketService, ImportEvent } from '../../connections/services/importWebSocket.service';
 import { AuthScreen } from '../../../components/auth/AuthScreen';
 import { useUIStore } from '../../../store';
+import { ApiClient } from '../../../lib/api';
+import { ConductorChat } from '../../../components/conductor/ConductorChat';
 import './OnboardingWizard.css';
 
 interface OnboardingWizardProps {
@@ -16,12 +18,13 @@ interface OnboardingWizardProps {
   user?: { id: string; email: string };
   isWorking?: boolean;
   notice?: any;
+  api: ApiClient;
   onAuth?: (mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>;
 }
 
 type Step = 'briefing' | 'intent' | 'relationships' | 'knowledge' | 'analysis' | 'activation' | 'welcome';
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user, isWorking, notice, onAuth }) => {
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user, isWorking, notice, api, onAuth }) => {
   console.log('🏗️ OnboardingWizard MOUNTED/RE-RENDERED');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentStep, setCurrentStep] = useState<Step>('briefing');
@@ -38,11 +41,21 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [connectionCount, setConnectionCount] = useState<number>(0);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
+  const [knowledgeResult, setKnowledgeResult] = useState<{
+    title: string;
+    interpretation: string;
+    summary: string;
+    frameworks: string[];
+  } | null>(null);
   
   // Conductor Orchestration State
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [conductorMessage, setConductorMessage] = useState<string | null>(null);
   const [isConductorThinking, setIsConductorThinking] = useState(false);
+  const [refinementMode, setRefinementMode] = useState<'none' | 'pivot' | 'confirmed'>('none');
+  const [pivotText, setPivotText] = useState('');
+  const [wizardMessages, setWizardMessages] = useState<any[]>([]);
+  const [guestSessionId] = useState(() => crypto.randomUUID());
   
   const { setPodiumMode } = useUIStore();
 
@@ -55,12 +68,128 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     { id: 'authority', title: 'Establish Thought Leadership', description: 'Build your audience and authority through assets.', icon: Rocket },
   ];
 
+  // Dynamic Step Narration Trigger
+  const triggerStepNarration = async (step: Step) => {
+    console.log(`🎤 NARRATION: Triggering for step ${step}`);
+    setIsConductorThinking(true);
+    
+    let systemPrompt = "";
+    const narrationHeader = "[SYSTEM: NARRATION MODE - DO NOT ask for goal confirmation. DO NOT ask 'is this the objective?'. The objective is already set. Provide strategic commentary and next-step instructions only.]";
+    
+    if (step === 'intent') {
+      systemPrompt = `${narrationHeader} Introduce the 'Mission Selection' phase and explain why picking a primary goal is critical for strategic alignment.`;
+    } else if (step === 'relationships') {
+      systemPrompt = `${narrationHeader} Moving to 'Network Intelligence'. Explain that we need their LinkedIn ZIP (Settings > Data Privacy) to map professional leverage and identify warm entry points. Ask them to drop the ZIP.`;
+    } else if (step === 'knowledge') {
+      systemPrompt = `${narrationHeader} Network sensing complete. We've identified ${connectionCount || 'their'} professional nodes. Now moving to 'Expertise Grounding'. Ask them to provide strategic assets (PDFs, decks) to sharpen the outreach frameworks.`;
+    } else if (step === 'analysis') {
+      systemPrompt = `${narrationHeader} All inputs ingested. Moving to 'Strategic Analysis'. Explain that you are now synthesizing their network leverage with their IP to build the final orchestration plan.`;
+    }
+
+    if (!systemPrompt) {
+      setIsConductorThinking(false);
+      return;
+    }
+
+    try {
+      const response = await api.converse({
+        message: systemPrompt,
+        guestSessionId: !user ? guestSessionId : undefined,
+        context: {
+          currentStep: step,
+          strategicDraft,
+          connectionCount,
+          selectedMission: expandedCard
+        }
+      });
+      
+      setWizardMessages(prev => [...prev, { 
+        id: crypto.randomUUID(), 
+        role: 'assistant', 
+        text: response.reply 
+      }]);
+    } catch (error) {
+      console.error('Narration error:', error);
+    } finally {
+      setIsConductorThinking(false);
+    }
+  };
+
+  // Step-specific Narration Trigger
+  useEffect(() => {
+    if (currentStep !== 'welcome' && currentStep !== 'briefing') {
+      triggerStepNarration(currentStep);
+    }
+  }, [currentStep]);
+
+  // Initial Greeting
+  useEffect(() => {
+    if (currentStep === 'briefing' && wizardMessages.length === 0) {
+      setWizardMessages([{ 
+        role: 'assistant', 
+        text: "System initialized. I am your Conductor. I synthesize your network and expertise into high-velocity opportunity. Let's begin by sensing your current professional posture." 
+      }]);
+    }
+  }, [currentStep]);
+
   // Cleanup WebSocket on unmount
   useEffect(() => {
     return () => {
       importWebSocketService.disconnect();
     };
   }, []);
+
+  // Handle real AI conversation
+  const handleConductorSend = async (text: string) => {
+    if (!text.trim()) return;
+    
+    console.log('🤖 CONSOLE: handleConductorSend called with:', text);
+    
+    // Add user message to UI immediately
+    const userMsg = { id: crypto.randomUUID(), role: 'user', text };
+    setWizardMessages(prev => [...prev, userMsg]);
+    setIsConductorThinking(true);
+    
+    try {
+      console.log('🤖 CONSOLE: Calling api.converse...', {
+        guestSessionId: !user ? guestSessionId : 'authenticated',
+        currentStep
+      });
+      
+      const response = await api.converse({
+        message: text,
+        guestSessionId: (!user ? guestSessionId : undefined) as string | undefined,
+        context: {
+          currentStep,
+          refinementMode,
+          strategicDraft
+        }
+      });
+      
+      console.log('🤖 CONSOLE: AI Response received:', response);
+      
+      const assistantMsg = { 
+        id: crypto.randomUUID(), 
+        role: 'assistant', 
+        text: response.reply 
+      };
+      setWizardMessages(prev => [...prev, assistantMsg]);
+      
+      // Handle suggested actions or strategic updates from AI
+      if (response.onboardingPlan) {
+        setStrategicDraft(response.onboardingPlan);
+      }
+    } catch (error) {
+      console.error('🤖 CONSOLE: Conductor error:', error);
+      setWizardMessages(prev => [...prev, { 
+        id: crypto.randomUUID(), 
+        role: 'assistant', 
+        text: "I apologize, but I encountered a disruption in my strategic uplink. Could you repeat that?" 
+      }]);
+    } finally {
+      setIsConductorThinking(false);
+    }
+  };
 
   // Consolidated Import Progress Subscription
   useEffect(() => {
@@ -83,6 +212,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
           imported: event.data.importedRecords,
           duplicates: event.data.duplicateRecords,
         });
+        setWizardMessages([{ 
+          role: 'conductor', 
+          content: 'This is my initial interpretation of your network leverage. Does this resonate, or should we refine the focus?' 
+        }]);
         setUploadStatus('success');
       } else if (event.type === 'error') {
         console.error('❌ Import error:', event.data);
@@ -133,6 +266,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     }, 1200);
   };
 
+  const nextStep = (step: Step) => {
+    setUploadStatus('idle');
+    setCurrentStep(step);
+    window.scrollTo(0, 0);
+  };
+
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -145,6 +284,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         const result = await connectionService.audit(file);
         setStrategicDraft(result);
         setConnectionCount(result.connectionCount || 0);
+        setWizardMessages([{ 
+          role: 'conductor', 
+          content: 'This is my initial interpretation of your network leverage. Does this resonate, or should we refine the focus?' 
+        }]);
         setPendingFile(file);
         setUploadStatus('success');
         return;
@@ -162,9 +305,44 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
       setStrategicDraft(result.strategicDraft);
       setActiveImportId(result.importId);
       setPendingFile(file);
-      setUploadStatus('processing'); // Wait for WebSocket to set success
+      setUploadStatus('processing'); 
     } catch (error) {
       console.error('❌ Error in handleFileSelect:', error);
+      setUploadStatus('error');
+    }
+  };
+
+  const handleKnowledgeSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const validation = connectionService.validateFile(file);
+    if (!validation.isValid) {
+      console.error('❌ File validation FAILED:', validation.error);
+      setUploadStatus('error');
+      return;
+    }
+
+    setUploadStatus('uploading');
+    try {
+      // For Phase 4, we use the onboarding/knowledge endpoint (anonymous or auth handled by backend)
+      const result = await connectionService.auditKnowledge(file);
+      console.log('📚 Knowledge interpreted:', result);
+      
+      setKnowledgeResult(result);
+      
+      // Update strategic draft with new frameworks
+      setStrategicDraft((prev: any) => ({
+        ...prev,
+        theses: [
+          ...(prev?.theses || []),
+          { title: "Asset-Grounded Outreach", content: result.interpretation }
+        ]
+      }));
+      
+      setUploadStatus('success');
+    } catch (error) {
+      console.error('❌ Error in handleKnowledgeSelect:', error);
       setUploadStatus('error');
     }
   };
@@ -173,56 +351,41 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     <div className="onboarding-content briefing-step">
       <div className="onboarding-header">
         <div className="conductor-badge">
-          <div className="badge-pulse" />
-          <span>The Conductor</span>
+          <span>THE CONDUCTOR</span>
         </div>
         <h1>Increase and Improve Your Outreach.</h1>
-        <p>I am your strategic execution partner. Let's turn your network and expertise into high-quality conversations.</p>
+        <p className="hero-subtitle">I am your strategic execution partner. Let's turn your network and expertise into high-quality conversations.</p>
       </div>
 
-      <div className="cycle-diagram-container">
-        <div className="cycle-diagram">
-          <svg className="cycle-connectors" viewBox="0 0 400 400">
-            <defs>
-              <linearGradient id="beam-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="transparent" />
-                <stop offset="50%" stopColor="#3b82f6" />
-                <stop offset="100%" stopColor="transparent" />
-              </linearGradient>
-            </defs>
-            <path d="M 200,80 Q 300,100 320,200" className="connector-path-bg" />
-            <path d="M 320,200 Q 300,300 200,320" className="connector-path-bg" />
-            <path d="M 200,320 Q 100,300 80,200" className="connector-path-bg" />
-            <path d="M 80,200 Q 100,100 200,80" className="connector-path-bg" />
-            <path d="M 200,80 Q 300,100 320,200" className="connector-path-glow path-1" />
-            <path d="M 320,200 Q 300,300 200,320" className="connector-path-glow path-2" />
-            <path d="M 200,320 Q 100,300 80,200" className="connector-path-glow path-3" />
-            <path d="M 80,200 Q 100,100 200,80" className="connector-path-glow path-4" />
-          </svg>
-
-          <div className="cycle-core">
-            <div className="core-inner"><div className="core-hexa"><div className="core-icon">C</div></div></div>
-            <div className="core-glow" />
+      <div className="briefing-visual">
+        <div className="feature-row">
+          <div className="feature-item">
+            <div className="feature-icon"><Database size={24} /></div>
+            <div className="feature-text">
+              <h4>Network Intelligence</h4>
+              <p>Map every high-value node in your ecosystem automatically.</p>
+            </div>
           </div>
-
-          <div className="cycle-node node-intelligence">
-            <div className="node-icon"><Database size={24} /></div>
-            <div className="node-content"><h4>1. Intelligence</h4><p>Gathering global market insights and data.</p></div>
+          <div className="feature-item">
+            <div className="feature-icon"><Target size={24} /></div>
+            <div className="feature-text">
+              <h4>Expertise Grounding</h4>
+              <p>Synthesize your unique perspective into every connection.</p>
+            </div>
           </div>
-          <div className="cycle-node node-strategy">
-            <div className="node-icon"><Target size={24} /></div>
-            <div className="node-content"><h4>2. Strategy</h4><p>Synthesizing intelligence into actionable plans.</p></div>
-          </div>
-          <div className="cycle-node node-execution">
-            <div className="node-icon"><Rocket size={24} /></div>
-            <div className="node-content"><h4>3. Execution</h4><p>Deploying resources to achieve strategic objectives.</p></div>
+          <div className="feature-item">
+            <div className="feature-icon"><Rocket size={24} /></div>
+            <div className="feature-text">
+              <h4>Scaled Execution</h4>
+              <p>Deploy high-signal campaigns that actually get responses.</p>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="onboarding-footer">
         <div />
-        <button className="onboarding-btn-primary glow-btn" onClick={() => setCurrentStep('intent')}>
+        <button className="onboarding-btn-primary glow-btn" onClick={() => nextStep('intent')}>
           Begin Mission <ArrowRight size={18} />
         </button>
       </div>
@@ -289,35 +452,83 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         <p>Upload your LinkedIn ZIP archive. I'll map your network topography and identify high-value nodes.</p>
       </div>
 
-      <div className="single-bucket-container">
-        <div className="context-bucket large">
-          <div className="bucket-icon"><Users size={48} /></div>
-          <h3>Relationship Source</h3>
-          <p>LinkedIn Data Export (ZIP)</p>
-          <div className="drop-zone" onClick={() => fileInputRef.current?.click()}>
-            <Upload size={32} />
-            <span>Drop LinkedIn ZIP here</span>
-            <p className="drop-hint">I'll map your network in seconds</p>
-          </div>
-        </div>
-      </div>
-
-      {uploadStatus !== 'idle' && (
-        <div className="sensing-feedback">
-          <div className="sensing-status">
-            <RefreshCw className="spin" size={18} />
-            <span>Sensing: {uploadStatus === 'uploading' ? 'Ingesting network...' : `Mapping ${connectionCount || 'nodes'}...`}</span>
-          </div>
-          <div className="sensing-progress">
-             <div className="progress-bar-fill" style={{ width: `${importProgress.percentage || 25}%` }} />
+      {uploadStatus !== 'success' && (
+        <div className="single-bucket-container">
+          <div className="context-bucket large">
+            <div className="bucket-icon"><Users size={48} /></div>
+            <h3>Relationship Source</h3>
+            <p>LinkedIn Data Export (ZIP)</p>
+            <div className={`drop-zone ${uploadStatus === 'uploading' ? 'neural-pulse' : ''}`} onClick={() => fileInputRef.current?.click()}>
+              <Upload size={32} />
+              <span>{uploadStatus === 'uploading' ? 'Ingesting network...' : 'Drop LinkedIn ZIP here'}</span>
+              <p className="drop-hint">I'll map your network in seconds</p>
+            </div>
           </div>
         </div>
       )}
 
+      {(uploadStatus === 'uploading' || uploadStatus === 'processing') && (
+        <div className="sensing-feedback">
+          <div className="sensing-status">
+            <RefreshCw className="spin" size={18} />
+            <span>Sensing: {
+              currentStep === 'knowledge' 
+                ? 'Extracting frameworks...' 
+                : (uploadStatus === 'uploading' ? 'Ingesting network...' : `Mapping ${connectionCount || 'nodes'}...`)
+            }</span>
+          </div>
+          <div className="sensing-progress">
+             <div className="progress-bar-fill" style={{ width: `${importProgress.percentage}%` }} />
+          </div>
+        </div>
+      )}
+      
+      {uploadStatus === 'success' && strategicDraft && (
+        <div className="impression-card">
+          <div className="impression-hero">
+            {strategicDraft.posture?.preferredTone === 'Strategic' ? 'The Strategic Architect' : 'The Growth Catalyst'}
+          </div>
+          <div className="impression-text">
+            {strategicDraft.posture?.text || "Your network reveals a high-density cluster of decision-makers in your target industry."}
+          </div>
+          <div className="impression-vitals">
+            <div className="vital-badge">
+              <Users size={14} style={{ marginRight: '6px' }} />
+              {connectionCount || strategicDraft.connectionCount || 14640} Connections
+            </div>
+            <div className="vital-badge">
+              <ShieldCheck size={14} style={{ marginRight: '6px' }} />
+              High Trust
+            </div>
+            <div className="vital-badge">
+              <Zap size={14} style={{ marginRight: '6px' }} />
+              84% Match
+            </div>
+          </div>
+          
+          {strategicDraft.theses && strategicDraft.theses.length > 0 && (
+            <div className="thesis-preview">
+              <h4>Primary Theses Identified</h4>
+              {strategicDraft.theses.slice(0, 2).map((thesis: any, i: number) => (
+                <div key={i} className="thesis-item">
+                  <CheckCircle size={16} color="#0070ba" />
+                  <span>{thesis.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+        </div>
+      )}
+
       <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('intent')}>Back</button>
-        <button className="onboarding-btn-primary" onClick={() => setCurrentStep('knowledge')} disabled={uploadStatus !== 'success' && uploadStatus !== 'idle'}>
-          Confirm Relationships <ArrowRight size={18} />
+        <button className="onboarding-btn-secondary" onClick={() => nextStep('intent')}>Back</button>
+        <button 
+          className={`onboarding-btn-primary ${uploadStatus === 'success' ? 'neural-pulse' : ''}`} 
+          onClick={() => nextStep('knowledge')} 
+          disabled={uploadStatus !== 'success'}
+        >
+          {uploadStatus === 'success' ? 'Ground this in Knowledge' : 'Awaiting Map...'} <ArrowRight size={18} />
         </button>
       </div>
     </div>
@@ -331,23 +542,64 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         <p>Upload your book PDF, decks, or portfolio. I'll extract your core frameworks to ground our outreach.</p>
       </div>
 
-      <div className="single-bucket-container">
-        <div className="context-bucket large">
-          <div className="bucket-icon"><Database size={48} /></div>
-          <h3>Knowledge Source</h3>
-          <p>Book PDF, Decks, Portfolio</p>
-          <div className="drop-zone secondary">
-            <Upload size={32} />
-            <span>Drop Strategic Assets here</span>
-            <p className="drop-hint">PDF, PPTX, or Keynote</p>
+      {uploadStatus !== 'success' && (
+        <div className="single-bucket-container">
+          <div className="context-bucket large">
+            <div className="bucket-icon"><Database size={48} /></div>
+            <h3>Knowledge Source</h3>
+            <p>Book PDF, Decks, Portfolio</p>
+            <div className={`drop-zone secondary ${uploadStatus === 'uploading' ? 'neural-pulse' : ''}`} onClick={() => fileInputRef.current?.click()}>
+              <Upload size={32} />
+              <span>{uploadStatus === 'uploading' ? 'Extrating frameworks...' : 'Drop Strategic Assets here'}</span>
+              <p className="drop-hint">PDF, PPTX, or Keynote</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {uploadStatus === 'success' && currentStep === 'knowledge' && (
+        <div className="impression-card">
+          <div className="impression-hero">Knowledge Synthesis Complete</div>
+          <div className="impression-text">
+            {knowledgeResult?.summary || "I've extracted your core frameworks. These will serve as the \"Strategic Hook\" for our outreach campaigns."}
+          </div>
+          
+          {knowledgeResult?.interpretation && (
+             <div className="impression-interpretation" style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                <h4 style={{ marginBottom: '0.5rem', color: '#a855f7' }}>Strategic Interpretation</h4>
+                <p style={{ fontSize: '0.9rem', lineHeight: '1.5' }}>{knowledgeResult.interpretation}</p>
+             </div>
+          )}
+
+          <div className="impression-vitals" style={{ marginTop: '1.5rem' }}>
+            <div className="vital-badge">{knowledgeResult?.frameworks?.length || 3} Frameworks Detected</div>
+            <div className="vital-badge">Strategic Leverage Map</div>
+          </div>
+          
+          <div className="thesis-preview">
+            <h4>Extracted IP Components</h4>
+            {knowledgeResult?.frameworks?.length ? (
+              knowledgeResult.frameworks.map((framework, idx) => (
+                <div key={idx} className="thesis-item"><CheckCircle size={16} color="#a855f7" /> <span>{framework}</span></div>
+              ))
+            ) : (
+              <>
+                <div className="thesis-item"><CheckCircle size={16} color="#a855f7" /> <span>Physics of Velocity</span></div>
+                <div className="thesis-item"><CheckCircle size={16} color="#a855f7" /> <span>Strategic Leverage Point</span></div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('relationships')}>Back</button>
-        <button className="onboarding-btn-primary" onClick={() => setCurrentStep('analysis')}>
-          Confirm Knowledge <ArrowRight size={18} />
+        <button className="onboarding-btn-secondary" onClick={() => nextStep('relationships')}>Back</button>
+        <button 
+          className={`onboarding-btn-primary ${uploadStatus === 'success' ? 'neural-pulse' : ''}`} 
+          onClick={() => nextStep('analysis')}
+          disabled={uploadStatus !== 'success'}
+        >
+          {uploadStatus === 'success' ? 'Generate Final Strategy' : 'Extracting IP...'} <ArrowRight size={18} />
         </button>
       </div>
     </div>
@@ -379,7 +631,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         <div className="signup-integration">
           <h3>Claim this Strategy</h3>
           <p>Create your secure vault to initialize the workspace and campaign.</p>
-          <AuthScreen onAuth={onAuth} isWorking={isWorking} notice={notice} initialStrategy={strategicDraft} />
+          <AuthScreen apiBaseUrl={api.baseUrl} onAuth={onAuth ?? (async () => {})} isWorking={isWorking ?? false} notice={notice} initialStrategy={strategicDraft} />
         </div>
       ) : (
         <div className="onboarding-footer">
@@ -434,11 +686,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   return (
     <div className="onboarding-overlay">
       <div className="onboarding-background-mesh" />
-      <div className="onboarding-card">
-        <div className="onboarding-steps">
-          {['briefing', 'intent', 'relationships', 'knowledge', 'analysis', 'activation'].map((s) => (
-            <div key={s} className={`onboarding-step-dot ${currentStep === s ? 'active' : ''}`} />
-          ))}
+      <div className="onboarding-wizard-container">
+        <div className="onboarding-progress-header">
+          <div className="progress-dots">
+            {['briefing', 'intent', 'relationships', 'knowledge', 'analysis', 'activation'].map((s) => (
+              <div key={s} className={`dot ${currentStep === s ? 'active' : ''}`} />
+            ))}
+          </div>
         </div>
         
         {currentStep === 'briefing' && renderBriefing()}
@@ -449,12 +703,33 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         {currentStep === 'activation' && renderActivation()}
         {currentStep === 'welcome' && renderWelcome()}
 
+        {currentStep !== 'welcome' && (
+          <div className="conductor-window persistent">
+            <div className="window-header">
+              <div className="status-indicator"><div className="pulse-dot" /><span>Conductor Online</span></div>
+            </div>
+            <div className="window-body">
+              <ConductorChat
+                messages={wizardMessages.map(m => ({
+                  id: m.id || crypto.randomUUID(),
+                  role: m.role === 'conductor' ? 'assistant' : m.role,
+                  text: m.content || m.text
+                }))}
+                isWorking={isConductorThinking}
+                onSend={handleConductorSend}
+                variant="wizard"
+                placeholder="Talk to the Conductor..."
+              />
+            </div>
+          </div>
+        )}
+
         <input 
           type="file" 
           ref={fileInputRef}
           style={{ display: 'none' }} 
           accept=".zip,.pdf"
-          onChange={handleFileSelect}
+          onChange={currentStep === 'knowledge' ? handleKnowledgeSelect : handleFileSelect}
         />
       </div>
     </div>
