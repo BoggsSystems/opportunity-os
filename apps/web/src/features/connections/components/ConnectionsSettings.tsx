@@ -5,11 +5,21 @@ import { ImportSource } from '../types/connection.types';
 import { importWebSocketService, ImportEvent } from '../services/importWebSocket.service';
 import './ConnectionsSettings.css';
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('🔥 UNHANDLED REJECTION:', event.reason);
+  });
+  window.addEventListener('error', (event) => {
+    console.error('🔥 GLOBAL ERROR:', event.error);
+  });
+}
+
 interface ConnectionsSettingsProps {
   isWorking: boolean;
 }
 
-export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWorking }) => {
+const ConnectionsSettingsComponent: React.FC<ConnectionsSettingsProps> = ({ isWorking }) => {
+  console.log('🏗️ ConnectionsSettings RENDERED', { isWorking });
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'success' | 'error'>('idle');
   const [uploadMessage, setUploadMessage] = useState<string>('');
   const [uploadedFileName, setUploadedFileName] = useState<string>('');
@@ -280,14 +290,16 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
   };
 
   const handleArchiveSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('📦 handleArchiveSelect triggered');
     const file = event.target.files?.[0];
-    console.log('📦 handleArchiveSelect TRIGGERED', {
-      name: file?.name,
-      size: file?.size,
-      type: file?.type
-    });
-    if (!file) {
-      console.warn('⚠️ No file selected in archive input');
+    
+    if (!file) return;
+
+    // Guard: Check if it's a folder (size is often 0 or multiple of 4096 on some systems, 
+    // but the most reliable way in browser is checking if type is empty for a known extension)
+    if (file.size === 0 || (!file.type && !file.name.toLowerCase().endsWith('.zip'))) {
+      setUploadStatus('error');
+      setUploadMessage('❌ That looks like a folder. Please select the actual .zip file you downloaded from LinkedIn.');
       return;
     }
 
@@ -309,7 +321,15 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
         description: `LinkedIn Archive Audit from ${file.name}`
       };
 
-      const result = await connectionService.ingestZip(importRequest, file);
+      console.log('🔍 DEBUG: Calling connectionService.ingestZip with:', importRequest);
+      let result;
+      try {
+        result = await connectionService.ingestZip(importRequest, file);
+        console.log('🔍 DEBUG: ingestZip result:', result);
+      } catch (error) {
+        console.error('🔍 DEBUG: ingestZip ERROR:', error);
+        throw error;
+      }
       
       setUploadStatus('success');
       setUploadMessage(`Strategic audit complete! I've identified your core offerings and strategic posture.`);
@@ -320,11 +340,14 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
       });
 
     } catch (error) {
-      console.error('Archive ingest error:', error);
+      console.error('🔍 DEBUG: Archive ingest error:', error);
       setUploadStatus('error');
       setUploadMessage(error instanceof Error ? error.message : 'Failed to process archive');
     } finally {
-      if (event.target) event.target.value = '';
+      console.log('🔍 DEBUG: Cleaning up archive input');
+      if (event.target) {
+        event.target.value = '';
+      }
     }
   };
 
@@ -345,38 +368,40 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
             Upload your full LinkedIn data archive (ZIP). We'll audit your entire history to automatically 
             identify your core expertise, key network nodes, and strategic market theses.
           </p>
-          <div style={{ marginTop: '1rem' }}>
+          <div style={{ marginTop: '1rem', position: 'relative', display: 'inline-block' }}>
             <button
               className="primary-button"
               style={{ 
                 background: '#8b5cf6',
-                position: 'relative',
-                overflow: 'hidden'
+                pointerEvents: 'none'
               }}
               disabled={isWorking || uploadStatus === 'uploading'}
               type="button"
             >
               <Target size={16} style={{ marginRight: '8px' }} />
               Audit LinkedIn Archive
-              
-              {/* NATIVE OVERLAY - Bypasses ref/click issues */}
-              <input 
-                type="file" 
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
-                  opacity: 0,
-                  cursor: 'pointer',
-                  zIndex: 10
-                }} 
-                accept=".zip"
-                onChange={handleArchiveSelect}
-                disabled={isWorking || uploadStatus === 'uploading'}
-              />
             </button>
+            
+            <input 
+              key="stable-archive-input"
+              type="file" 
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                opacity: 0,
+                cursor: 'pointer',
+                zIndex: 10
+              }} 
+              accept=".zip"
+              onChange={handleArchiveSelect}
+              onClick={(e) => {
+                (e.target as HTMLInputElement).value = ''; 
+              }}
+              disabled={isWorking || uploadStatus === 'uploading'}
+            />
           </div>
         </div>
 
@@ -387,36 +412,39 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
             Import your LinkedIn connections CSV to build your prospecting database. 
             The system handles LinkedIn's standard CSV export format.
           </p>
-          <div style={{ marginTop: '1rem' }}>
+          <div style={{ marginTop: '1rem', position: 'relative', display: 'inline-block' }}>
             <button
               className="secondary-button"
               style={{ 
-                position: 'relative',
-                overflow: 'hidden'
+                pointerEvents: 'none' // Let clicks pass through to input
               }}
               disabled={isWorking || uploadStatus === 'uploading'}
               type="button"
             >
               <Users size={16} style={{ marginRight: '8px' }} />
               Import Connections.csv
-              
-              <input 
-                type="file" 
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
-                  opacity: 0,
-                  cursor: 'pointer',
-                  zIndex: 10
-                }} 
-                accept=".csv"
-                onChange={handleFileSelect}
-                disabled={isWorking || uploadStatus === 'uploading'}
-              />
             </button>
+            
+            <input 
+              key="stable-connections-input"
+              type="file" 
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                opacity: 0,
+                cursor: 'pointer',
+                zIndex: 10
+              }} 
+              accept=".csv"
+              onChange={handleFileSelect}
+              onClick={(e) => {
+                (e.target as HTMLInputElement).value = ''; 
+              }}
+              disabled={isWorking || uploadStatus === 'uploading'}
+            />
           </div>
         </div>
         
@@ -588,3 +616,5 @@ export const ConnectionsSettings: React.FC<ConnectionsSettingsProps> = ({ isWork
           </>
   );
 };
+
+export const ConnectionsSettings = React.memo(ConnectionsSettingsComponent);

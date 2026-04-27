@@ -346,11 +346,13 @@ export class ApiClient {
   }
 
   async ingestZip(file: File, importData: { name: string; source: string }) {
+    console.log('🔍 API DEBUG: ingestZip called', { fileName: file.name, fileSize: file.size, importData });
     const formData = new FormData();
     formData.append('file', file);
     formData.append('source', importData.source);
     formData.append('name', importData.name);
 
+    console.log('🔍 API DEBUG: ingestZip FormData prepared, calling requestForm');
     return this.requestForm<{
       success: boolean;
       data: {

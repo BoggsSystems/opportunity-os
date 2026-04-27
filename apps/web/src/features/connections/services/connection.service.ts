@@ -221,19 +221,24 @@ class ConnectionService {
     request: { name: string; source: ImportSource },
     file: File
   ): Promise<{ importId: string; strategicDraft: any }> {
+    console.log('📦 ConnectionService.ingestZip START', { name: request.name, fileSize: file.size });
     const isTokenValid = this.ensureValidToken();
+    console.log('📦 Token valid:', isTokenValid);
     if (!isTokenValid) {
       throw new Error('Authentication failed. Please log in again.');
     }
     this.initializeApiClient();
 
     try {
+      console.log('📦 Calling API.ingestZip...');
       const result = await this.api.ingestZip(file, {
         name: request.name,
         source: request.source.toString(),
       });
+      console.log('📦 API.ingestZip SUCCESS:', result);
       return result.data;
     } catch (error) {
+      console.error('📦 ConnectionService.ingestZip ERROR:', error);
       throw new Error(`Failed to ingest ZIP: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

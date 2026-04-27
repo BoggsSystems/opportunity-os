@@ -102,6 +102,11 @@ const emptyVelocity = {
 
 export function App() {
   const [session, setSession] = useState<StoredSession | null>(() => readSession());
+  console.log('📱 App RENDERED', { 
+    hasSession: !!session, 
+    userEmail: session?.user?.email,
+    accessTokenPrefix: session?.accessToken?.substring(0, 10) 
+  });
   const api = useMemo(() => new ApiClient(session?.accessToken ?? null), [session?.accessToken]);
   const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
   const [campaignWorkspace, setCampaignWorkspace] = useState<CampaignWorkspace | null>(null);
