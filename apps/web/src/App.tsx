@@ -253,6 +253,12 @@ export function App() {
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
               initialStrategy
             });
+      
+      if (view === 'onboarding') {
+        localStorage.setItem(`onboarding_completed_${auth.user.id}`, 'true');
+        setOnboardingOpen(false);
+      }
+      
       commitSession(auth);
     } catch (error) {
       setNotice({

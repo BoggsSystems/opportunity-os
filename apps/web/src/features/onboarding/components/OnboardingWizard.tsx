@@ -76,14 +76,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     let systemPrompt = "";
     const narrationHeader = "[SYSTEM: NARRATION MODE - DO NOT ask for goal confirmation. DO NOT ask 'is this the objective?'. The objective is already set. Provide strategic commentary and next-step instructions only.]";
     
-    if (step === 'intent') {
-      systemPrompt = `${narrationHeader} Introduce the 'Mission Selection' phase and explain why picking a primary goal is critical for strategic alignment.`;
-    } else if (step === 'relationships') {
-      systemPrompt = `${narrationHeader} Moving to 'Network Intelligence'. Explain that we need their LinkedIn ZIP (Settings > Data Privacy) to map professional leverage and identify warm entry points. Ask them to drop the ZIP.`;
+    if (step === 'relationships') {
+      systemPrompt = `${narrationHeader} Welcome to the Orchestration flow. Explain that we need their LinkedIn ZIP (Settings > Data Privacy) to map professional leverage and identify warm entry points. Ask them to drop the ZIP.`;
     } else if (step === 'knowledge') {
       systemPrompt = `${narrationHeader} Network sensing complete. We've identified ${connectionCount || 'their'} professional nodes. Now moving to 'Expertise Grounding'. Ask them to provide strategic assets (PDFs, decks) to sharpen the outreach frameworks.`;
+    } else if (step === 'intent') {
+      systemPrompt = `${narrationHeader} Both Network and Expertise assets ingested. Based on their network of ${connectionCount} nodes and their extracted IP frameworks, recommend exactly ONE of these core missions: Scale New Clients, Monetize My Book / IP, Target Dream Companies, Surface Hidden Roles, Build Strategic Partnerships, or Establish Thought Leadership. Explain why this specific mission is their most lucrative path.`;
     } else if (step === 'analysis') {
-      systemPrompt = `${narrationHeader} All inputs ingested. Moving to 'Strategic Analysis'. Explain that you are now synthesizing their network leverage with their IP to build the final orchestration plan.`;
+      systemPrompt = `${narrationHeader} Mission selected. Moving to 'Strategic Analysis'. Explain that you are now synthesizing their network leverage, their IP, and their chosen mission to build the final orchestration plan.`;
     }
 
     if (!systemPrompt) {
@@ -385,8 +385,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
 
       <div className="onboarding-footer">
         <div />
-        <button className="onboarding-btn-primary glow-btn" onClick={() => nextStep('intent')}>
-          Begin Mission <ArrowRight size={18} />
+        <button className="onboarding-btn-primary glow-btn" onClick={() => nextStep('relationships')}>
+          Begin Orchestration <ArrowRight size={18} />
         </button>
       </div>
     </div>
@@ -395,8 +395,19 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   const renderIntent = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <h1>What is your primary mission today?</h1>
-        <p>I will tailor your sensing and orchestration to this objective.</p>
+        <div className="phase-indicator">Phase 04: Strategic Intent</div>
+        <h1>Based on your profile, what is the objective?</h1>
+        <p>I have mapped your network and expertise. Select a mission to initialize the campaign.</p>
+        
+        {/* Global Conductor Recommendation */}
+        {!expandedCard && (
+          <div className="conductor-chat-section global-recommendation" style={{ marginTop: '1.5rem', marginBottom: '0.5rem', padding: '1rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '8px', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+            <div className="conductor-badge" style={{ marginBottom: '0.5rem' }}><span>THE CONDUCTOR</span></div>
+            <div className="conductor-message">
+              {isConductorThinking ? <div className="typing-indicator"><span></span><span></span><span></span></div> : <p style={{ fontSize: '0.95rem', lineHeight: '1.5', color: '#e2e8f0' }}>{conductorMessage || "Analyzing your topography to recommend a mission..."}</p>}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={`mission-grid ${expandedCard ? 'has-expanded' : ''}`}>
@@ -423,8 +434,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
                     </div>
                     {!isConductorThinking && (
                       <div className="chat-actions">
-                        <button className="chat-btn" onClick={() => setCurrentStep('relationships')}>High Velocity <ArrowRight size={14} /></button>
-                        <button className="chat-btn" onClick={() => setCurrentStep('relationships')}>Deep Dive <ArrowRight size={14} /></button>
+                        <button className="chat-btn" onClick={() => setCurrentStep('analysis')}>High Velocity <ArrowRight size={14} /></button>
+                        <button className="chat-btn" onClick={() => setCurrentStep('analysis')}>Deep Dive <ArrowRight size={14} /></button>
                       </div>
                     )}
                   </div>
@@ -437,7 +448,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
       
       {!expandedCard && (
         <div className="onboarding-footer">
-          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('briefing')}>Back</button>
+          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('knowledge')}>Back</button>
           <div />
         </div>
       )}
@@ -447,7 +458,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   const renderRelationships = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <div className="phase-indicator">Phase 03: Relationships</div>
+        <div className="phase-indicator">Phase 02: Relationships</div>
         <h1>Who do you know?</h1>
         <p>Upload your LinkedIn ZIP archive. I'll map your network topography and identify high-value nodes.</p>
       </div>
@@ -522,7 +533,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
       )}
 
       <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => nextStep('intent')}>Back</button>
+        <button className="onboarding-btn-secondary" onClick={() => nextStep('briefing')}>Back</button>
         <button 
           className={`onboarding-btn-primary ${uploadStatus === 'success' ? 'neural-pulse' : ''}`} 
           onClick={() => nextStep('knowledge')} 
@@ -537,7 +548,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   const renderKnowledge = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <div className="phase-indicator">Phase 04: Knowledge</div>
+        <div className="phase-indicator">Phase 03: Knowledge</div>
         <h1>What have you built?</h1>
         <p>Upload your book PDF, decks, or portfolio. I'll extract your core frameworks to ground our outreach.</p>
       </div>
@@ -596,10 +607,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         <button className="onboarding-btn-secondary" onClick={() => nextStep('relationships')}>Back</button>
         <button 
           className={`onboarding-btn-primary ${uploadStatus === 'success' ? 'neural-pulse' : ''}`} 
-          onClick={() => nextStep('analysis')}
+          onClick={() => nextStep('intent')}
           disabled={uploadStatus !== 'success'}
         >
-          {uploadStatus === 'success' ? 'Generate Final Strategy' : 'Extracting IP...'} <ArrowRight size={18} />
+          {uploadStatus === 'success' ? 'Determine Mission' : 'Extracting IP...'} <ArrowRight size={18} />
         </button>
       </div>
     </div>
