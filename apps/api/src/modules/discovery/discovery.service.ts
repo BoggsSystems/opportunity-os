@@ -38,7 +38,7 @@ export class DiscoveryService {
     private readonly aiService: AiService,
   ) {}
 
-  async preAuthInterpret(file: any) {
+  async preAuthInterpret(file: any, previousContext?: any[]) {
     this.logger.log(`🔍 START: preAuthInterpret for ${file.originalname}`);
     try {
       const extractedText = await this.extractTextFromPDF(file);
@@ -49,11 +49,8 @@ export class DiscoveryService {
       }
 
       // Use AI to extract frameworks and "offerings" from the book/PDF
-      this.logger.log(`🤖 CALLING AI: interpretDiscoveryRelevance...`);
-      const rawAiResponse = await this.aiService.interpretDiscoveryRelevance(extractedText, {
-        goalTitle: 'Strategic Onboarding',
-        targetSegment: 'Founders and Consultants',
-      });
+      this.logger.log(`🤖 CALLING AI: interpretKnowledgeAsset...`);
+      const rawAiResponse = await this.aiService.interpretKnowledgeAsset(extractedText, previousContext);
       this.logger.log(`🤖 AI RESPONSE: Length=${rawAiResponse.length}`);
 
       let parsedResponse: any = {};
@@ -67,6 +64,7 @@ export class DiscoveryService {
         title: file.originalname,
         interpretation: parsedResponse.interpretation || rawAiResponse,
         summary: parsedResponse.summary || this.summarizeText(extractedText),
+        comprehensiveSynthesis: parsedResponse.comprehensiveSynthesis,
         frameworks: Array.isArray(parsedResponse.frameworks) && parsedResponse.frameworks.length > 0 
           ? parsedResponse.frameworks 
           : ["Strategic Synthesis", "Operational Leverage", "Network Expansion"],

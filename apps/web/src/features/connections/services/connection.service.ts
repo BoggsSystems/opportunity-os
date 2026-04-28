@@ -247,10 +247,10 @@ class ConnectionService {
     }
   }
 
-  async auditKnowledge(file: File): Promise<any> {
-    console.log('📚 ConnectionService.auditKnowledge START', { fileSize: file.size });
+  async auditKnowledge(file: File, previousContext?: any[]): Promise<any> {
+    console.log('📚 ConnectionService.auditKnowledge START', { fileSize: file.size, contextLength: previousContext?.length });
     try {
-      const result = await this.api.auditKnowledge(file);
+      const result = await this.api.auditKnowledge(file, previousContext);
       console.log('📚 ConnectionService.auditKnowledge SUCCESS:', result);
       return result.data;
     } catch (error) {

@@ -160,6 +160,52 @@ Rules:
     return response.content.trim();
   }
 
+  async interpretKnowledgeAsset(content: string, previousContext?: any[]): Promise<string> {
+    this.logger.log(`Interpreting knowledge asset with ${previousContext ? previousContext.length : 0} previous assets in context.`);
+    
+    let contextBlock = '';
+    if (previousContext && previousContext.length > 0) {
+      contextBlock = `\n\nPrevious Knowledge Context (Already Extracted):\n`;
+      previousContext.forEach((asset, idx) => {
+        contextBlock += `Asset ${idx + 1}: ${asset.title}\n`;
+        contextBlock += `Interpretation: ${asset.interpretation}\n`;
+        contextBlock += `Frameworks: ${asset.frameworks.join(', ')}\n\n`;
+      });
+      contextBlock += `Consider how the newly uploaded document below interacts with, validates, or expands upon the Previous Knowledge Context.`;
+    }
+
+    const prompt = `
+You are a High-Signal Strategic Commander. Analyze the following intellectual property (IP) and extract its core tactical value.
+
+NEW Content to analyze:
+"${content}"${contextBlock}
+
+Your Task:
+You must respond with ONLY a valid JSON object with the following structure:
+{
+  "summary": "A punchy, one-sentence summary of the core thesis of the NEW document.",
+  "interpretation": "A 2-3 paragraph overview of the NEW document. What is the fundamental logic? What unique perspective or high-signal insight can be used to grab a prospect's attention?",
+  "frameworks": ["Framework Name 1", "Framework Name 2", "Framework Name 3"],
+  "comprehensiveSynthesis": "A 2-3 paragraph synthesis that weaves together the NEW document with ALL the Previous Knowledge Context. How do these assets multiply each other? (e.g. 'Your book preaches X, and your resume proves you executed it at Company Y'). If there is no previous context, just summarize the overall leverage of this single asset."
+}
+
+Rules:
+- Be punchy and professional.
+- Focus on "Weaponizable" insights—things that can be used in a real conversation.
+- Extract exactly 3-5 frameworks from the NEW text.
+- Ensure the output is strictly valid JSON.
+`.trim();
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.4,
+      maxTokens: 1200,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    return response.content.trim();
+  }
+
   async proposeRevenueLanes(context: { networkCount: number; networkPosture: string; frameworks: string[]; interpretation: string }): Promise<any[]> {
     this.logger.log(`Proposing revenue lanes based on ${context.networkCount} connections and ${context.frameworks.length} frameworks`);
     
@@ -231,6 +277,174 @@ Respond with ONLY a valid JSON array of objects using the exact same structure a
     } catch (e) {
       this.logger.error('Failed to parse refineRevenueLanes JSON', e);
       return currentLanes; // Fallback to current if parse fails
+    }
+  }
+
+  async proposeCampaigns(context: { 
+    selectedLanes: any[]; 
+    networkCount: number; 
+    frameworks: string[]; 
+    interpretation: string 
+  }): Promise<any[]> {
+    this.logger.log(`Proposing campaigns for ${context.selectedLanes.length} revenue lanes`);
+    
+    const prompt = `
+You are a Chief Revenue Officer and Campaign Strategist. The user has confirmed their Revenue Lanes (strategic offerings). Now you must design one initial campaign for each lane.
+
+CONFIRMED REVENUE LANES:
+${JSON.stringify(context.selectedLanes, null, 2)}
+
+USER CONTEXT:
+- Professional network: ${context.networkCount} connections
+- IP Frameworks: ${context.frameworks.join(', ')}
+- Strategic Interpretation: ${context.interpretation}
+
+Your Task:
+Design one campaign per Revenue Lane. Each campaign should be a focused, time-bound go-to-market push.
+
+Respond with ONLY a valid JSON array of objects. Each object must have:
+{
+  "id": "unique-slug-id",
+  "laneId": "the id of the Revenue Lane this campaign serves",
+  "laneTitle": "the title of the Revenue Lane",
+  "title": "Campaign name (e.g., 'SDLC Velocity Outreach')",
+  "description": "A punchy 1-2 sentence description of the campaign strategy.",
+  "duration": "90 days",
+  "targetSegment": "Exactly who this campaign targets (title, company stage, industry)",
+  "channel": "Primary outreach channel(s) (e.g., LinkedIn DM, Email, Warm Intro)",
+  "messagingHook": "The specific IP framework or angle used as the conversation opener",
+  "goalMetric": "A measurable success metric (e.g., '15 qualified conversations')"
+}
+
+Rules:
+- Create exactly ONE campaign per Revenue Lane.
+- Default duration to 90 days unless the lane clearly calls for a shorter sprint.
+- Be specific about the target segment — not "executives" but "VP/Dir Engineering at Series B+ SaaS companies".
+- The messagingHook must reference the user's actual IP frameworks.
+- Ensure the output is strictly valid JSON.
+`.trim();
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.5,
+      maxTokens: 2000,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    try {
+      const parsed = JSON.parse(response.content.replace(/```json/gi, '').replace(/```/g, '').trim());
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      this.logger.error('Failed to parse proposeCampaigns JSON', e);
+      return [];
+    }
+  }
+
+  async refineCampaigns(currentCampaigns: any[], feedback: string, context: {
+    selectedLanes: any[];
+    networkCount: number;
+    frameworks: string[];
+    interpretation: string;
+  }): Promise<any[]> {
+    this.logger.log(`Refining campaigns based on user feedback`);
+
+    const prompt = `
+You are a Chief Revenue Officer and Campaign Strategist. You previously proposed these campaigns:
+${JSON.stringify(currentCampaigns, null, 2)}
+
+The user's confirmed Revenue Lanes are:
+${JSON.stringify(context.selectedLanes, null, 2)}
+
+The user provided the following directional feedback:
+"${feedback}"
+
+Based on their feedback and context (Network of ${context.networkCount} connections, IP: ${context.frameworks.join(', ')}), regenerate or modify the campaigns.
+
+IMPORTANT RULES:
+- You may add NEW campaigns if the user requests them.
+- You may modify existing campaigns based on feedback.
+- You may remove campaigns if explicitly asked.
+- Keep the same JSON schema as before.
+- Each campaign must reference a valid Revenue Lane from the confirmed list.
+- Respond with ONLY a valid JSON array.
+`.trim();
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.5,
+      maxTokens: 2000,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    try {
+      const parsed = JSON.parse(response.content.replace(/```json/gi, '').replace(/```/g, '').trim());
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      this.logger.error('Failed to parse refineCampaigns JSON', e);
+      return currentCampaigns;
+    }
+  }
+
+  async proposeActionLanes(campaigns: any[], comprehensiveSynthesis: string): Promise<any[]> {
+    const prompt = `
+    Based on the following confirmed Campaigns and User Strategic Synthesis, propose a set of 3-4 "Action Lanes" (Tactical Channels).
+    
+    User Synthesis: ${comprehensiveSynthesis}
+    
+    Confirmed Campaigns:
+    ${JSON.stringify(campaigns, null, 2)}
+    
+    An Action Lane is a specific channel and method used to execute a campaign. 
+    Common types: 
+    - "Direct Executive Outreach" (Email/Outlook focus)
+    - "Warm Introduction Engine" (LinkedIn network focus)
+    - "Content Leverage Lane" (Social posting focus)
+    - "Event & Webinar Lane" (Targeted gathering focus)
+    
+    Return a JSON array of objects:
+    {
+      "id": "unique-id",
+      "type": "the tactical type",
+      "title": "Clear, evocative title (e.g., 'Direct CEO Pipeline')",
+      "description": "Short description of the tactical approach",
+      "tactics": ["Bullet point 1", "Bullet point 2"],
+      "requiredConnectors": ["outlook", "linkedin", etc],
+      "campaignIds": ["id1", "id2"] // Which confirmed campaigns this lane supports
+    }
+    `;
+
+    try {
+      const response = await this.generateText(prompt, { temperature: 0.3 });
+      const parsed = JSON.parse(response.replace(/```json/gi, '').replace(/```/g, '').trim());
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      this.logger.error('Failed to parse proposeActionLanes JSON', e);
+      return [];
+    }
+  }
+
+  async refineActionLanes(currentLanes: any[], feedback: string, campaigns: any[], comprehensiveSynthesis: string): Promise<any[]> {
+    const prompt = `
+    The user wants to refine their Action Lanes (Tactical Channels).
+    
+    Current Lanes: ${JSON.stringify(currentLanes)}
+    Feedback: ${feedback}
+    Context:
+    - Campaigns: ${JSON.stringify(campaigns)}
+    - Synthesis: ${comprehensiveSynthesis}
+    
+    Return the updated list of 3-4 Action Lanes as a JSON array. 
+    Respect the user's feedback. If they want to remove or change a lane, do so.
+    Return only JSON.
+    `;
+
+    try {
+      const response = await this.generateText(prompt, { temperature: 0.4 });
+      const parsed = JSON.parse(response.replace(/```json/gi, '').replace(/```/g, '').trim());
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      this.logger.error('Failed to parse refineActionLanes JSON', e);
+      return currentLanes;
     }
   }
 

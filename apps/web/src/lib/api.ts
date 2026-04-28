@@ -222,6 +222,34 @@ export class ApiClient {
     });
   }
 
+  async proposeCampaigns(context: { selectedLanes: any[]; networkCount: number; frameworks: string[]; interpretation: string }) {
+    return this.request<{ success: boolean; campaigns: any[] }>('/onboarding/campaigns/propose', {
+      method: 'POST',
+      body: context,
+    });
+  }
+
+  async refineCampaigns(body: { currentCampaigns: any[]; feedback: string; selectedLanes: any[]; networkCount: number; frameworks: string[]; interpretation: string }) {
+    return this.request<{ success: boolean; campaigns: any[] }>('/onboarding/campaigns/refine', {
+      method: 'POST',
+      body,
+    });
+  }
+
+  async proposeActionLanes(context: { selectedCampaigns: any[]; comprehensiveSynthesis: string }) {
+    return this.request<{ success: boolean; actionLanes: any[] }>('/onboarding/action-lanes/propose', {
+      method: 'POST',
+      body: context,
+    });
+  }
+
+  async refineActionLanes(body: { currentActionLanes: any[]; feedback: string; selectedCampaigns: any[]; comprehensiveSynthesis: string }) {
+    return this.request<{ success: boolean; actionLanes: any[] }>('/onboarding/action-lanes/refine', {
+      method: 'POST',
+      body,
+    });
+  }
+
   async getSubscription() {
     return this.request<SubscriptionSummary>('/me/subscription');
   }
@@ -394,10 +422,14 @@ export class ApiClient {
     }>('/onboarding/audit', formData);
   }
 
-  async auditKnowledge(file: File) {
-    console.log('📚 API DEBUG: auditKnowledge called', { fileName: file.name, fileSize: file.size });
+  async auditKnowledge(file: File, previousContext?: any[]) {
+    console.log('📚 API DEBUG: auditKnowledge called', { fileName: file.name, fileSize: file.size, contextLength: previousContext?.length });
     const formData = new FormData();
     formData.append('file', file);
+    
+    if (previousContext && previousContext.length > 0) {
+      formData.append('previousContext', JSON.stringify(previousContext));
+    }
 
     return this.requestForm<{
       success: boolean;
@@ -406,6 +438,7 @@ export class ApiClient {
         interpretation: string;
         summary: string;
         frameworks: string[];
+        comprehensiveSynthesis?: string;
       };
       message: string;
     }>('/onboarding/knowledge', formData);

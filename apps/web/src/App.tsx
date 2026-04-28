@@ -893,6 +893,8 @@ export function App() {
           isWorking={isWorking}
           notice={notice}
           onAuth={handleAuth}
+          onConnectOutlook={startOutlookOAuth}
+          onSyncEmail={syncEmail}
         />
       );
     }
@@ -998,6 +1000,10 @@ export function App() {
           user={session.user} 
           api={api}
           onComplete={handleOnboardingComplete} 
+          onConnectOutlook={startOutlookOAuth}
+          onSyncEmail={syncEmail}
+          isWorking={isWorking}
+          notice={notice}
         />
       ) : null}
     </main>

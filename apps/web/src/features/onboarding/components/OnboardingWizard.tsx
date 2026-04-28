@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
 import { 
   Users, Target, Rocket, ArrowRight, Upload, CheckCircle, 
-  Database, ShieldCheck, Award, Eye, PenTool, Briefcase, 
-  Mail, Search, RefreshCw, Zap, ChevronRight 
+  Database, ShieldCheck, RefreshCw, Zap, Maximize2, Minimize2 
 } from 'lucide-react';
 import { connectionService } from '../../connections/services/connection.service';
 import { ImportSource } from '../../connections/types/connection.types';
@@ -11,6 +10,7 @@ import { AuthScreen } from '../../../components/auth/AuthScreen';
 import { useUIStore } from '../../../store';
 import { ApiClient } from '../../../lib/api';
 import { ConductorChat } from '../../../components/conductor/ConductorChat';
+import { MOCK_IP_ASSETS, MOCK_SYNTHESIS, MOCK_OFFERINGS, MOCK_CAMPAIGNS } from '../../../lib/onboarding-mocks';
 import './OnboardingWizard.css';
 
 interface OnboardingWizardProps {
@@ -20,11 +20,13 @@ interface OnboardingWizardProps {
   notice?: any;
   api: ApiClient;
   onAuth?: (mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>;
+  onConnectOutlook?: () => Promise<void>;
+  onSyncEmail?: () => Promise<void>;
 }
 
-type Step = 'briefing' | 'intent' | 'relationships' | 'knowledge' | 'analysis' | 'activation' | 'welcome';
+type Step = 'briefing' | 'intent' | 'relationships' | 'knowledge' | 'campaigns' | 'actionLanes' | 'connectivity' | 'activation' | 'welcome';
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user, isWorking, notice, api, onAuth }) => {
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user, isWorking, notice, api, onAuth, onConnectOutlook, onSyncEmail }) => {
   console.log('🏗️ OnboardingWizard MOUNTED/RE-RENDERED');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentStep, setCurrentStep] = useState<Step>('briefing');
@@ -41,12 +43,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [connectionCount, setConnectionCount] = useState<number>(0);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
-  const [knowledgeResult, setKnowledgeResult] = useState<{
+  const [uploadedAssets, setUploadedAssets] = useState<Array<{
     title: string;
     interpretation: string;
     summary: string;
     frameworks: string[];
-  } | null>(null);
+  }>>([]);
+  const [comprehensiveSynthesis, setComprehensiveSynthesis] = useState<string | null>(null);
   
   // Conductor Orchestration State
   const [selectedLanes, setSelectedLanes] = useState<string[]>([]);
@@ -55,11 +58,33 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   const [refinementMode, setRefinementMode] = useState<'none' | 'pivot' | 'confirmed'>('none');
   const [pivotText, setPivotText] = useState('');
   const [wizardMessages, setWizardMessages] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const isAnyWorking = isWorking || isLoading;
   const [guestSessionId] = useState(() => crypto.randomUUID());
   
   const { setPodiumMode } = useUIStore();
 
   const [proposedOfferings, setProposedOfferings] = useState<any[]>([]);
+  const [proposedCampaigns, setProposedCampaigns] = useState<any[]>([]);
+  const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]);
+  const [proposedActionLanes, setProposedActionLanes] = useState<any[]>([]);
+  const [selectedActionLanes, setSelectedActionLanes] = useState<string[]>([]);
+  const [emailReadiness, setEmailReadiness] = useState<any>(null);
+  const [showDevHarness, setShowDevHarness] = useState(false);
+  const [isConductorExpanded, setIsConductorExpanded] = useState(false);
+
+  const seedState = () => {
+    setUploadedAssets(MOCK_IP_ASSETS);
+    setComprehensiveSynthesis(MOCK_SYNTHESIS);
+    setProposedOfferings(MOCK_OFFERINGS);
+    setSelectedLanes(MOCK_OFFERINGS.map(o => o.id));
+    setProposedCampaigns(MOCK_CAMPAIGNS);
+    setSelectedCampaigns([MOCK_CAMPAIGNS[0].id]);
+    setStrategicDraft({
+      posture: { text: "Strategic AI Lead", objectives: ["Efficiency", "Scale"], preferredTone: "Professional" },
+      theses: [{ title: "AI Velocity", content: "AI is the new leverage.", tags: ["AI", "SDLC"] }]
+    });
+  };
 
   // Dynamic Step Narration Trigger
   const triggerStepNarration = async (step: Step) => {
@@ -74,41 +99,104 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     } else if (step === 'knowledge') {
       systemPrompt = `${narrationHeader} Network sensing complete. We've identified ${connectionCount || 'their'} professional nodes. Now moving to 'Expertise Grounding'. Ask them to provide strategic assets (PDFs, decks) to sharpen the outreach frameworks.`;
     } else if (step === 'intent') {
-      try {
-        setWizardMessages(prev => [...prev, { 
-          id: crypto.randomUUID(), 
-          role: 'assistant', 
-          text: "Analyzing your network topography and IP frameworks to generate proposed Revenue Lanes..." 
-        }]);
-        const res = await api.proposeOfferings({
-          networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
-          networkPosture: strategicDraft?.posture?.text || '',
-          frameworks: knowledgeResult?.frameworks || [],
-          interpretation: knowledgeResult?.interpretation || ''
-        });
-        if (res.success && res.offerings?.length) {
-          setProposedOfferings(res.offerings);
+      setWizardMessages(prev => [...prev, { 
+        id: crypto.randomUUID(), 
+        role: 'assistant', 
+        text: "Analyzing your network topography and IP frameworks to generate proposed Revenue Lanes..." 
+      }]);
+      
+      // Yield to the event loop so React can paint the message and typing indicator
+      setTimeout(async () => {
+        try {
+          const res = await api.proposeOfferings({
+            networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
+            networkPosture: strategicDraft?.posture?.text || '',
+            frameworks: uploadedAssets.flatMap(a => a.frameworks) || [],
+            interpretation: comprehensiveSynthesis || uploadedAssets.map(a => a.interpretation).join('\n\n') || ''
+          });
+          if (res.success && res.offerings?.length) {
+            setProposedOfferings(res.offerings);
+            setWizardMessages(prev => [...prev, { 
+              id: crypto.randomUUID(), 
+              role: 'assistant', 
+              text: "I have analyzed your data and proposed the following Revenue Lanes. Which ones should we focus on? Feel free to chat with me below if you'd like to refine or pivot these directions." 
+            }]);
+          } else {
+            setWizardMessages(prev => [...prev, { 
+              id: crypto.randomUUID(), 
+              role: 'assistant', 
+              text: "Failed to generate lanes. Please try again." 
+            }]);
+          }
+        } catch (e) {
           setWizardMessages(prev => [...prev, { 
             id: crypto.randomUUID(), 
             role: 'assistant', 
-            text: "I have analyzed your data and proposed the following Revenue Lanes. Which ones should we focus on?" 
-          }]);
-        } else {
-          setWizardMessages(prev => [...prev, { 
-            id: crypto.randomUUID(), 
-            role: 'assistant', 
-            text: "Failed to generate lanes. Please try again." 
+            text: "An error occurred while generating Revenue Lanes." 
           }]);
         }
-      } catch (e) {
-        setWizardMessages(prev => [...prev, { 
-          id: crypto.randomUUID(), 
-          role: 'assistant', 
-          text: "An error occurred while generating Revenue Lanes." 
-        }]);
-      }
+        setIsConductorThinking(false);
+      }, 50);
+      return;
+    } else if (step === 'campaigns') {
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: "You've locked in your Revenue Lanes. I'm now designing a campaign for each one — including who to target, what to say, and how long to run it. Give me a moment..."
+      }]);
+
+      setTimeout(async () => {
+        try {
+          const confirmedLanes = proposedOfferings.filter(o => selectedLanes.includes(o.id));
+          const res = await api.proposeCampaigns({
+            selectedLanes: confirmedLanes,
+            networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
+            frameworks: uploadedAssets.flatMap(a => a.frameworks) || [],
+            interpretation: comprehensiveSynthesis || uploadedAssets.map(a => a.interpretation).join('\n\n') || ''
+          });
+          if (res.success && res.campaigns?.length) {
+            setProposedCampaigns(res.campaigns);
+            setWizardMessages(prev => [...prev, {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              text: "Here are your initial campaign blueprints. Each one is designed to activate a specific Revenue Lane. Feel free to chat with me below to adjust any parameters — duration, target audience, messaging angle — or to add additional campaigns to a lane."
+            }]);
+          } else {
+            setWizardMessages(prev => [...prev, {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              text: "Failed to generate campaigns. Please try again."
+            }]);
+          }
+        } catch (e) {
+          setWizardMessages(prev => [...prev, {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: "An error occurred while generating campaigns."
+          }]);
+        }
+        setIsConductorThinking(false);
+      }, 50);
+      return;
+    } else if (step === 'actionLanes') {
+      const campaignCount = proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)).length;
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: `Strategy is locked. I've designed your Tactical Arsenal to power your ${campaignCount} active campaigns. Each 'Action Lane' below acts as a high-fidelity channel to reach your targets. I've tagged which campaign each lane supports.`
+      }]);
       setIsConductorThinking(false);
       return;
+    } else if (step === 'connectivity') {
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: "Excellent selection. To fuel these lanes, I need to establish the following technical connections."
+      }]);
+      setIsConductorThinking(false);
+      return;
+    } else if (step === 'activation') {
+      systemPrompt = `${narrationHeader} Live Action Desk initialized. The infrastructure is ready. Explain that the system is now live, monitoring signals and ready to execute the orchestration plan. Direct them to the dashboard.`;
     } else if (step === 'analysis') {
       systemPrompt = `${narrationHeader} Mission selected. Moving to 'Strategic Analysis'. Explain that you are now synthesizing their network leverage, their IP, and their chosen mission to build the final orchestration plan.`;
     }
@@ -145,6 +233,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
 
   // Step-specific Narration Trigger
   useEffect(() => {
+    if (currentStep === 'channels' && user) {
+      api.getEmailReadiness().then(setEmailReadiness).catch(console.error);
+    }
+  }, [currentStep, user, api]);
+
+  useEffect(() => {
     if (currentStep !== 'welcome' && currentStep !== 'briefing') {
       triggerStepNarration(currentStep);
     }
@@ -180,24 +274,54 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     
     try {
       if (currentStep === 'intent') {
+        // Split lanes into locked (selected) and unlocked
+        const lockedLanes = proposedOfferings.filter(lane => selectedLanes.includes(lane.id));
+        const unlockedLanes = proposedOfferings.filter(lane => !selectedLanes.includes(lane.id));
+
         const res = await api.refineOfferings({
-          currentLanes: proposedOfferings,
+          currentLanes: unlockedLanes, // Only send unlocked lanes to AI
           feedback: text,
           networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
           networkPosture: strategicDraft?.posture?.text || '',
-          frameworks: knowledgeResult?.frameworks || [],
-          interpretation: knowledgeResult?.interpretation || ''
+          frameworks: uploadedAssets.flatMap(a => a.frameworks) || [],
+          interpretation: comprehensiveSynthesis || uploadedAssets.map(a => a.interpretation).join('\n\n') || ''
         });
         
         if (res.success && res.offerings?.length) {
-          setProposedOfferings(res.offerings);
+          // Re-combine locked lanes with newly generated lanes
+          setProposedOfferings([...lockedLanes, ...res.offerings]);
           setWizardMessages(prev => [...prev, { 
             id: crypto.randomUUID(), 
             role: 'assistant', 
-            text: "I have updated the Revenue Lanes based on your feedback. Which one should we execute?" 
+            text: "I have updated the Revenue Lanes based on your feedback. Which ones should we focus on? Feel free to chat with me below if you'd like to refine or pivot these directions." 
           }]);
         } else {
           setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "Failed to refine lanes. Please try again." }]);
+        }
+      } else if (currentStep === 'campaigns') {
+        // Split campaigns into locked (selected) and unlocked
+        const lockedCampaigns = proposedCampaigns.filter(c => selectedCampaigns.includes(c.id));
+        const unlockedCampaigns = proposedCampaigns.filter(c => !selectedCampaigns.includes(c.id));
+        const confirmedLanes = proposedOfferings.filter(o => selectedLanes.includes(o.id));
+
+        const res = await api.refineCampaigns({
+          currentCampaigns: unlockedCampaigns,
+          feedback: text,
+          selectedLanes: confirmedLanes,
+          networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
+          frameworks: uploadedAssets.flatMap(a => a.frameworks) || [],
+          interpretation: comprehensiveSynthesis || uploadedAssets.map(a => a.interpretation).join('\n\n') || ''
+        });
+
+        if (res.success && res.campaigns?.length) {
+          setProposedCampaigns([...lockedCampaigns, ...res.campaigns]);
+          setWizardMessages(prev => [...prev, {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: "I have updated the campaigns based on your feedback. Feel free to continue refining or select the ones you want to activate."
+          }]);
+        } else {
+          setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "Failed to refine campaigns. Please try again." }]);
         }
       } else {
         console.log('🤖 CONSOLE: Calling api.converse...', {
@@ -311,6 +435,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     );
   };
 
+  const handleCampaignToggle = (campaignId: string) => {
+    setSelectedCampaigns(prev =>
+      prev.includes(campaignId)
+        ? prev.filter(id => id !== campaignId)
+        : [...prev, campaignId]
+    );
+  };
+
   const nextStep = (step: Step) => {
     setUploadStatus('idle');
     setCurrentStep(step);
@@ -370,18 +502,36 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
 
     setUploadStatus('uploading');
     try {
-      // For Phase 4, we use the onboarding/knowledge endpoint (anonymous or auth handled by backend)
-      const result = await connectionService.auditKnowledge(file);
+      // Pass previously uploaded assets as context so AI can synthesize across all documents
+      const result = await connectionService.auditKnowledge(file, uploadedAssets);
       console.log('📚 Knowledge interpreted:', result);
       
-      setKnowledgeResult(result);
+      // Accumulate this asset into the array
+      const newAsset = {
+        title: result.title || file.name,
+        interpretation: result.interpretation,
+        summary: result.summary,
+        frameworks: result.frameworks,
+      };
+      setUploadedAssets(prev => [...prev, newAsset]);
+      
+      // Update comprehensive synthesis (AI weaves all assets together)
+      if (result.comprehensiveSynthesis) {
+        setComprehensiveSynthesis(result.comprehensiveSynthesis);
+      }
+
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: `I've synthesized "${newAsset.title}". It adds significant depth to your strategic IP, particularly regarding ${result.frameworks?.[0] || 'your core frameworks'}. You can add more assets to further sharpen the engine, or move forward to determine your mission.`
+      }]);
       
       // Update strategic draft with new frameworks
       setStrategicDraft((prev: any) => ({
         ...prev,
         theses: [
           ...(prev?.theses || []),
-          { title: "Asset-Grounded Outreach", content: result.interpretation }
+          { title: `Asset: ${file.name}`, content: result.interpretation }
         ]
       }));
       
@@ -481,7 +631,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('knowledge')}>Back</button>
         <button 
           className="onboarding-btn-primary" 
-          onClick={() => setCurrentStep('analysis')}
+          onClick={() => setCurrentStep('campaigns')}
           disabled={selectedLanes.length === 0}
           style={{ opacity: selectedLanes.length === 0 ? 0.5 : 1, cursor: selectedLanes.length === 0 ? 'not-allowed' : 'pointer' }}
         >
@@ -586,136 +736,440 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
       <div className="onboarding-header">
         <div className="phase-indicator">Phase 03: Knowledge</div>
         <h1>What have you built?</h1>
-        <p>Upload your book PDF, decks, or portfolio. I'll extract your core frameworks to ground our outreach.</p>
+        <p>Upload your book PDF, decks, resume, or portfolio. I'll extract your core frameworks to ground our outreach.</p>
       </div>
 
-      {uploadStatus !== 'success' && (
+      {/* Initial state: large dropzone when no assets uploaded */}
+      {uploadedAssets.length === 0 && uploadStatus !== 'uploading' && (
         <div className="single-bucket-container">
           <div className="context-bucket large">
             <div className="bucket-icon"><Database size={48} /></div>
             <h3>Knowledge Source</h3>
-            <p>Book PDF, Decks, Portfolio</p>
-            <div className={`drop-zone secondary ${uploadStatus === 'uploading' ? 'neural-pulse' : ''}`} onClick={() => fileInputRef.current?.click()}>
+            <p>Book PDF, Decks, Resume, Portfolio</p>
+            <div className="drop-zone secondary" onClick={() => fileInputRef.current?.click()}>
               <Upload size={32} />
-              <span>{uploadStatus === 'uploading' ? 'Extrating frameworks...' : 'Drop Strategic Assets here'}</span>
+              <span>Drop Strategic Assets here</span>
               <p className="drop-hint">PDF, PPTX, or Keynote</p>
             </div>
           </div>
         </div>
       )}
 
-      {uploadStatus === 'success' && currentStep === 'knowledge' && (
-        <div className="impression-card">
-          <div className="impression-hero">Knowledge Synthesis Complete</div>
-          <div className="impression-text">
-            {knowledgeResult?.summary || "I've extracted your core frameworks. These will serve as the \"Strategic Hook\" for our outreach campaigns."}
-          </div>
-          
-          {knowledgeResult?.interpretation && (
-             <div className="impression-interpretation" style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                <h4 style={{ marginBottom: '0.5rem', color: '#0070ba' }}>Strategic Interpretation</h4>
-                <p style={{ fontSize: '0.9rem', lineHeight: '1.5' }}>{knowledgeResult.interpretation}</p>
-             </div>
-          )}
-
-          <div className="impression-vitals" style={{ marginTop: '1.5rem' }}>
-            <div className="vital-badge">{knowledgeResult?.frameworks?.length || 3} Frameworks Detected</div>
-            <div className="vital-badge">Strategic Leverage Map</div>
-          </div>
-          
-          <div className="thesis-preview">
-            <h4>Extracted IP Components</h4>
-            {knowledgeResult?.frameworks?.length ? (
-              knowledgeResult.frameworks.map((framework, idx) => (
-                <div key={idx} className="thesis-item"><CheckCircle size={16} color="#0070ba" /> <span>{framework}</span></div>
-              ))
-            ) : (
-              <>
-                <div className="thesis-item"><CheckCircle size={16} color="#0070ba" /> <span>Physics of Velocity</span></div>
-                <div className="thesis-item"><CheckCircle size={16} color="#0070ba" /> <span>Strategic Leverage Point</span></div>
-              </>
-            )}
+      {/* Loading state */}
+      {uploadStatus === 'uploading' && (
+        <div className="single-bucket-container">
+          <div className="context-bucket large">
+            <div className="bucket-icon"><Database size={48} /></div>
+            <h3>Knowledge Source</h3>
+            <div className="drop-zone secondary neural-pulse">
+              <Upload size={32} />
+              <span>Extracting frameworks...</span>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* Iterative state: show synthesis + uploaded assets + add-more button */}
+      {uploadedAssets.length > 0 && uploadStatus !== 'uploading' && (
+        <>
+          {/* Comprehensive Synthesis Block */}
+          {comprehensiveSynthesis && (
+            <div className="impression-card" style={{ marginBottom: '1.5rem' }}>
+              <div className="impression-hero">
+                Comprehensive Intelligence Synthesis
+                <span style={{ marginLeft: '0.75rem', fontSize: '0.75rem', color: '#94a3b8', fontWeight: 400 }}>
+                  ({uploadedAssets.length} asset{uploadedAssets.length > 1 ? 's' : ''} analyzed)
+                </span>
+              </div>
+              <div className="impression-interpretation" style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                <p style={{ fontSize: '0.9rem', lineHeight: '1.6' }}>{comprehensiveSynthesis}</p>
+              </div>
+            </div>
+          )}
+
+          {/* List of uploaded assets */}
+          {uploadedAssets.map((asset, idx) => (
+            <div key={idx} className="impression-card" style={{ marginBottom: '1rem', padding: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                <CheckCircle size={20} color="#0070ba" />
+                <h4 style={{ margin: 0, fontSize: '1rem' }}>{asset.title}</h4>
+              </div>
+              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '0.75rem', lineHeight: '1.5' }}>
+                {asset.summary || asset.interpretation?.substring(0, 200) + '...'}
+              </p>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {asset.frameworks.map((fw, fIdx) => (
+                  <span key={fIdx} className="vital-badge" style={{ fontSize: '0.75rem' }}>{fw}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {/* Add another asset button */}
+          <div 
+            className="drop-zone secondary" 
+            onClick={() => fileInputRef.current?.click()}
+            style={{ 
+              margin: '1rem 0', 
+              padding: '1rem', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              gap: '0.75rem',
+              cursor: 'pointer',
+              border: '1px dashed rgba(0, 112, 186, 0.4)',
+              borderRadius: '8px',
+              background: 'rgba(0, 112, 186, 0.05)'
+            }}
+          >
+            <Upload size={18} />
+            <span style={{ fontSize: '0.9rem' }}>Add another strategic asset</span>
+          </div>
+        </>
       )}
 
       <div className="onboarding-footer">
         <button className="onboarding-btn-secondary" onClick={() => nextStep('relationships')}>Back</button>
         <button 
-          className={`onboarding-btn-primary ${uploadStatus === 'success' ? 'neural-pulse' : ''}`} 
+          className={`onboarding-btn-primary ${uploadedAssets.length > 0 ? 'neural-pulse' : ''}`} 
           onClick={() => nextStep('intent')}
-          disabled={uploadStatus !== 'success'}
+          disabled={uploadedAssets.length === 0}
         >
-          {uploadStatus === 'success' ? 'Determine Mission' : 'Extracting IP...'} <ArrowRight size={18} />
+          {uploadedAssets.length > 0 ? 'Determine Mission' : 'Upload an asset to continue'} <ArrowRight size={18} />
         </button>
       </div>
     </div>
   );
 
-  const renderAnalysis = () => (
+  const renderCampaigns = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <h1>Intelligence Report: Strategy Primed.</h1>
-        <p>I've synthesized your network and your expertise.</p>
+        <div className="phase-indicator">Phase 05: Campaign Architecture</div>
+        <h1>Now let's put these lanes into motion.</h1>
+        <p>Each Revenue Lane needs a campaign — a focused, time-bound push to generate real conversations.</p>
       </div>
 
-      <div className="analysis-summary">
-        <div className="leverage-card">
-          <div className="leverage-icon"><Zap size={24} /></div>
-          <div className="leverage-text">
-            <h4>Primary Leverage Identified</h4>
-            <p>Your "AI-Native Engineering" framework aligns with <strong>850 CTOs</strong> in your network.</p>
-          </div>
-        </div>
-
-        <div className="stats-mini-grid">
-          <div className="stat-mini"><div className="val">{connectionCount || 14640}</div><div className="lbl">Network Nodes</div></div>
-          <div className="stat-mini"><div className="val">42</div><div className="lbl">Target Clusters</div></div>
-        </div>
-      </div>
-
-      {!user ? (
-        <div className="signup-integration">
-          <h3>Claim this Strategy</h3>
-          <p>Create your secure vault to initialize the workspace and campaign.</p>
-          <AuthScreen apiBaseUrl={api.baseUrl} onAuth={onAuth ?? (async () => {})} isWorking={isWorking ?? false} notice={notice} initialStrategy={strategicDraft} />
-        </div>
-      ) : (
-        <div className="onboarding-footer">
-          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('knowledge')}>Back</button>
-          <button className="onboarding-btn-primary" onClick={() => setCurrentStep('activation')}>
-            Generate Campaign <ArrowRight size={18} />
-          </button>
+      {/* Loading state when no campaigns yet */}
+      {proposedCampaigns.length === 0 && (
+        <div className="mission-grid">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="mission-card neural-pulse" style={{ minHeight: '200px', opacity: 0.4 }}>
+              <div className="card-content">
+                <div style={{ height: '1.5rem', width: '60%', background: 'rgba(0,0,0,0.05)', borderRadius: '4px', marginBottom: '0.75rem' }} />
+                <div style={{ height: '1rem', width: '80%', background: 'rgba(0,0,0,0.03)', borderRadius: '4px', marginBottom: '0.5rem' }} />
+                <div style={{ height: '1rem', width: '40%', background: 'rgba(0,0,0,0.03)', borderRadius: '4px' }} />
+              </div>
+            </div>
+          ))}
         </div>
       )}
-    </div>
-  );
 
-  const renderActivation = () => (
-    <div className="onboarding-content">
-      <div className="onboarding-header">
-        <h1>Campaign Ready. Let's start the outreach.</h1>
-        <p>I've drafted your first mission based on your book mission.</p>
-      </div>
+      {/* Campaign Cards */}
+      {proposedCampaigns.length > 0 && (
+        <div className="mission-grid">
+          {proposedCampaigns.map(campaign => {
+            const isSelected = selectedCampaigns.includes(campaign.id);
 
-      <div className="campaign-preview-card">
-        <div className="preview-header"><Target size={20} /><h4>Mission: Monetize AI-Native IP</h4></div>
-        <div className="preview-body">
-          <div className="preview-prospect"><div className="avatar" /><div className="details"><strong>Alex Chen</strong><span>CTO at TechScale</span></div></div>
-          <div className="preview-draft">
-            <p>"Hey Alex, I noticed TechScale is scaling its AI-native engineering team. I recently published a framework on the 'New Physics of Velocity' that might save you some headaches..."</p>
-          </div>
+            return (
+              <div
+                key={campaign.id}
+                className={`mission-card ${isSelected ? 'selected' : ''}`}
+                onClick={() => handleCampaignToggle(campaign.id)}
+                style={{
+                  paddingBottom: '1.5rem',
+                  border: isSelected ? '2px solid #0070ba' : '1px solid rgba(255,255,255,0.1)',
+                  boxShadow: isSelected ? '0 0 15px rgba(0, 112, 186, 0.3)' : 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                <div className="card-content">
+                  <div className="mission-icon">
+                    {isSelected ? <CheckCircle size={28} color="#0070ba" /> : <Rocket size={28} />}
+                  </div>
+                  <h3 style={{ fontSize: '1.05rem', marginBottom: '0.5rem' }}>{campaign.title}</h3>
+                  <p style={{ fontSize: '0.85rem', marginBottom: '1rem', color: '#475569' }}>{campaign.description}</p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem', color: '#64748b' }}>
+                    <div><strong style={{ color: '#334155' }}>Lane:</strong> {campaign.laneTitle}</div>
+                    <div><strong style={{ color: '#334155' }}>Duration:</strong> {campaign.duration}</div>
+                    <div><strong style={{ color: '#334155' }}>Target:</strong> {campaign.targetSegment}</div>
+                    <div><strong style={{ color: '#334155' }}>Channel:</strong> {campaign.channel}</div>
+                    <div><strong style={{ color: '#334155' }}>Hook:</strong> {campaign.messagingHook}</div>
+                    <div><strong style={{ color: '#334155' }}>Goal:</strong> {campaign.goalMetric}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </div>
+      )}
 
       <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('analysis')}>Back</button>
-        <button className="onboarding-btn-primary" onClick={() => onComplete()}>
-          Initialize Workspace <Rocket size={18} />
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('intent')}>Back</button>
+        <button
+          className="onboarding-btn-primary"
+          onClick={async () => {
+            setIsLoading(true);
+            try {
+              const res = await api.proposeActionLanes({
+                selectedCampaigns: proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)),
+                comprehensiveSynthesis
+              });
+              if (res.success) {
+                setProposedActionLanes(res.actionLanes);
+                setSelectedActionLanes(res.actionLanes.map((l: any) => l.id));
+                setCurrentStep('actionLanes');
+              }
+            } catch (e) {
+              console.error(e);
+            } finally {
+              setIsLoading(false);
+            }
+          }}
+          disabled={selectedCampaigns.length === 0}
+          style={{ opacity: selectedCampaigns.length === 0 ? 0.5 : 1, cursor: selectedCampaigns.length === 0 ? 'not-allowed' : 'pointer' }}
+        >
+          Activate Campaigns <ArrowRight size={18} />
         </button>
       </div>
     </div>
   );
+
+  const renderAnalysis = () => {
+    const selectedLanesCount = selectedLanes.length;
+    const activeCampaignsCount = selectedCampaigns.length;
+
+    return (
+      <div className="onboarding-content">
+        <div className="onboarding-header">
+          <div className="phase-indicator">Phase 06: Strategic Analysis</div>
+          <h1>Intelligence Report: Strategy Primed.</h1>
+          <p>I've synthesized your network, expertise, and target campaigns.</p>
+        </div>
+
+        <div className="analysis-summary">
+          <div className="leverage-card">
+            <div className="leverage-icon"><Zap size={24} /></div>
+            <div className="leverage-text">
+              <h4>Strategy Architecture Complete</h4>
+              <p>We are launching <strong>{activeCampaignsCount} campaigns</strong> across <strong>{selectedLanesCount} revenue lanes</strong>.</p>
+            </div>
+          </div>
+
+          <div className="stats-mini-grid">
+            <div className="stat-mini"><div className="val">{connectionCount || 14640}</div><div className="lbl">Network Nodes</div></div>
+            <div className="stat-mini"><div className="val">{uploadedAssets.length}</div><div className="lbl">IP Assets</div></div>
+          </div>
+          
+          {comprehensiveSynthesis && (
+            <div className="impression-card" style={{ marginTop: '1rem', padding: '1.25rem', border: '1px solid rgba(0, 112, 186, 0.2)' }}>
+              <h4 style={{ color: '#0070ba', marginBottom: '0.75rem', fontSize: '0.9rem' }}>Comprehensive Synthesis</h4>
+              <p style={{ fontSize: '0.85rem', lineHeight: '1.5', color: '#475569' }}>{comprehensiveSynthesis}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="onboarding-footer">
+          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('campaigns')}>Back</button>
+          <button className="onboarding-btn-primary" onClick={async () => {
+            setIsLoading(true);
+            try {
+              const res = await api.proposeActionLanes({
+                selectedCampaigns: proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)),
+                comprehensiveSynthesis
+              });
+              if (res.success) {
+                setProposedActionLanes(res.actionLanes);
+                setSelectedActionLanes(res.actionLanes.map((l: any) => l.id));
+                setCurrentStep('actionLanes');
+              }
+            } catch (e) {
+              console.error(e);
+            } finally {
+              setIsLoading(false);
+            }
+          }}>
+            Design Tactical Arsenal <ArrowRight size={18} />
+          </button>
+        </div>
+      </div>
+    );
+  };
+  const renderActionLanes = () => {
+    return (
+      <div className="onboarding-content">
+        <div className="onboarding-header">
+          <div className="phase-indicator">Phase 06a: Tactical Arsenal</div>
+          <h1>Choose your action lanes.</h1>
+          <p>I've recommended these tactical channels to drive your campaigns.</p>
+        </div>
+
+        <div className="mission-grid" style={{ marginBottom: '2rem' }}>
+          {proposedActionLanes.map(lane => {
+            const isSelected = selectedActionLanes.includes(lane.id);
+            return (
+              <div 
+                key={lane.id} 
+                className={`mission-card ${isSelected ? 'active' : ''}`}
+                onClick={() => {
+                  if (isSelected) setSelectedActionLanes(prev => prev.filter(id => id !== lane.id));
+                  else setSelectedActionLanes(prev => [...prev, lane.id]);
+                }}
+              >
+                <div className="card-content">
+                  <div className="mission-icon">
+                    {isSelected ? <CheckCircle size={28} color="#0070ba" /> : <Layers size={28} />}
+                  </div>
+                  <h3 style={{ fontSize: '1.05rem', marginBottom: '0.5rem' }}>{lane.title}</h3>
+                  <p style={{ fontSize: '0.85rem', marginBottom: '1rem', color: '#475569' }}>{lane.description}</p>
+                  
+                  {lane.campaignIds && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '1rem' }}>
+                      {lane.campaignIds.map((cid: string) => {
+                        const campaign = proposedCampaigns.find(c => c.id === cid);
+                        return campaign ? (
+                          <span key={cid} style={{ fontSize: '0.65rem', padding: '2px 8px', background: 'rgba(0, 112, 186, 0.1)', color: '#0070ba', borderRadius: '4px', fontWeight: 600 }}>
+                            {campaign.title}
+                          </span>
+                        ) : null;
+                      })}
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', textAlign: 'left' }}>
+                    <ul style={{ paddingLeft: '1rem', margin: 0 }}>
+                      {lane.tactics?.map((t: string, i: number) => <li key={i}>{t}</li>)}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="onboarding-footer">
+          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('analysis')}>Back</button>
+          <button 
+            className="onboarding-btn-primary" 
+            onClick={() => setCurrentStep('connectivity')}
+            disabled={selectedActionLanes.length === 0}
+          >
+            Connectivity Hub <ArrowRight size={18} />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderConnectivity = () => {
+    const activeLanes = proposedActionLanes.filter(l => selectedActionLanes.includes(l.id));
+    const requiredConnectors = Array.from(new Set(activeLanes.flatMap(l => l.requiredConnectors || [])));
+    
+    return (
+      <div className="onboarding-content">
+        <div className="onboarding-header">
+          <div className="phase-indicator">Phase 06b: Connectivity Hub</div>
+          <h1>Establish your data bridges.</h1>
+          <p>To fuel your selected tactical arsenal, we need to establish these technical connections.</p>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', margin: '2rem 0', width: '100%', maxWidth: '500px' }}>
+          {requiredConnectors.includes('outlook') && (
+            <div className="mission-card" style={{ padding: '1.5rem', width: '100%', border: emailReadiness?.ready ? '1px solid #10b981' : '1px solid rgba(0,0,0,0.1)' }}>
+               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+                <div style={{ padding: '0.75rem', borderRadius: '12px', background: 'rgba(0, 112, 186, 0.1)', color: '#0070ba' }}>
+                  <Mail size={24} />
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Outlook Connection</h3>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                    Powers: {activeLanes.filter(l => l.requiredConnectors?.includes('outlook')).map(l => l.title).join(', ')}
+                  </p>
+                </div>
+              </div>
+
+              {!emailReadiness?.ready ? (
+                <button 
+                  className="onboarding-btn-secondary" 
+                  style={{ width: '100%', justifyContent: 'center', border: '1px solid #0070ba' }}
+                  onClick={onConnectOutlook}
+                  disabled={isAnyWorking}
+                >
+                  {isAnyWorking ? 'Connecting...' : 'Connect jeff@boggssystems.com'}
+                </button>
+              ) : (
+                <div style={{ padding: '0.75rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <CheckCircle size={16} color="#10b981" />
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#065f46' }}><strong>Live:</strong> {emailReadiness.address}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {requiredConnectors.includes('linkedin') && (
+            <div className="mission-card" style={{ padding: '1.5rem', width: '100%', opacity: 0.8 }}>
+               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ padding: '0.75rem', borderRadius: '12px', background: 'rgba(0, 112, 186, 0.05)', color: '#64748b' }}>
+                  <Network size={24} />
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#64748b' }}>LinkedIn Data Bridge</h3>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>Detected via browser session.</p>
+                </div>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#10b981', fontSize: '0.85rem', fontWeight: 600 }}>
+                    <CheckCircle size={16} /> Active
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="onboarding-footer">
+          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('actionLanes')}>Back</button>
+          <button 
+            className="onboarding-btn-primary" 
+            onClick={() => setCurrentStep('activation')}
+            disabled={requiredConnectors.includes('outlook') && !emailReadiness?.ready}
+          >
+            Ignition: Initialize Action Engine <ArrowRight size={18} />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+
+
+  const renderActivation = () => {
+    const firstActiveCampaign = proposedCampaigns.find(c => selectedCampaigns.includes(c.id)) || proposedCampaigns[0];
+    
+    return (
+      <div className="onboarding-content">
+        <div className="onboarding-header">
+          <div className="phase-indicator">Phase 07: Activation</div>
+          <h1>Campaign Ready. Let's start the outreach.</h1>
+          <p>I've drafted your first mission based on your <strong>{firstActiveCampaign?.title || 'selected'}</strong> campaign.</p>
+        </div>
+
+        <div className="campaign-preview-card">
+          <div className="preview-header"><Target size={20} /><h4>Mission: {firstActiveCampaign?.title || 'Strategic Outreach'}</h4></div>
+          <div className="preview-body">
+            <div className="preview-prospect"><div className="avatar" /><div className="details"><strong>Alex Chen</strong><span>CTO at TechScale (Network Match)</span></div></div>
+            <div className="preview-draft">
+              <p>"Hey Alex, I noticed TechScale is scaling its engineering team. I've been working on a framework around <strong>{firstActiveCampaign?.messagingHook || 'Strategic Velocity'}</strong> that I thought might be relevant to your current roadmap..."</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="onboarding-footer">
+          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('channels')}>Back</button>
+          <button className="onboarding-btn-primary" onClick={() => onComplete()}>
+            Initialize Workspace <Rocket size={18} />
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderWelcome = () => (
     <div className="onboarding-content">
@@ -730,13 +1184,82 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     </div>
   );
 
+  const renderDevHarness = () => {
+    if (process.env.NODE_ENV === 'production') return null;
+    
+    return (
+      <div style={{ position: 'fixed', bottom: '20px', left: '20px', zIndex: 9999 }}>
+        <button 
+          onClick={() => setShowDevHarness(!showDevHarness)}
+          style={{ 
+            background: '#1e293b', 
+            color: 'white', 
+            border: 'none', 
+            borderRadius: '50%', 
+            width: '40px', 
+            height: '40px', 
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <Zap size={20} />
+        </button>
+        
+        {showDevHarness && (
+          <div style={{ 
+            position: 'absolute', 
+            bottom: '50px', 
+            left: '0', 
+            background: '#1e293b', 
+            padding: '1rem', 
+            borderRadius: '8px',
+            boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
+            width: '240px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem'
+          }}>
+            <h4 style={{ color: '#94a3b8', margin: '0 0 0.5rem 0', fontSize: '0.8rem', textTransform: 'uppercase' }}>Dev Harness</h4>
+            <button onClick={seedState} style={{ padding: '0.5rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}>
+              Seed Full Strategy
+            </button>
+            <div style={{ borderTop: '1px solid #334155', margin: '0.5rem 0' }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+              {(['briefing', 'intent', 'relationships', 'knowledge', 'campaigns', 'analysis', 'channels', 'activation'] as Step[]).map(s => (
+                <button 
+                  key={s} 
+                  onClick={() => setCurrentStep(s)}
+                  style={{ 
+                    padding: '0.4rem', 
+                    background: currentStep === s ? '#0f172a' : '#334155', 
+                    color: '#475569', 
+                    border: 'none', 
+                    borderRadius: '4px', 
+                    cursor: 'pointer',
+                    fontSize: '0.75rem'
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="onboarding-overlay">
+      {renderDevHarness()}
       <div className="onboarding-background-mesh" />
       <div className="onboarding-wizard-container">
         <div className="onboarding-progress-header">
           <div className="progress-dots">
-            {['briefing', 'intent', 'relationships', 'knowledge', 'analysis', 'activation'].map((s) => (
+            {['briefing', 'relationships', 'knowledge', 'intent', 'campaigns', 'actionLanes', 'connectivity', 'activation'].map((s) => (
               <div key={s} className={`dot ${currentStep === s ? 'active' : ''}`} />
             ))}
           </div>
@@ -746,14 +1269,23 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         {currentStep === 'intent' && renderIntent()}
         {currentStep === 'relationships' && renderRelationships()}
         {currentStep === 'knowledge' && renderKnowledge()}
-        {currentStep === 'analysis' && renderAnalysis()}
+        {currentStep === 'campaigns' && renderCampaigns()}
+        {currentStep === 'actionLanes' && renderActionLanes()}
+        {currentStep === 'connectivity' && renderConnectivity()}
         {currentStep === 'activation' && renderActivation()}
         {currentStep === 'welcome' && renderWelcome()}
 
         {currentStep !== 'welcome' && (
-          <div className="conductor-window persistent">
+          <div className={`conductor-window persistent ${isConductorExpanded ? 'expanded' : ''}`}>
             <div className="window-header">
               <div className="status-indicator"><div className="pulse-dot" /><span>Conductor Online</span></div>
+              <button 
+                className="conductor-expand-btn"
+                onClick={() => setIsConductorExpanded(!isConductorExpanded)}
+                title={isConductorExpanded ? "Minimize" : "Expand AI Window"}
+              >
+                {isConductorExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
             </div>
             <div className="window-body">
               <ConductorChat

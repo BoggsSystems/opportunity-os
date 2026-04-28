@@ -379,6 +379,70 @@
   border-bottom: 1px solid var(--os-gray-border);
   display: flex;
   align-items: center;
+  justify-content: space-between;
+}
+
+.conductor-expand-btn {
+  background: transparent;
+  border: none;
+  color: var(--os-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.conductor-expand-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--os-blue);
+}
+
+.conductor-window.expanded {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0 !important;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.conductor-window.expanded .window-body {
+  max-height: none;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.conductor-window.expanded .conductor-chat-container {
+  height: 100%;
+  background: transparent;
+}
+
+.conductor-window.expanded .conversation-thread {
+  max-height: none !important;
+  flex: 1;
+}
+
+.conductor-window.expanded .composer {
+  background: transparent;
+  padding: 24px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.conductor-window.expanded .window-header {
+  background: transparent;
+  padding: 16px 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .status-indicator {

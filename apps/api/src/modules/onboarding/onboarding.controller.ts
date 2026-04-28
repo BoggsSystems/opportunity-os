@@ -45,6 +45,42 @@ export class OnboardingController {
   }
 
   @Public()
+  @Post('campaigns/propose')
+  @ApiOperation({ summary: 'Propose campaigns for confirmed revenue lanes' })
+  async proposeCampaigns(@Body() body: { selectedLanes: any[]; networkCount: number; frameworks: string[]; interpretation: string }) {
+    this.logger.log(`Proposing campaigns for ${body.selectedLanes.length} lanes`);
+    const campaigns = await this.aiService.proposeCampaigns(body);
+    return { success: true, campaigns };
+  }
+
+  @Public()
+  @Post('campaigns/refine')
+  @ApiOperation({ summary: 'Refine campaigns based on feedback' })
+  async refineCampaigns(@Body() body: { currentCampaigns: any[]; feedback: string; selectedLanes: any[]; networkCount: number; frameworks: string[]; interpretation: string }) {
+    this.logger.log(`Refining campaigns with feedback: ${body.feedback}`);
+    const campaigns = await this.aiService.refineCampaigns(body.currentCampaigns, body.feedback, body);
+    return { success: true, campaigns };
+  }
+  
+  @Public()
+  @Post('action-lanes/propose')
+  @ApiOperation({ summary: 'Propose tactical action lanes for confirmed campaigns' })
+  async proposeActionLanes(@Body() body: { selectedCampaigns: any[]; comprehensiveSynthesis: string }) {
+    this.logger.log(`Proposing action lanes for ${body.selectedCampaigns.length} campaigns`);
+    const actionLanes = await this.aiService.proposeActionLanes(body.selectedCampaigns, body.comprehensiveSynthesis);
+    return { success: true, actionLanes };
+  }
+
+  @Public()
+  @Post('action-lanes/refine')
+  @ApiOperation({ summary: 'Refine tactical action lanes based on feedback' })
+  async refineActionLanes(@Body() body: { currentActionLanes: any[]; feedback: string; selectedCampaigns: any[]; comprehensiveSynthesis: string }) {
+    this.logger.log(`Refining action lanes with feedback: ${body.feedback}`);
+    const actionLanes = await this.aiService.refineActionLanes(body.currentActionLanes, body.feedback, body.selectedCampaigns, body.comprehensiveSynthesis);
+    return { success: true, actionLanes };
+  }
+
+  @Public()
   @Post('knowledge')
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
@@ -52,6 +88,7 @@ export class OnboardingController {
   @ApiResponse({ status: 201, description: 'Analysis completed successfully' })
   async preAuthKnowledge(
     @UploadedFile() file: Express.Multer.File,
+    @Body('previousContext') previousContext?: string
   ) {
     if (!file) {
       this.logger.warn('❌ No file received in preAuthKnowledge');
@@ -73,7 +110,8 @@ export class OnboardingController {
 
     try {
       this.logger.log(`🤖 CALLING DISCOVERY: preAuthInterpret for ${file.originalname}`);
-      const analysis = await this.discoveryService.preAuthInterpret(file);
+      const parsedContext = previousContext ? JSON.parse(previousContext) : undefined;
+      const analysis = await this.discoveryService.preAuthInterpret(file, parsedContext);
       this.logger.log(`✅ DISCOVERY SUCCESS for ${file.originalname}`);
 
       return {
