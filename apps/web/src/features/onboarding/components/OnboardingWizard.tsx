@@ -49,7 +49,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   } | null>(null);
   
   // Conductor Orchestration State
-  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const [selectedLanes, setSelectedLanes] = useState<string[]>([]);
   const [conductorMessage, setConductorMessage] = useState<string | null>(null);
   const [isConductorThinking, setIsConductorThinking] = useState(false);
   const [refinementMode, setRefinementMode] = useState<'none' | 'pivot' | 'confirmed'>('none');
@@ -59,14 +59,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   
   const { setPodiumMode } = useUIStore();
 
-  const missions = [
-    { id: 'clients', title: 'Scale New Clients', description: 'Consultants and founders looking for direct revenue growth.', icon: Users },
-    { id: 'ip', title: 'Monetize My Book / IP', description: 'Authors and creators looking to sell their knowledge.', icon: Award },
-    { id: 'dream', title: 'Target Dream Companies', description: 'Map your "Way In" to specific targets via your network.', icon: Target },
-    { id: 'hidden', title: 'Surface Hidden Roles', description: 'Find "Hiring Clusters" before roles are even posted.', icon: Eye },
-    { id: 'partners', title: 'Build Strategic Partnerships', description: 'Find collaborators, investors, or advisors.', icon: Briefcase },
-    { id: 'authority', title: 'Establish Thought Leadership', description: 'Build your audience and authority through assets.', icon: Rocket },
-  ];
+  const [proposedOfferings, setProposedOfferings] = useState<any[]>([]);
 
   // Dynamic Step Narration Trigger
   const triggerStepNarration = async (step: Step) => {
@@ -81,7 +74,41 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     } else if (step === 'knowledge') {
       systemPrompt = `${narrationHeader} Network sensing complete. We've identified ${connectionCount || 'their'} professional nodes. Now moving to 'Expertise Grounding'. Ask them to provide strategic assets (PDFs, decks) to sharpen the outreach frameworks.`;
     } else if (step === 'intent') {
-      systemPrompt = `${narrationHeader} Both Network and Expertise assets ingested. Based on their network of ${connectionCount} nodes and their extracted IP frameworks, recommend exactly ONE of these core missions: Scale New Clients, Monetize My Book / IP, Target Dream Companies, Surface Hidden Roles, Build Strategic Partnerships, or Establish Thought Leadership. Explain why this specific mission is their most lucrative path.`;
+      try {
+        setWizardMessages(prev => [...prev, { 
+          id: crypto.randomUUID(), 
+          role: 'assistant', 
+          text: "Analyzing your network topography and IP frameworks to generate proposed Revenue Lanes..." 
+        }]);
+        const res = await api.proposeOfferings({
+          networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
+          networkPosture: strategicDraft?.posture?.text || '',
+          frameworks: knowledgeResult?.frameworks || [],
+          interpretation: knowledgeResult?.interpretation || ''
+        });
+        if (res.success && res.offerings?.length) {
+          setProposedOfferings(res.offerings);
+          setWizardMessages(prev => [...prev, { 
+            id: crypto.randomUUID(), 
+            role: 'assistant', 
+            text: "I have analyzed your data and proposed the following Revenue Lanes. Which ones should we focus on?" 
+          }]);
+        } else {
+          setWizardMessages(prev => [...prev, { 
+            id: crypto.randomUUID(), 
+            role: 'assistant', 
+            text: "Failed to generate lanes. Please try again." 
+          }]);
+        }
+      } catch (e) {
+        setWizardMessages(prev => [...prev, { 
+          id: crypto.randomUUID(), 
+          role: 'assistant', 
+          text: "An error occurred while generating Revenue Lanes." 
+        }]);
+      }
+      setIsConductorThinking(false);
+      return;
     } else if (step === 'analysis') {
       systemPrompt = `${narrationHeader} Mission selected. Moving to 'Strategic Analysis'. Explain that you are now synthesizing their network leverage, their IP, and their chosen mission to build the final orchestration plan.`;
     }
@@ -99,7 +126,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
           currentStep: step,
           strategicDraft,
           connectionCount,
-          selectedMission: expandedCard
+          selectedMission: selectedLanes.join(', ')
         }
       });
       
@@ -108,6 +135,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         role: 'assistant', 
         text: response.reply 
       }]);
+      setConductorMessage(response.reply);
     } catch (error) {
       console.error('Narration error:', error);
     } finally {
@@ -151,33 +179,54 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     setIsConductorThinking(true);
     
     try {
-      console.log('🤖 CONSOLE: Calling api.converse...', {
-        guestSessionId: !user ? guestSessionId : 'authenticated',
-        currentStep
-      });
-      
-      const response = await api.converse({
-        message: text,
-        guestSessionId: (!user ? guestSessionId : undefined) as string | undefined,
-        context: {
-          currentStep,
-          refinementMode,
-          strategicDraft
+      if (currentStep === 'intent') {
+        const res = await api.refineOfferings({
+          currentLanes: proposedOfferings,
+          feedback: text,
+          networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
+          networkPosture: strategicDraft?.posture?.text || '',
+          frameworks: knowledgeResult?.frameworks || [],
+          interpretation: knowledgeResult?.interpretation || ''
+        });
+        
+        if (res.success && res.offerings?.length) {
+          setProposedOfferings(res.offerings);
+          setWizardMessages(prev => [...prev, { 
+            id: crypto.randomUUID(), 
+            role: 'assistant', 
+            text: "I have updated the Revenue Lanes based on your feedback. Which one should we execute?" 
+          }]);
+        } else {
+          setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "Failed to refine lanes. Please try again." }]);
         }
-      });
-      
-      console.log('🤖 CONSOLE: AI Response received:', response);
-      
-      const assistantMsg = { 
-        id: crypto.randomUUID(), 
-        role: 'assistant', 
-        text: response.reply 
-      };
-      setWizardMessages(prev => [...prev, assistantMsg]);
-      
-      // Handle suggested actions or strategic updates from AI
-      if (response.onboardingPlan) {
-        setStrategicDraft(response.onboardingPlan);
+      } else {
+        console.log('🤖 CONSOLE: Calling api.converse...', {
+          guestSessionId: !user ? guestSessionId : 'authenticated',
+          currentStep
+        });
+        
+        const response = await api.converse({
+          message: text,
+          guestSessionId: (!user ? guestSessionId : undefined) as string | undefined,
+          context: {
+            currentStep,
+            refinementMode,
+            strategicDraft
+          }
+        });
+        
+        console.log('🤖 CONSOLE: AI Response received:', response);
+        
+        const assistantMsg = { 
+          id: crypto.randomUUID(), 
+          role: 'assistant', 
+          text: response.reply 
+        };
+        setWizardMessages(prev => [...prev, assistantMsg]);
+        
+        if (response.onboardingPlan) {
+          setStrategicDraft(response.onboardingPlan);
+        }
       }
     } catch (error) {
       console.error('🤖 CONSOLE: Conductor error:', error);
@@ -254,16 +303,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     }
   }, [user, currentStep, pendingFile, activeImportId]);
 
-  const handleMissionSelect = (missionId: string) => {
-    setExpandedCard(missionId);
-    setIsConductorThinking(true);
-    
-    // Simulate Conductor responding
-    setTimeout(() => {
-      const mission = missions.find(m => m.id === missionId);
-      setConductorMessage(`Excellent choice. Since we're focusing on ${mission?.title.toLowerCase()}, let's talk about your strategic 'Hook'. Are you looking for high-velocity outreach or deep-dive personalization?`);
-      setIsConductorThinking(false);
-    }, 1200);
+  const handleLaneToggle = (laneId: string) => {
+    setSelectedLanes(prev => 
+      prev.includes(laneId) 
+        ? prev.filter(id => id !== laneId)
+        : [...prev, laneId]
+    );
   };
 
   const nextStep = (step: Step) => {
@@ -398,60 +443,51 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         <div className="phase-indicator">Phase 04: Strategic Intent</div>
         <h1>Based on your profile, what is the objective?</h1>
         <p>I have mapped your network and expertise. Select a mission to initialize the campaign.</p>
-        
-        {/* Global Conductor Recommendation */}
-        {!expandedCard && (
-          <div className="conductor-chat-section global-recommendation" style={{ marginTop: '1.5rem', marginBottom: '0.5rem', padding: '1rem', background: 'rgba(139, 92, 246, 0.05)', borderRadius: '8px', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
-            <div className="conductor-badge" style={{ marginBottom: '0.5rem' }}><span>THE CONDUCTOR</span></div>
-            <div className="conductor-message">
-              {isConductorThinking ? <div className="typing-indicator"><span></span><span></span><span></span></div> : <p style={{ fontSize: '0.95rem', lineHeight: '1.5', color: '#e2e8f0' }}>{conductorMessage || "Analyzing your topography to recommend a mission..."}</p>}
-            </div>
-          </div>
-        )}
       </div>
 
-      <div className={`mission-grid ${expandedCard ? 'has-expanded' : ''}`}>
-        {missions.map(mission => {
-          const isExpanded = expandedCard === mission.id;
-          const isHidden = expandedCard && !isExpanded;
-          const Icon = mission.icon;
+      <div className="mission-grid">
+        {proposedOfferings.map(mission => {
+          const isSelected = selectedLanes.includes(mission.id);
           
           return (
             <div 
               key={mission.id} 
-              className={`mission-card ${isExpanded ? 'expanded' : ''} ${isHidden ? 'hidden' : ''}`}
-              onClick={() => !expandedCard && handleMissionSelect(mission.id)}
+              className={`mission-card ${isSelected ? 'selected' : ''}`}
+              onClick={() => handleLaneToggle(mission.id)}
+              style={{ 
+                paddingBottom: '2rem',
+                border: isSelected ? '2px solid #0070ba' : '1px solid rgba(255,255,255,0.1)',
+                boxShadow: isSelected ? '0 0 15px rgba(0, 112, 186, 0.3)' : 'none',
+                position: 'relative'
+              }}
             >
               <div className="card-content">
-                <div className="mission-icon"><Icon size={32} /></div>
+                <div className="mission-icon">
+                  {isSelected ? <CheckCircle size={32} color="#0070ba" /> : <Target size={32} />}
+                </div>
                 <h3>{mission.title}</h3>
                 <p>{mission.description}</p>
                 
-                {isExpanded && (
-                  <div className="conductor-chat-section">
-                    <div className="conductor-message">
-                      {isConductorThinking ? <div className="typing-indicator"><span></span><span></span><span></span></div> : <p>{conductorMessage}</p>}
-                    </div>
-                    {!isConductorThinking && (
-                      <div className="chat-actions">
-                        <button className="chat-btn" onClick={() => setCurrentStep('analysis')}>High Velocity <ArrowRight size={14} /></button>
-                        <button className="chat-btn" onClick={() => setCurrentStep('analysis')}>Deep Dive <ArrowRight size={14} /></button>
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div style={{ marginTop: '1rem', fontSize: '0.85rem', color: '#94a3b8' }}>
+                  <strong>Evidence:</strong> {mission.evidence}
+                </div>
               </div>
             </div>
           );
         })}
       </div>
       
-      {!expandedCard && (
-        <div className="onboarding-footer">
-          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('knowledge')}>Back</button>
-          <div />
-        </div>
-      )}
+      <div className="onboarding-footer">
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('knowledge')}>Back</button>
+        <button 
+          className="onboarding-btn-primary" 
+          onClick={() => setCurrentStep('analysis')}
+          disabled={selectedLanes.length === 0}
+          style={{ opacity: selectedLanes.length === 0 ? 0.5 : 1, cursor: selectedLanes.length === 0 ? 'not-allowed' : 'pointer' }}
+        >
+          Confirm Selected Lanes <ArrowRight size={18} />
+        </button>
+      </div>
     </div>
   );
 
@@ -577,7 +613,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
           
           {knowledgeResult?.interpretation && (
              <div className="impression-interpretation" style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                <h4 style={{ marginBottom: '0.5rem', color: '#a855f7' }}>Strategic Interpretation</h4>
+                <h4 style={{ marginBottom: '0.5rem', color: '#0070ba' }}>Strategic Interpretation</h4>
                 <p style={{ fontSize: '0.9rem', lineHeight: '1.5' }}>{knowledgeResult.interpretation}</p>
              </div>
           )}
@@ -591,12 +627,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
             <h4>Extracted IP Components</h4>
             {knowledgeResult?.frameworks?.length ? (
               knowledgeResult.frameworks.map((framework, idx) => (
-                <div key={idx} className="thesis-item"><CheckCircle size={16} color="#a855f7" /> <span>{framework}</span></div>
+                <div key={idx} className="thesis-item"><CheckCircle size={16} color="#0070ba" /> <span>{framework}</span></div>
               ))
             ) : (
               <>
-                <div className="thesis-item"><CheckCircle size={16} color="#a855f7" /> <span>Physics of Velocity</span></div>
-                <div className="thesis-item"><CheckCircle size={16} color="#a855f7" /> <span>Strategic Leverage Point</span></div>
+                <div className="thesis-item"><CheckCircle size={16} color="#0070ba" /> <span>Physics of Velocity</span></div>
+                <div className="thesis-item"><CheckCircle size={16} color="#0070ba" /> <span>Strategic Leverage Point</span></div>
               </>
             )}
           </div>

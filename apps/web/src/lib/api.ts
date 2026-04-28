@@ -208,6 +208,20 @@ export class ApiClient {
     });
   }
 
+  async proposeOfferings(context: { networkCount: number; networkPosture: string; frameworks: string[]; interpretation: string }) {
+    return this.request<{ success: boolean; offerings: any[] }>('/onboarding/offerings/propose', {
+      method: 'POST',
+      body: context,
+    });
+  }
+
+  async refineOfferings(body: { currentLanes: any[]; feedback: string; networkCount: number; networkPosture: string; frameworks: string[]; interpretation: string }) {
+    return this.request<{ success: boolean; offerings: any[] }>('/onboarding/offerings/refine', {
+      method: 'POST',
+      body,
+    });
+  }
+
   async getSubscription() {
     return this.request<SubscriptionSummary>('/me/subscription');
   }

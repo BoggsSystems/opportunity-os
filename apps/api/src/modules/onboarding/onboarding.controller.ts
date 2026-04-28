@@ -4,11 +4,13 @@ import {
   UploadedFile,
   UseInterceptors,
   Logger,
+  Body,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
 import { LinkedInIngestService } from '../connections/services/linkedin-ingest.service';
 import { DiscoveryService } from '../discovery/discovery.service';
+import { AiService } from '../ai/ai.service';
 import { Public } from '../auth/public.decorator';
 
 console.log('🚀 OnboardingController.ts LOADED');
@@ -21,7 +23,26 @@ export class OnboardingController {
   constructor(
     private readonly linkedInIngestService: LinkedInIngestService,
     private readonly discoveryService: DiscoveryService,
+    private readonly aiService: AiService,
   ) {}
+
+  @Public()
+  @Post('offerings/propose')
+  @ApiOperation({ summary: 'Propose revenue lanes based on context' })
+  async proposeOfferings(@Body() body: { networkCount: number; networkPosture: string; frameworks: string[]; interpretation: string }) {
+    this.logger.log(`Proposing offerings for networkCount=${body.networkCount}`);
+    const offerings = await this.aiService.proposeRevenueLanes(body);
+    return { success: true, offerings };
+  }
+
+  @Public()
+  @Post('offerings/refine')
+  @ApiOperation({ summary: 'Refine revenue lanes based on feedback' })
+  async refineOfferings(@Body() body: { currentLanes: any[]; feedback: string; networkCount: number; networkPosture: string; frameworks: string[]; interpretation: string }) {
+    this.logger.log(`Refining offerings with feedback: ${body.feedback}`);
+    const offerings = await this.aiService.refineRevenueLanes(body.currentLanes, body.feedback, body);
+    return { success: true, offerings };
+  }
 
   @Public()
   @Post('knowledge')

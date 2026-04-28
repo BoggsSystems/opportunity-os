@@ -160,6 +160,80 @@ Rules:
     return response.content.trim();
   }
 
+  async proposeRevenueLanes(context: { networkCount: number; networkPosture: string; frameworks: string[]; interpretation: string }): Promise<any[]> {
+    this.logger.log(`Proposing revenue lanes based on ${context.networkCount} connections and ${context.frameworks.length} frameworks`);
+    
+    const prompt = `
+You are a Chief Strategy Officer. Analyze the following network topography and intellectual property (IP) to propose 3 to 5 distinct "Revenue Lanes" (strategic service or product offerings).
+
+NETWORK TOPOGRAPHY:
+Connections: ${context.networkCount}
+Posture/Analysis: ${context.networkPosture}
+
+INTELLECTUAL PROPERTY:
+Frameworks: ${context.frameworks.join(', ')}
+Interpretation: ${context.interpretation}
+
+Your Task:
+Respond with ONLY a valid JSON array of objects. Each object must represent a proposed Revenue Lane with the following structure:
+{
+  "id": "unique-slug-id",
+  "title": "Name of the Revenue Lane (e.g., AI-Native SDLC Consulting)",
+  "description": "A punchy, one-sentence description of the offering.",
+  "evidence": "A brief explanation of WHY this lane is viable based specifically on the user's network density and extracted IP.",
+  "targetAudience": "Who exactly is the buyer for this lane?"
+}
+`.trim();
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.5,
+      maxTokens: 1500,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    try {
+      const parsed = JSON.parse(response.content.replace(/```json/gi, '').replace(/```/g, '').trim());
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      this.logger.error('Failed to parse proposeRevenueLanes JSON', e);
+      return [];
+    }
+  }
+
+  async refineRevenueLanes(currentLanes: any[], feedback: string, context: { networkCount: number; networkPosture: string; frameworks: string[]; interpretation: string }): Promise<any[]> {
+    this.logger.log(`Refining revenue lanes based on user feedback`);
+    
+    const prompt = `
+You are a Chief Strategy Officer. You previously proposed these Revenue Lanes:
+${JSON.stringify(currentLanes, null, 2)}
+
+The user provided the following directional feedback:
+"${feedback}"
+
+Based on their feedback, and their underlying data (Network of ${context.networkCount} connections, IP: ${context.frameworks.join(', ')}), regenerate the Revenue Lanes.
+You can modify existing lanes, drop irrelevant ones, or create entirely new ones to align with their feedback.
+
+Your Task:
+Respond with ONLY a valid JSON array of objects using the exact same structure as before (id, title, description, evidence, targetAudience).
+`.trim();
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.5,
+      maxTokens: 1500,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    try {
+      const parsed = JSON.parse(response.content.replace(/```json/gi, '').replace(/```/g, '').trim());
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      this.logger.error('Failed to parse refineRevenueLanes JSON', e);
+      return currentLanes; // Fallback to current if parse fails
+    }
+  }
+
   async generateText(prompt: string, options?: Partial<AiRequest>): Promise<string> {
     this.logger.log('Generating text with AI');
     
