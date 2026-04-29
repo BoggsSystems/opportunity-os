@@ -10,7 +10,7 @@ import {
 import { ApiClient } from '../../../lib/api';
 
 class ConnectionService {
-  private api: ApiClient;
+  private api: ApiClient = new ApiClient(null);
 
   constructor() {
     console.log('🔍 DEBUG: ConnectionService constructor called');
@@ -72,7 +72,7 @@ class ConnectionService {
       console.log('🔍 AUTH DEBUG: Token has JWT structure, decoding payload');
       
       // Simple JWT token expiration check
-      const payload = JSON.parse(atob(parts[1]));
+      const payload = JSON.parse(atob(parts[1] ?? ''));
       const currentTime = Date.now() / 1000;
       
       console.log('🔍 AUTH DEBUG: Token payload:', {
@@ -212,7 +212,7 @@ class ConnectionService {
   async ingestZip(
     request: { name: string; source: ImportSource },
     file: File
-  ): Promise<{ importId: string; strategicDraft: any }> {
+  ): Promise<{ importId: string; strategicDraft: any; connectionsCount?: number }> {
     console.log('📦 ConnectionService.ingestZip START', { name: request.name, fileSize: file.size });
     const isTokenValid = this.ensureValidToken();
     console.log('📦 Token valid:', isTokenValid);

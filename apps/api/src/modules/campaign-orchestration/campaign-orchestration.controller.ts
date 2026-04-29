@@ -4,12 +4,15 @@ import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { CampaignOrchestrationService } from './campaign-orchestration.service';
 import { 
+  ConfirmActionItemDto,
   CreateCampaignDto, 
   UpdateCampaignDto,
   CreateActionLaneDto,
   UpdateActionLaneDto,
   CreateActionCycleDto,
-  UpdateActionCycleDto
+  UpdateActionCycleDto,
+  CreateActionItemDto,
+  UpdateActionItemDto,
 } from './dto/campaign.dto';
 
 @ApiTags('campaign-orchestration')
@@ -171,6 +174,74 @@ export class CampaignOrchestrationController {
   async deleteActionCycle(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
     if (!user?.id) throw new UnauthorizedException('No authenticated user found');
     return this.campaignOrchestrationService.deleteActionCycle(user.id, id);
+  }
+
+  // ACTION ITEM ENDPOINTS
+  @Post('action-items')
+  @ApiOperation({ summary: 'Create a concrete action item' })
+  @ApiResponse({ status: 201, description: 'Action item created successfully' })
+  async createActionItem(@Body() createActionItemDto: CreateActionItemDto, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.createActionItem(user.id, createActionItemDto);
+  }
+
+  @Get('action-items')
+  @ApiOperation({ summary: 'List concrete action items' })
+  @ApiResponse({ status: 200, description: 'Action items retrieved successfully' })
+  async listActionItems(
+    @Query('campaignId') campaignId?: string,
+    @Query('actionLaneId') actionLaneId?: string,
+    @Query('actionCycleId') actionCycleId?: string,
+    @Query('status') status?: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.listActionItems(user.id, {
+      campaignId,
+      actionLaneId,
+      actionCycleId,
+      status: status as any,
+    });
+  }
+
+  @Get('action-items/:id')
+  @ApiOperation({ summary: 'Get action item details' })
+  @ApiResponse({ status: 200, description: 'Action item retrieved successfully' })
+  async getActionItem(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.getActionItem(user.id, id);
+  }
+
+  @Put('action-items/:id')
+  @ApiOperation({ summary: 'Update action item' })
+  @ApiResponse({ status: 200, description: 'Action item updated successfully' })
+  async updateActionItem(
+    @Param('id') id: string,
+    @Body() updateActionItemDto: UpdateActionItemDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.updateActionItem(user.id, id, updateActionItemDto);
+  }
+
+  @Post('action-items/:id/confirm')
+  @ApiOperation({ summary: 'Confirm a manually or externally completed action item and log an activity' })
+  @ApiResponse({ status: 200, description: 'Action item confirmed successfully' })
+  async confirmActionItem(
+    @Param('id') id: string,
+    @Body() confirmActionItemDto: ConfirmActionItemDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.confirmActionItem(user.id, id, confirmActionItemDto);
+  }
+
+  @Delete('action-items/:id')
+  @ApiOperation({ summary: 'Delete action item' })
+  @ApiResponse({ status: 200, description: 'Action item deleted successfully' })
+  async deleteActionItem(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.deleteActionItem(user.id, id);
   }
 
   // AI DECISION SUPPORT ENDPOINTS

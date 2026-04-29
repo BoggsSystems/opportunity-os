@@ -387,29 +387,38 @@ IMPORTANT RULES:
 
   async proposeActionLanes(campaigns: any[], comprehensiveSynthesis: string): Promise<any[]> {
     const prompt = `
-    Based on the following confirmed Campaigns and User Strategic Synthesis, propose a set of 3-4 "Action Lanes" (Tactical Channels).
+    Based on the following confirmed Campaigns and User Strategic Synthesis, propose action lanes for each campaign.
     
     User Synthesis: ${comprehensiveSynthesis}
     
     Confirmed Campaigns:
     ${JSON.stringify(campaigns, null, 2)}
     
-    An Action Lane is a specific channel and method used to execute a campaign. 
+    An Action Lane is a specific execution motion used to execute a campaign.
     Common types: 
-    - "Direct Executive Outreach" (Email/Outlook focus)
-    - "Warm Introduction Engine" (LinkedIn network focus)
-    - "Content Leverage Lane" (Social posting focus)
-    - "Event & Webinar Lane" (Targeted gathering focus)
+    - "Email Outreach" (direct email or Outlook/Gmail focus)
+    - "LinkedIn DM" (manual-send workflow from selected LinkedIn contacts)
+    - "LinkedIn Posts" (public thought-leadership/content lane)
+    - "Warm Introduction Engine" (request intros from existing relationships)
+    - "Relationship Reactivation" (re-engage dormant contacts)
+    - "Commenting / Engagement" (comment on target people's posts before direct outreach)
+    - "Account Research / Signal Tracking" (research targets and identify triggers)
+    
+    Important UX constraint:
+    - The user configures one campaign at a time.
+    - Return 2-4 action lanes per campaign.
+    - Each returned lane must include exactly one campaign id in campaignIds so the UI can show lanes campaign-by-campaign.
+    - If a similar lane is useful for multiple campaigns, duplicate it with a unique id and campaign-specific title/tactics.
     
     Return a JSON array of objects:
     {
       "id": "unique-id",
-      "type": "the tactical type",
-      "title": "Clear, evocative title (e.g., 'Direct CEO Pipeline')",
+      "type": "email | linkedin_dm | linkedin_posts | warm_intro | relationship_reactivation | commenting | account_research | other",
+      "title": "Clear, campaign-specific title (e.g., 'Founder LinkedIn DM Sprint')",
       "description": "Short description of the tactical approach",
       "tactics": ["Bullet point 1", "Bullet point 2"],
       "requiredConnectors": ["outlook", "linkedin", etc],
-      "campaignIds": ["id1", "id2"] // Which confirmed campaigns this lane supports
+      "campaignIds": ["single-campaign-id"]
     }
     `;
 

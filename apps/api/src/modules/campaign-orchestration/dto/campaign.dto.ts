@@ -1,7 +1,14 @@
-import { IsString, IsOptional, IsNumber, IsEnum, IsDate, IsObject, Min, Max } from 'class-validator';
+import { IsBoolean, IsDate, IsEnum, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CampaignStatus, ActionLaneType, ActionLaneStatus, ActionCycleStatus } from '@opportunity-os/db';
+import {
+  ActionCycleStatus,
+  ActionItemConfirmationSource,
+  ActionItemStatus,
+  ActionLaneStatus,
+  ActionLaneType,
+  CampaignStatus,
+} from '@opportunity-os/db';
 
 // CAMPAIGN DTOs
 export class CreateCampaignDto {
@@ -216,23 +223,47 @@ export class CreateActionCycleDto {
   @ApiPropertyOptional({ description: 'Campaign ID. Optional compatibility field; the canonical campaign is derived from the action lane.' })
   @IsOptional()
   @IsString()
-  campaignId: string;
+  campaignId?: string;
 
   @ApiProperty({ description: 'Action lane ID' })
   @IsString()
   actionLaneId: string;
 
-  @ApiProperty({ description: 'Target type' })
-  @IsString()
-  targetType: string;
+  @ApiPropertyOptional({ description: 'Cycle number within this campaign/lane' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  cycleNumber?: number;
 
-  @ApiProperty({ description: 'Target ID' })
+  @ApiPropertyOptional({ description: 'Cycle title' })
+  @IsOptional()
   @IsString()
-  targetId: string;
+  title?: string;
 
-  @ApiProperty({ description: 'Execution action type' })
+  @ApiPropertyOptional({ description: 'Cycle objective' })
+  @IsOptional()
   @IsString()
-  actionType: string;
+  objective?: string;
+
+  @ApiPropertyOptional({ description: 'Legacy/context target type' })
+  @IsOptional()
+  @IsString()
+  targetType?: string;
+
+  @ApiPropertyOptional({ description: 'Legacy/context target ID' })
+  @IsOptional()
+  @IsString()
+  targetId?: string;
+
+  @ApiPropertyOptional({ description: 'Legacy/context execution action type' })
+  @IsOptional()
+  @IsString()
+  actionType?: string;
+
+  @ApiPropertyOptional({ description: 'Cycle status', enum: ActionCycleStatus })
+  @IsOptional()
+  @IsEnum(ActionCycleStatus)
+  status?: ActionCycleStatus;
 
   @ApiPropertyOptional({ description: 'Priority score (0-100)', minimum: 0, maximum: 100 })
   @IsOptional()
@@ -245,9 +276,42 @@ export class CreateActionCycleDto {
   @IsOptional()
   @IsObject()
   executionDataJson?: Record<string, any>;
+
+  @ApiPropertyOptional({ description: 'AI-generated reasoning as JSON' })
+  @IsOptional()
+  @IsObject()
+  generatedReasoningJson?: Record<string, any>;
+
+  @ApiPropertyOptional({ description: 'Cycle start time' })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  startsAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Cycle end time' })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  endsAt?: Date;
 }
 
 export class UpdateActionCycleDto {
+  @ApiPropertyOptional({ description: 'Cycle number within this campaign/lane' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  cycleNumber?: number;
+
+  @ApiPropertyOptional({ description: 'Cycle title' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({ description: 'Cycle objective' })
+  @IsOptional()
+  @IsString()
+  objective?: string;
+
   @ApiPropertyOptional({ description: 'Execution record status', enum: ActionCycleStatus })
   @IsOptional()
   @IsEnum(ActionCycleStatus)
@@ -270,10 +334,198 @@ export class UpdateActionCycleDto {
   @IsObject()
   outcomeDataJson?: Record<string, any>;
 
+  @ApiPropertyOptional({ description: 'AI-generated reasoning as JSON' })
+  @IsOptional()
+  @IsObject()
+  generatedReasoningJson?: Record<string, any>;
+
   @ApiPropertyOptional({ description: 'Metadata as JSON' })
   @IsOptional()
   @IsObject()
   metadataJson?: Record<string, any>;
+
+  @ApiPropertyOptional({ description: 'Cycle start time' })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  startsAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Cycle end time' })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  endsAt?: Date;
+}
+
+// ACTION ITEM DTOs
+export class CreateActionItemDto {
+  @ApiProperty({ description: 'Action lane ID' })
+  @IsString()
+  actionLaneId: string;
+
+  @ApiPropertyOptional({ description: 'Action cycle ID' })
+  @IsOptional()
+  @IsString()
+  actionCycleId?: string;
+
+  @ApiPropertyOptional({ description: 'Generic target type' })
+  @IsOptional()
+  @IsString()
+  targetType?: string;
+
+  @ApiPropertyOptional({ description: 'Generic target ID' })
+  @IsOptional()
+  @IsString()
+  targetId?: string;
+
+  @ApiPropertyOptional({ description: 'Target person ID' })
+  @IsOptional()
+  @IsString()
+  targetPersonId?: string;
+
+  @ApiPropertyOptional({ description: 'Target company ID' })
+  @IsOptional()
+  @IsString()
+  targetCompanyId?: string;
+
+  @ApiProperty({ description: 'Concrete action type, e.g. linkedin_dm, send_email, publish_post' })
+  @IsString()
+  actionType: string;
+
+  @ApiProperty({ description: 'Action item title' })
+  @IsString()
+  title: string;
+
+  @ApiPropertyOptional({ description: 'User-facing execution instructions' })
+  @IsOptional()
+  @IsString()
+  instructions?: string;
+
+  @ApiPropertyOptional({ description: 'Generated draft content' })
+  @IsOptional()
+  @IsString()
+  draftContent?: string;
+
+  @ApiPropertyOptional({ description: 'Final edited content' })
+  @IsOptional()
+  @IsString()
+  finalContent?: string;
+
+  @ApiPropertyOptional({ description: 'External URL to open, such as LinkedIn profile/search' })
+  @IsOptional()
+  @IsString()
+  externalUrl?: string;
+
+  @ApiPropertyOptional({ description: 'External provider key, such as linkedin, gmail, outlook' })
+  @IsOptional()
+  @IsString()
+  externalProvider?: string;
+
+  @ApiPropertyOptional({ description: 'Action item status', enum: ActionItemStatus })
+  @IsOptional()
+  @IsEnum(ActionItemStatus)
+  status?: ActionItemStatus;
+
+  @ApiPropertyOptional({ description: 'Whether user/provider confirmation is required' })
+  @IsOptional()
+  @IsBoolean()
+  confirmationRequired?: boolean;
+
+  @ApiPropertyOptional({ description: 'Priority score (0-100)', minimum: 0, maximum: 100 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  priorityScore?: number;
+
+  @ApiPropertyOptional({ description: 'Due date/time' })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  dueAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Metadata as JSON' })
+  @IsOptional()
+  @IsObject()
+  metadataJson?: Record<string, any>;
+}
+
+export class UpdateActionItemDto {
+  @ApiPropertyOptional({ description: 'Action item title' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({ description: 'User-facing execution instructions' })
+  @IsOptional()
+  @IsString()
+  instructions?: string;
+
+  @ApiPropertyOptional({ description: 'Generated draft content' })
+  @IsOptional()
+  @IsString()
+  draftContent?: string;
+
+  @ApiPropertyOptional({ description: 'Final edited content' })
+  @IsOptional()
+  @IsString()
+  finalContent?: string;
+
+  @ApiPropertyOptional({ description: 'External URL to open' })
+  @IsOptional()
+  @IsString()
+  externalUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Action item status', enum: ActionItemStatus })
+  @IsOptional()
+  @IsEnum(ActionItemStatus)
+  status?: ActionItemStatus;
+
+  @ApiPropertyOptional({ description: 'Confirmation source', enum: ActionItemConfirmationSource })
+  @IsOptional()
+  @IsEnum(ActionItemConfirmationSource)
+  confirmationSource?: ActionItemConfirmationSource;
+
+  @ApiPropertyOptional({ description: 'Priority score (0-100)', minimum: 0, maximum: 100 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  priorityScore?: number;
+
+  @ApiPropertyOptional({ description: 'Due date/time' })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  dueAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Metadata as JSON' })
+  @IsOptional()
+  @IsObject()
+  metadataJson?: Record<string, any>;
+}
+
+export class ConfirmActionItemDto {
+  @ApiPropertyOptional({ description: 'Final content actually sent/published' })
+  @IsOptional()
+  @IsString()
+  finalContent?: string;
+
+  @ApiPropertyOptional({ description: 'Confirmation source', enum: ActionItemConfirmationSource })
+  @IsOptional()
+  @IsEnum(ActionItemConfirmationSource)
+  confirmationSource?: ActionItemConfirmationSource;
+
+  @ApiPropertyOptional({ description: 'Outcome text' })
+  @IsOptional()
+  @IsString()
+  outcome?: string;
+
+  @ApiPropertyOptional({ description: 'When the action occurred' })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  occurredAt?: Date;
 }
 
 // METRICS DTOs

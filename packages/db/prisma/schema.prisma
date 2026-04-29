@@ -307,14 +307,19 @@ enum CampaignStatus {
 enum ActionLaneType {
   email
   linkedin_messaging
+  linkedin_dm
   linkedin_content
+  linkedin_commenting
   call_outreach
   referral_warm_intro
+  warm_intro
+  relationship_reactivation
   event_webinar_outreach
   application_proposal
   local_reactivation
   client_retention
   content_leverage
+  account_research
   other
 }
 
@@ -326,12 +331,35 @@ enum ActionLaneStatus {
 }
 
 enum ActionCycleStatus {
+  planned
+  active
+  paused
+  completed
+  cancelled
   surfaced
   pursuing
   executed
   confirmed
   failed
   dismissed
+}
+
+enum ActionItemStatus {
+  suggested
+  ready
+  in_progress
+  sent_confirmed
+  published_confirmed
+  skipped
+  failed
+  responded
+  converted
+}
+
+enum ActionItemConfirmationSource {
+  user_confirmed
+  provider_verified
+  system
 }
 
 enum AIConversationStatus {
@@ -556,9 +584,9 @@ model User {
   searchProfiles               SearchProfile[]
   discoveryScans               DiscoveryScan[]
   discoveryTargets             DiscoveryTarget[]
-  connectionImportBatches       ConnectionImportBatch[]
+  connectionImportBatches      ConnectionImportBatch[]
   connectionRecords            ConnectionRecord[]
-  connectionSegments            ConnectionSegment[]
+  connectionSegments           ConnectionSegment[]
   browserSessions              BrowserSession[]
   offerings                    Offering[]
   offeringProposals            OfferingProposal[]
@@ -571,8 +599,8 @@ model User {
   workspaceCommands            WorkspaceCommand[]
   userConnectors               UserConnector[]
   referralLinks                ReferralLink[]
-  referralAttributionsGiven    ReferralAttribution[] @relation("ReferralReferrer")
-  referralAttributionsReceived ReferralAttribution[] @relation("ReferralReferred")
+  referralAttributionsGiven    ReferralAttribution[]   @relation("ReferralReferrer")
+  referralAttributionsReceived ReferralAttribution[]   @relation("ReferralReferred")
   referralRewards              ReferralReward[]
   growthCredits                GrowthCredit[]
   goalProgress                 GoalProgress[]
@@ -580,6 +608,7 @@ model User {
   momentumStates               MomentumState[]
   coachingNudges               CoachingNudge[]
   campaignMetrics              CampaignMetric[]
+  actionItems                  ActionItem[]
   strategicTheses              StrategicThesis[]
   userPosture                  UserPosture?
 
@@ -789,6 +818,7 @@ model Company {
   people                  Person[]
   opportunities           Opportunity[]
   activities              Activity[]
+  actionItems             ActionItem[]            @relation("CompanyActionItems")
   tasks                   Task[]
   discoveredOpportunities DiscoveredOpportunity[]
   discoveryTargets        DiscoveryTarget[]
@@ -824,6 +854,7 @@ model Person {
   primaryOpportunities Opportunity[]       @relation("PrimaryPersonOpportunities")
   opportunityLinks     OpportunityPerson[]
   activities           Activity[]
+  actionItems          ActionItem[]        @relation("PersonActionItems")
   tasks                Task[]
   assetInteractions    AssetInteraction[]
   discoveryTargets     DiscoveryTarget[]
@@ -923,6 +954,7 @@ model Activity {
   opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   company     Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
   person      Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
+  actionItems ActionItem[]
 
   @@index([userId])
   @@index([opportunityId])
@@ -1117,12 +1149,12 @@ model DiscoveryScan {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
-  user     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offering Offering?          @relation(fields: [offeringId], references: [id], onDelete: SetNull)
-  campaign Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  goal     Goal?              @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering     Offering?              @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  campaign     Campaign?              @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  goal         Goal?                  @relation(fields: [goalId], references: [id], onDelete: SetNull)
   providerRuns DiscoveryProviderRun[]
-  targets  DiscoveryTarget[]
+  targets      DiscoveryTarget[]
 
   @@index([userId])
   @@index([offeringId])
@@ -1135,8 +1167,8 @@ model DiscoveryScan {
 }
 
 model DiscoveryProviderRun {
-  id                  String              @id @default(uuid()) @db.Uuid
-  discoveryScanId       String              @db.Uuid @map("discovery_scan_id")
+  id                    String              @id @default(uuid()) @db.Uuid
+  discoveryScanId       String              @map("discovery_scan_id") @db.Uuid
   providerKey           String              @map("provider_key")
   status                DiscoveryScanStatus @default(requested)
   query                 String
@@ -1151,7 +1183,7 @@ model DiscoveryProviderRun {
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
-  discoveryScan       DiscoveryScan       @relation(fields: [discoveryScanId], references: [id], onDelete: Cascade)
+  discoveryScan DiscoveryScan @relation(fields: [discoveryScanId], references: [id], onDelete: Cascade)
 
   @@index([discoveryScanId])
   @@index([providerKey])
@@ -1237,28 +1269,28 @@ model DiscoveryEvidence {
 }
 
 model ConnectionImportBatch {
-  id                       String                @id @default(uuid()) @db.Uuid
-  userId                   String                @db.Uuid
-  name                     String?
-  source                   String?
-  filename                 String?
-  fileSize                 Int?
-  totalRows                Int                   @default(0)
-  processedRows            Int                   @default(0)
-  createdPeopleCount       Int                   @default(0)
-  updatedPeopleCount       Int                   @default(0)
-  duplicateCount           Int                   @default(0)
-  errorCount               Int                   @default(0)
-  status                   ConnectionImportStatus @default(parsing)
-  errorMessage             String?
-  processingStartedAt      DateTime?
-  processingCompletedAt    DateTime?
-  createdAt                DateTime              @default(now())
-  updatedAt                DateTime              @updatedAt
+  id                    String                 @id @default(uuid()) @db.Uuid
+  userId                String                 @db.Uuid
+  name                  String?
+  source                String?
+  filename              String?
+  fileSize              Int?
+  totalRows             Int                    @default(0)
+  processedRows         Int                    @default(0)
+  createdPeopleCount    Int                    @default(0)
+  updatedPeopleCount    Int                    @default(0)
+  duplicateCount        Int                    @default(0)
+  errorCount            Int                    @default(0)
+  status                ConnectionImportStatus @default(parsing)
+  errorMessage          String?
+  processingStartedAt   DateTime?
+  processingCompletedAt DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
 
-  user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  records      ConnectionRecord[]
-  segments     ConnectionSegment[]
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  records  ConnectionRecord[]
+  segments ConnectionSegment[]
 
   @@index([userId])
   @@index([status])
@@ -1267,31 +1299,31 @@ model ConnectionImportBatch {
 }
 
 model ConnectionRecord {
-  id                       String              @id @default(uuid()) @db.Uuid
-  importBatchId            String              @db.Uuid
-  userId                   String              @db.Uuid
-  personId                 String?             @db.Uuid
-  firstName                String
-  lastName                 String
-  email                    String?
-  company                  String?
-  title                    String?
-  linkedinUrl              String?
-  connectedOn              DateTime?           @db.Date
-  lastInteractionOn        DateTime?           @db.Date
-  strength                 ConnectionStrength @default(moderate)
-  relevanceScore           Decimal?            @db.Decimal(3, 2)
-  isPotentialReferral      Boolean             @default(false)
-  referralTargetNotes      String?
-  campaignSuggestionsJson  Json?
-  importRowNumber          Int
-  importMetadataJson       Json?
-  createdAt                DateTime            @default(now())
-  updatedAt                DateTime            @updatedAt
+  id                      String             @id @default(uuid()) @db.Uuid
+  importBatchId           String             @db.Uuid
+  userId                  String             @db.Uuid
+  personId                String?            @db.Uuid
+  firstName               String
+  lastName                String
+  email                   String?
+  company                 String?
+  title                   String?
+  linkedinUrl             String?
+  connectedOn             DateTime?          @db.Date
+  lastInteractionOn       DateTime?          @db.Date
+  strength                ConnectionStrength @default(moderate)
+  relevanceScore          Decimal?           @db.Decimal(3, 2)
+  isPotentialReferral     Boolean            @default(false)
+  referralTargetNotes     String?
+  campaignSuggestionsJson Json?
+  importRowNumber         Int
+  importMetadataJson      Json?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
 
-  importBatch ConnectionImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
-  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  person      Person?               @relation(fields: [personId], references: [id])
+  importBatch ConnectionImportBatch     @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+  user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person      Person?                   @relation(fields: [personId], references: [id])
   segments    ConnectionSegmentMember[]
 
   @@index([importBatchId])
@@ -1309,22 +1341,22 @@ model ConnectionRecord {
 }
 
 model ConnectionSegment {
-  id                    String                 @id @default(uuid()) @db.Uuid
-  importBatchId         String                 @db.Uuid
-  userId                String                 @db.Uuid
-  segmentType           ConnectionSegmentType
-  segmentKey            String
-  segmentName           String
-  description           String?
-  connectionCount       Int                    @default(0)
-  avgRelevanceScore     Decimal?               @db.Decimal(3, 2)
-  campaignSuggestion    String?
-  priorityRank          Int?
-  autoGenerated         Boolean                @default(true)
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  id                 String                @id @default(uuid()) @db.Uuid
+  importBatchId      String                @db.Uuid
+  userId             String                @db.Uuid
+  segmentType        ConnectionSegmentType
+  segmentKey         String
+  segmentName        String
+  description        String?
+  connectionCount    Int                   @default(0)
+  avgRelevanceScore  Decimal?              @db.Decimal(3, 2)
+  campaignSuggestion String?
+  priorityRank       Int?
+  autoGenerated      Boolean               @default(true)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
-  importBatch ConnectionImportBatch      @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+  importBatch ConnectionImportBatch     @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
   user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   members     ConnectionSegmentMember[]
 
@@ -1337,13 +1369,13 @@ model ConnectionSegment {
 }
 
 model ConnectionSegmentMember {
-  id           String  @id @default(uuid()) @db.Uuid
-  segmentId    String  @db.Uuid
-  connectionId String  @db.Uuid
+  id           String   @id @default(uuid()) @db.Uuid
+  segmentId    String   @db.Uuid
+  connectionId String   @db.Uuid
   matchScore   Decimal? @db.Decimal(3, 2)
   createdAt    DateTime @default(now())
 
-  segment    ConnectionSegment  @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  segment    ConnectionSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
   connection ConnectionRecord  @relation(fields: [connectionId], references: [id], onDelete: Cascade)
 
   @@index([segmentId])
@@ -1353,28 +1385,28 @@ model ConnectionSegmentMember {
 }
 
 model BrowserSession {
-  id                   String              @id @default(uuid()) @db.Uuid
-  userId               String              @db.Uuid
-  opportunityId        String?             @db.Uuid
-  taskId               String?             @db.Uuid
-  status               BrowserSessionStatus @default(created)
-  mode                 BrowserSessionMode  @default(observe)
-  targetType           BrowserTargetType
-  targetUrl            String
-  currentUrl           String?
-  currentPageTitle     String?
-  stepIndex            Int                 @default(0)
-  sessionConfigJson    Json?
-  aiAnalysisJson       Json?
-  startedAt            DateTime?
-  completedAt          DateTime?
-  expiredAt            DateTime?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  id                String               @id @default(uuid()) @db.Uuid
+  userId            String               @db.Uuid
+  opportunityId     String?              @db.Uuid
+  taskId            String?              @db.Uuid
+  status            BrowserSessionStatus @default(created)
+  mode              BrowserSessionMode   @default(observe)
+  targetType        BrowserTargetType
+  targetUrl         String
+  currentUrl        String?
+  currentPageTitle  String?
+  stepIndex         Int                  @default(0)
+  sessionConfigJson Json?
+  aiAnalysisJson    Json?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  expiredAt         DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
-  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  opportunity Opportunity?          @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-  task        Task?                 @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity Opportunity?             @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  task        Task?                    @relation(fields: [taskId], references: [id], onDelete: SetNull)
   steps       BrowserSessionStep[]
   artifacts   BrowserSessionArtifact[]
   events      BrowserSessionEvent[]
@@ -1389,22 +1421,22 @@ model BrowserSession {
 }
 
 model BrowserSessionStep {
-  id                 String            @id @default(uuid()) @db.Uuid
-  sessionId          String            @db.Uuid
-  stepNumber         Int
-  actionType         BrowserActionType
-  targetUrl          String?
-  targetSelector     String?
-  actionDataJson     Json?
-  resultStatus       String?
-  resultDataJson     Json?
-  aiSuggestionJson   Json?
-  userAction         Boolean           @default(false)
-  performedAt        DateTime?
-  createdAt          DateTime          @default(now())
+  id               String            @id @default(uuid()) @db.Uuid
+  sessionId        String            @db.Uuid
+  stepNumber       Int
+  actionType       BrowserActionType
+  targetUrl        String?
+  targetSelector   String?
+  actionDataJson   Json?
+  resultStatus     String?
+  resultDataJson   Json?
+  aiSuggestionJson Json?
+  userAction       Boolean           @default(false)
+  performedAt      DateTime?
+  createdAt        DateTime          @default(now())
 
-  session    BrowserSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  artifacts  BrowserSessionArtifact[]
+  session   BrowserSession           @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  artifacts BrowserSessionArtifact[]
 
   @@index([sessionId])
   @@index([actionType])
@@ -1414,9 +1446,9 @@ model BrowserSessionStep {
 }
 
 model BrowserSessionArtifact {
-  id           String  @id @default(uuid()) @db.Uuid
-  sessionId    String  @db.Uuid
-  stepId       String? @db.Uuid
+  id           String   @id @default(uuid()) @db.Uuid
+  sessionId    String   @db.Uuid
+  stepId       String?  @db.Uuid
   artifactType String
   contentType  String?
   contentData  String?
@@ -1425,7 +1457,7 @@ model BrowserSessionArtifact {
   filePath     String?
   createdAt    DateTime @default(now())
 
-  session BrowserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session BrowserSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   step    BrowserSessionStep? @relation(fields: [stepId], references: [id], onDelete: SetNull)
 
   @@index([sessionId])
@@ -1436,16 +1468,16 @@ model BrowserSessionArtifact {
 }
 
 model BrowserSessionEvent {
-  id           String   @id @default(uuid()) @db.Uuid
-  sessionId    String   @db.Uuid
-  eventType    String
-  eventSource  String
+  id            String   @id @default(uuid()) @db.Uuid
+  sessionId     String   @db.Uuid
+  eventType     String
+  eventSource   String
   eventDataJson Json?
-  ipAddress    String?  @db.Inet
-  userAgent    String?
-  success      Boolean  @default(true)
-  errorMessage String?
-  createdAt    DateTime @default(now())
+  ipAddress     String?  @db.Inet
+  userAgent     String?
+  success       Boolean  @default(true)
+  errorMessage  String?
+  createdAt     DateTime @default(now())
 
   session BrowserSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
@@ -1467,7 +1499,7 @@ model Offering {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  user           User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   proposals      OfferingProposal[]
   positionings   OfferingPositioning[]
   assets         OfferingAsset[]
@@ -1476,8 +1508,8 @@ model Offering {
   cycles         OpportunityCycle[]
   discoveryScans DiscoveryScan[]
   conversations  AIConversation[]
-  summaries      AIContextSummary[]    @relation("AIContextSummaryOffering")
-  aiTasks        AITask[]              @relation("AITaskOffering")
+  summaries      AIContextSummary[]      @relation("AIContextSummaryOffering")
+  aiTasks        AITask[]                @relation("AITaskOffering")
   weeklyTargets  WeeklyTarget[]
   momentumStates MomentumState[]
   thesisMappings OfferingThesisMapping[]
@@ -1563,16 +1595,16 @@ model OfferingAsset {
 }
 
 model StrategicThesis {
-  id              String   @id @default(uuid()) @db.Uuid
-  userId          String   @db.Uuid
-  title           String
-  content         String
-  embedding       Unsupported("vector(1536)")?
-  relevanceTags   String[]
-  performanceScore Float    @default(0)
-  lastRefined     DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id               String                       @id @default(uuid()) @db.Uuid
+  userId           String                       @db.Uuid
+  title            String
+  content          String
+  embedding        Unsupported("vector(1536)")?
+  relevanceTags    String[]
+  performanceScore Float                        @default(0)
+  lastRefined      DateTime                     @default(now())
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
 
   user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   offerings OfferingThesisMapping[]
@@ -1771,11 +1803,11 @@ model AssetInteraction {
   context         String?
   occurredAt      DateTime             @default(now())
 
-  asset       UserAsset          @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  opportunity Opportunity?       @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-  person      Person?            @relation(fields: [personId], references: [id], onDelete: SetNull)
-  campaignId  String?            @db.Uuid
-  campaign    Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  asset       UserAsset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  opportunity Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  person      Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
+  campaignId  String?      @db.Uuid
+  campaign    Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([assetId])
   @@index([opportunityId])
@@ -1801,8 +1833,8 @@ model Goal {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
-  user              User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offering          Offering?           @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering          Offering?          @relation(fields: [offeringId], references: [id], onDelete: SetNull)
   campaigns         Campaign[]
   discoveryScans    DiscoveryScan[]
   opportunityCycles OpportunityCycle[]
@@ -1934,6 +1966,7 @@ model WorkspaceCommand {
   opportunityCycle        OpportunityCycle?        @relation(fields: [opportunityCycleId], references: [id], onDelete: SetNull)
   aiConversation          AIConversation?          @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
   capabilityExecutionLogs CapabilityExecutionLog[]
+  actionItems             ActionItem[]
 
   @@index([userId])
   @@index([opportunityCycleId])
@@ -2262,24 +2295,24 @@ model WeeklyTarget {
 }
 
 model MomentumState {
-  id                  String            @id @default(uuid()) @db.Uuid
-  userId              String            @db.Uuid
-  goalId              String?           @db.Uuid
-  offeringId          String?           @db.Uuid
-  campaignId          String?           @db.Uuid
-  stateType           MomentumStateType
-  score               Int?
-  reason              String?
-  computedAt          DateTime          @default(now())
-  metadataJson        Json?
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  id           String            @id @default(uuid()) @db.Uuid
+  userId       String            @db.Uuid
+  goalId       String?           @db.Uuid
+  offeringId   String?           @db.Uuid
+  campaignId   String?           @db.Uuid
+  stateType    MomentumStateType
+  score        Int?
+  reason       String?
+  computedAt   DateTime          @default(now())
+  metadataJson Json?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  goal              Goal?              @relation(fields: [goalId], references: [id], onDelete: SetNull)
-  offering          Offering?          @relation(fields: [offeringId], references: [id], onDelete: SetNull)
-  campaign          Campaign?          @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  coachingNudges    CoachingNudge[]
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal           Goal?           @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  offering       Offering?       @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  campaign       Campaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  coachingNudges CoachingNudge[]
 
   @@index([userId])
   @@index([goalId])
@@ -2321,39 +2354,40 @@ model CoachingNudge {
 }
 
 model Campaign {
-  id               String            @id @default(uuid()) @db.Uuid
-  userId           String?           @db.Uuid
-  guestSessionId   String?           @db.VarChar(255)
-  offeringId       String?           @db.Uuid
-  goalId           String?           @db.Uuid
-  title            String
-  description      String?
-  objective        String?
+  id                String         @id @default(uuid()) @db.Uuid
+  userId            String?        @db.Uuid
+  guestSessionId    String?        @db.VarChar(255)
+  offeringId        String?        @db.Uuid
+  goalId            String?        @db.Uuid
+  title             String
+  description       String?
+  objective         String?
   successDefinition String?
-  strategicAngle   String?
-  targetSegment    String?
-  timeframeStart   DateTime?
-  timeframeEnd     DateTime?
-  status           CampaignStatus    @default(PLANNING)
-  workspaceMode    WorkspaceMode     @default(campaign_review)
-  priorityScore    Int               @default(50)
-  metricsJson      Json?
-  metadataJson     Json?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  strategicAngle    String?
+  targetSegment     String?
+  timeframeStart    DateTime?
+  timeframeEnd      DateTime?
+  status            CampaignStatus @default(PLANNING)
+  workspaceMode     WorkspaceMode  @default(campaign_review)
+  priorityScore     Int            @default(50)
+  metricsJson       Json?
+  metadataJson      Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
-  user             User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offering         Offering?         @relation(fields: [offeringId], references: [id], onDelete: SetNull)
-  goal             Goal?             @relation(fields: [goalId], references: [id], onDelete: SetNull)
-  opportunities    Opportunity[]
-  assets           CampaignAsset[]
-  discoveryScans   DiscoveryScan[]
-  interactions     AssetInteraction[]
+  user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering          Offering?          @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  goal              Goal?              @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  opportunities     Opportunity[]
+  assets            CampaignAsset[]
+  discoveryScans    DiscoveryScan[]
+  interactions      AssetInteraction[]
   opportunityCycles OpportunityCycle[]
-  momentumStates   MomentumState[]
-  actionLanes      ActionLane[]
-  actionCycles     ActionCycle[]
-  campaignMetrics  CampaignMetric[]
+  momentumStates    MomentumState[]
+  actionLanes       ActionLane[]
+  actionCycles      ActionCycle[]
+  actionItems       ActionItem[]
+  campaignMetrics   CampaignMetric[]
 
   @@index([userId])
   @@index([guestSessionId])
@@ -2382,9 +2416,10 @@ model ActionLane {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
-  campaign           Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  actionCycles       ActionCycle[]
-  campaignMetrics    CampaignMetric[]
+  campaign        Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actionCycles    ActionCycle[]
+  actionItems     ActionItem[]
+  campaignMetrics CampaignMetric[]
 
   @@index([campaignId])
   @@index([laneType])
@@ -2395,57 +2430,128 @@ model ActionLane {
 }
 
 model ActionCycle {
-  id               String            @id @default(uuid()) @db.Uuid
-  campaignId       String            @db.Uuid
-  actionLaneId     String            @db.Uuid
-  targetType       String
-  targetId         String            @db.Uuid
-  actionType       String
-  status           ActionCycleStatus @default(surfaced)
-  priorityScore    Int               @default(50)
-  executionDataJson Json?
-  outcomeDataJson   Json?
-  metadataJson     Json?
-  surfacedAt       DateTime?
-  pursuingAt       DateTime?
-  executedAt       DateTime?
-  confirmedAt      DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id                     String            @id @default(uuid()) @db.Uuid
+  campaignId             String            @db.Uuid
+  actionLaneId           String            @db.Uuid
+  cycleNumber            Int?
+  title                  String?
+  objective              String?
+  targetType             String?
+  targetId               String?           @db.Uuid
+  actionType             String?
+  status                 ActionCycleStatus @default(planned)
+  priorityScore          Int               @default(50)
+  executionDataJson      Json?
+  outcomeDataJson        Json?
+  generatedReasoningJson Json?
+  metadataJson           Json?
+  startsAt               DateTime?
+  endsAt                 DateTime?
+  surfacedAt             DateTime?
+  pursuingAt             DateTime?
+  executedAt             DateTime?
+  confirmedAt            DateTime?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
 
-  campaign         Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  actionLane       ActionLane  @relation(fields: [actionLaneId], references: [id], onDelete: Cascade)
+  campaign    Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actionLane  ActionLane   @relation(fields: [actionLaneId], references: [id], onDelete: Cascade)
+  actionItems ActionItem[]
 
   @@index([campaignId])
   @@index([actionLaneId])
+  @@index([cycleNumber])
   @@index([targetType, targetId])
   @@index([status])
   @@index([campaignId, status, priorityScore])
+  @@index([campaignId, actionLaneId, cycleNumber])
+  @@index([startsAt])
+  @@index([endsAt])
   @@index([surfacedAt])
   @@index([executedAt])
   @@map("action_cycles")
 }
 
-model CampaignMetric {
-  id               String    @id @default(uuid()) @db.Uuid
-  campaignId       String?   @db.Uuid
-  actionLaneId     String?   @db.Uuid
-  userId           String    @db.Uuid
-  metricType       String
-  metricValue      Decimal
-  metricUnit       String?
-  periodStart      DateTime?
-  periodEnd        DateTime?
-  comparisonValue  Decimal?
-  trendDirection   String?
-  computedAt       DateTime  @default(now())
-  metadataJson     Json?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+model ActionItem {
+  id                   String                        @id @default(uuid()) @db.Uuid
+  userId               String                        @db.Uuid
+  campaignId           String                        @db.Uuid
+  actionLaneId         String                        @db.Uuid
+  actionCycleId        String?                       @db.Uuid
+  activityId           String?                       @db.Uuid
+  workspaceCommandId   String?                       @db.Uuid
+  targetType           String?
+  targetId             String?                       @db.Uuid
+  targetPersonId       String?                       @db.Uuid
+  targetCompanyId      String?                       @db.Uuid
+  actionType           String
+  title                String
+  instructions         String?
+  draftContent         String?
+  finalContent         String?
+  externalUrl          String?
+  externalProvider     String?
+  status               ActionItemStatus              @default(suggested)
+  confirmationRequired Boolean                       @default(true)
+  confirmationSource   ActionItemConfirmationSource?
+  priorityScore        Int                           @default(50)
+  dueAt                DateTime?
+  preparedAt           DateTime?
+  openedAt             DateTime?
+  completedAt          DateTime?
+  skippedAt            DateTime?
+  respondedAt          DateTime?
+  metadataJson         Json?
+  createdAt            DateTime                      @default(now())
+  updatedAt            DateTime                      @updatedAt
 
-  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaign         Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  actionLane       ActionLane?  @relation(fields: [actionLaneId], references: [id], onDelete: SetNull)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actionLane       ActionLane        @relation(fields: [actionLaneId], references: [id], onDelete: Cascade)
+  actionCycle      ActionCycle?      @relation(fields: [actionCycleId], references: [id], onDelete: SetNull)
+  activity         Activity?         @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  workspaceCommand WorkspaceCommand? @relation(fields: [workspaceCommandId], references: [id], onDelete: SetNull)
+  targetPerson     Person?           @relation("PersonActionItems", fields: [targetPersonId], references: [id], onDelete: SetNull)
+  targetCompany    Company?          @relation("CompanyActionItems", fields: [targetCompanyId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([actionLaneId])
+  @@index([actionCycleId])
+  @@index([activityId])
+  @@index([workspaceCommandId])
+  @@index([targetType, targetId])
+  @@index([targetPersonId])
+  @@index([targetCompanyId])
+  @@index([actionType])
+  @@index([status])
+  @@index([dueAt])
+  @@index([completedAt])
+  @@index([campaignId, status, priorityScore])
+  @@index([actionLaneId, status, priorityScore])
+  @@map("action_items")
+}
+
+model CampaignMetric {
+  id              String    @id @default(uuid()) @db.Uuid
+  campaignId      String?   @db.Uuid
+  actionLaneId    String?   @db.Uuid
+  userId          String    @db.Uuid
+  metricType      String
+  metricValue     Decimal
+  metricUnit      String?
+  periodStart     DateTime?
+  periodEnd       DateTime?
+  comparisonValue Decimal?
+  trendDirection  String?
+  computedAt      DateTime  @default(now())
+  metadataJson    Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign   Campaign?   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  actionLane ActionLane? @relation(fields: [actionLaneId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
   @@index([actionLaneId])

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Users, Database, Upload, CheckCircle, AlertCircle, Target } from 'lucide-react';
+import { Users, Upload, CheckCircle, AlertCircle, Target } from 'lucide-react';
 import { connectionService } from '../services/connection.service';
-import { ImportSource } from '../types/connection.types';
+import { ImportSource, ImportStatus } from '../types/connection.types';
 import { importWebSocketService, ImportEvent } from '../services/importWebSocket.service';
 import './ConnectionsSettings.css';
 
@@ -20,6 +20,7 @@ interface ConnectionsSettingsProps {
 
 const ConnectionsSettingsComponent: React.FC<ConnectionsSettingsProps> = ({ isWorking }) => {
   console.log('🏗️ ConnectionsSettings RENDERED', { isWorking });
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'success' | 'error'>('idle');
   const [uploadMessage, setUploadMessage] = useState<string>('');
   const [uploadedFileName, setUploadedFileName] = useState<string>('');
@@ -181,7 +182,7 @@ const ConnectionsSettingsComponent: React.FC<ConnectionsSettingsProps> = ({ isWo
       });
       
       // Check if import is still processing (async processing)
-      if (importData.status === 'PROCESSING' || (importData.importedRecords === 0 && importData.totalRecords === 0)) {
+      if (importData.status === ImportStatus.PROCESSING || (importData.importedRecords === 0 && importData.totalRecords === 0)) {
         setUploadMessage(`
           🔄 Processing your ${file.name} file...
           📁 File uploaded: ${(file.size / 1024 / 1024).toFixed(1)}MB

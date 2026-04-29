@@ -54,6 +54,10 @@ import type {
 } from './types';
 
 const STORAGE_KEY = 'opportunity-os-session';
+const PENDING_ONBOARDING_COMPLETION_KEY = 'opportunity-os:pending-onboarding-completion';
+const CONTINUE_ONBOARDING_AFTER_AUTH_KEY = 'opportunity-os:continue-onboarding-after-auth';
+const GUEST_ONBOARDING_DRAFT_KEY = 'opportunity-os:onboarding-draft:guest';
+const userOnboardingDraftKey = (userId: string) => `opportunity-os:onboarding-draft:${userId}`;
 const TEST_PASSWORD = 'Password123!';
 
 interface StoredSession {
@@ -197,6 +201,45 @@ export function App() {
     void loadWorkspace();
   }, [loadWorkspace]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('oauthProvider') !== 'outlook') return;
+
+    const oauthSucceeded = params.get('oauthSuccess') === 'true';
+    params.delete('oauthProvider');
+    params.delete('oauthSuccess');
+    const nextQuery = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`);
+
+    if (!oauthSucceeded) {
+      setNotice({
+        title: 'Outlook connect failed',
+        detail: 'Microsoft redirected back without completing the Outlook connection.',
+        tone: 'error',
+      });
+      return;
+    }
+
+    api.getEmailReadiness()
+      .then((readiness) => {
+        setEmailReadiness(readiness);
+        setNotice({
+          title: readiness.ready ? 'Outlook connected' : 'Outlook connection pending',
+          detail: readiness.ready
+            ? `Real outreach can now send through ${readiness.connector?.connectorName || readiness.connector?.providerDisplayName || 'Outlook'}.`
+            : readiness.upgradeHint ?? 'The Outlook connection is still being verified.',
+          tone: readiness.ready ? 'success' : 'warning',
+        });
+      })
+      .catch((error) => {
+        setNotice({
+          title: 'Outlook status unavailable',
+          detail: error instanceof Error ? error.message : 'The Outlook connection status could not be refreshed.',
+          tone: 'error',
+        });
+      });
+  }, [api]);
+
   const workspaceView = useMemo(
     () => buildWorkspaceView(workspace, draft, pendingStrategicSessionId, campaignFeedback),
     [workspace, draft, pendingStrategicSessionId, campaignFeedback],
@@ -254,9 +297,35 @@ export function App() {
               initialStrategy
             });
       
-      if (view === 'onboarding') {
+      const continueOnboardingAfterAuth =
+        localStorage.getItem(CONTINUE_ONBOARDING_AFTER_AUTH_KEY) === 'true';
+      const completedOnboardingBeforeAuth =
+        view === 'onboarding' ||
+        localStorage.getItem(PENDING_ONBOARDING_COMPLETION_KEY) === 'true';
+
+      if (continueOnboardingAfterAuth) {
+        const guestDraft = localStorage.getItem(GUEST_ONBOARDING_DRAFT_KEY);
+        if (guestDraft) {
+          try {
+            const draft = JSON.parse(guestDraft);
+            localStorage.setItem(userOnboardingDraftKey(auth.user.id), JSON.stringify({
+              ...draft,
+              currentStep: 'connectivity',
+            }));
+          } catch {
+            localStorage.setItem(userOnboardingDraftKey(auth.user.id), guestDraft);
+          }
+        }
+        localStorage.removeItem(CONTINUE_ONBOARDING_AFTER_AUTH_KEY);
+        localStorage.removeItem(GUEST_ONBOARDING_DRAFT_KEY);
+        setOnboardingOpen(true);
+        setPodiumMode(true);
+      } else if (completedOnboardingBeforeAuth) {
         localStorage.setItem(`onboarding_completed_${auth.user.id}`, 'true');
+        localStorage.removeItem(PENDING_ONBOARDING_COMPLETION_KEY);
+        localStorage.removeItem(GUEST_ONBOARDING_DRAFT_KEY);
         setOnboardingOpen(false);
+        setPodiumMode(false);
       }
       
       commitSession(auth);
@@ -887,9 +956,12 @@ export function App() {
     if (view === 'onboarding') {
       return (
         <OnboardingWizard 
-          onComplete={() => setView('app')}
-          user={session?.user}
+          onComplete={() => {
+            localStorage.setItem(PENDING_ONBOARDING_COMPLETION_KEY, 'true');
+            setView('app');
+          }}
           api={api}
+          emailReadiness={emailReadiness}
           isWorking={isWorking}
           notice={notice}
           onAuth={handleAuth}
@@ -910,7 +982,7 @@ export function App() {
   }
 
   if (view === 'landing') {
-    return <LandingPage onStart={(mode) => setView(mode || 'auth')} />;
+    return <LandingPage onStart={(mode) => setView(mode === 'signup' ? 'onboarding' : 'auth')} />;
   }
 
   return (
@@ -999,6 +1071,7 @@ export function App() {
         <OnboardingWizard 
           user={session.user} 
           api={api}
+          emailReadiness={emailReadiness}
           onComplete={handleOnboardingComplete} 
           onConnectOutlook={startOutlookOAuth}
           onSyncEmail={syncEmail}

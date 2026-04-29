@@ -669,6 +669,11 @@ export class ConnectorsService {
         try {
           if (window.opener && !window.opener.closed) {
             window.opener.postMessage(payload, targetOrigin);
+          } else if (${JSON.stringify(Boolean(input.returnTo))}) {
+            var returnUrl = new URL(${JSON.stringify(input.returnTo ?? '')});
+            returnUrl.searchParams.set('oauthProvider', payload.provider);
+            returnUrl.searchParams.set('oauthSuccess', payload.success ? 'true' : 'false');
+            window.setTimeout(function () { window.location.replace(returnUrl.toString()); }, 900);
           }
         } catch (error) {}
         setTimeout(function () { window.close(); }, 600);

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
 import { 
   Users, Target, Rocket, ArrowRight, Upload, CheckCircle, 
-  Database, ShieldCheck, RefreshCw, Zap, Maximize2, Minimize2 
+  Database, ShieldCheck, RefreshCw, Zap, Maximize2, Minimize2, Layers, Mail, Network, PlayCircle
 } from 'lucide-react';
 import { connectionService } from '../../connections/services/connection.service';
 import { ImportSource } from '../../connections/types/connection.types';
@@ -19,17 +19,67 @@ interface OnboardingWizardProps {
   isWorking?: boolean;
   notice?: any;
   api: ApiClient;
+  emailReadiness?: any;
   onAuth?: (mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>;
   onConnectOutlook?: () => Promise<void>;
   onSyncEmail?: () => Promise<void>;
 }
 
-type Step = 'briefing' | 'intent' | 'relationships' | 'knowledge' | 'campaigns' | 'actionLanes' | 'connectivity' | 'activation' | 'welcome';
+type Step = 'briefing' | 'intent' | 'relationships' | 'knowledge' | 'campaigns' | 'analysis' | 'actionLanes' | 'account' | 'connectivity' | 'channels' | 'activation' | 'welcome';
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user, isWorking, notice, api, onAuth, onConnectOutlook, onSyncEmail }) => {
+const CONTINUE_ONBOARDING_AFTER_AUTH_KEY = 'opportunity-os:continue-onboarding-after-auth';
+const DEFAULT_SIGNUP_PASSWORD = 'Password123!';
+
+type OnboardingSnapshot = {
+  version: 1;
+  currentStep: Step;
+  connectionCount: number;
+  activeImportId: string | null;
+  uploadedAssets: Array<{
+    title: string;
+    interpretation: string;
+    summary: string;
+    frameworks: string[];
+  }>;
+  comprehensiveSynthesis: string | null;
+  selectedLanes: string[];
+  wizardMessages: any[];
+  strategicDraft: any;
+  proposedOfferings: any[];
+  proposedCampaigns: any[];
+  selectedCampaigns: string[];
+  proposedActionLanes: any[];
+  selectedActionLanes: string[];
+  currentActionLaneCampaignIndex: number;
+};
+
+const getOnboardingStorageKey = (userId?: string) => `opportunity-os:onboarding-draft:${userId || 'guest'}`;
+
+const loadOnboardingSnapshot = (userId?: string): OnboardingSnapshot | null => {
+  try {
+    const raw = localStorage.getItem(getOnboardingStorageKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as OnboardingSnapshot;
+    return parsed?.version === 1 && parsed.currentStep ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const clearOnboardingSnapshot = (userId?: string) => {
+  try {
+    localStorage.removeItem(getOnboardingStorageKey(userId));
+  } catch {
+    // Ignore storage failures; onboarding can still complete in memory.
+  }
+};
+
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user, isWorking, notice, api, emailReadiness: parentEmailReadiness, onAuth, onConnectOutlook, onSyncEmail }) => {
   console.log('🏗️ OnboardingWizard MOUNTED/RE-RENDERED');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [currentStep, setCurrentStep] = useState<Step>('briefing');
+  const restoredSnapshotRef = useRef<OnboardingSnapshot | null>(loadOnboardingSnapshot(user?.id));
+  const restoredSnapshot = restoredSnapshotRef.current;
+  const [currentStep, setCurrentStep] = useState<Step>(restoredSnapshot?.currentStep ?? 'briefing');
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'success' | 'error'>('idle');
   const [importProgress, setImportProgress] = useState({
     percentage: 0,
@@ -39,51 +89,123 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     duplicateRecords: 0,
   });
   const [finalAnalysis, setFinalAnalysis] = useState<any>(null);
-  const [strategicDraft, setStrategicDraft] = useState<any>(null);
+  const [strategicDraft, setStrategicDraft] = useState<any>(restoredSnapshot?.strategicDraft ?? null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [connectionCount, setConnectionCount] = useState<number>(0);
-  const [activeImportId, setActiveImportId] = useState<string | null>(null);
+  const [connectionCount, setConnectionCount] = useState<number>(restoredSnapshot?.connectionCount ?? 0);
+  const [activeImportId, setActiveImportId] = useState<string | null>(restoredSnapshot?.activeImportId ?? null);
   const [uploadedAssets, setUploadedAssets] = useState<Array<{
     title: string;
     interpretation: string;
     summary: string;
     frameworks: string[];
-  }>>([]);
-  const [comprehensiveSynthesis, setComprehensiveSynthesis] = useState<string | null>(null);
+  }>>(restoredSnapshot?.uploadedAssets ?? []);
+  const [comprehensiveSynthesis, setComprehensiveSynthesis] = useState<string | null>(restoredSnapshot?.comprehensiveSynthesis ?? null);
   
   // Conductor Orchestration State
-  const [selectedLanes, setSelectedLanes] = useState<string[]>([]);
+  const [selectedLanes, setSelectedLanes] = useState<string[]>(restoredSnapshot?.selectedLanes ?? []);
   const [conductorMessage, setConductorMessage] = useState<string | null>(null);
   const [isConductorThinking, setIsConductorThinking] = useState(false);
   const [refinementMode, setRefinementMode] = useState<'none' | 'pivot' | 'confirmed'>('none');
   const [pivotText, setPivotText] = useState('');
-  const [wizardMessages, setWizardMessages] = useState<any[]>([]);
+  const [wizardMessages, setWizardMessages] = useState<any[]>(restoredSnapshot?.wizardMessages ?? []);
+  const [accountName, setAccountName] = useState('Test Operator');
+  const [accountEmail, setAccountEmail] = useState('');
+  const [accountPassword, setAccountPassword] = useState(DEFAULT_SIGNUP_PASSWORD);
   const [isLoading, setIsLoading] = useState(false);
+  const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const isAnyWorking = isWorking || isLoading;
   const [guestSessionId] = useState(() => crypto.randomUUID());
   
   const { setPodiumMode } = useUIStore();
 
-  const [proposedOfferings, setProposedOfferings] = useState<any[]>([]);
-  const [proposedCampaigns, setProposedCampaigns] = useState<any[]>([]);
-  const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]);
-  const [proposedActionLanes, setProposedActionLanes] = useState<any[]>([]);
-  const [selectedActionLanes, setSelectedActionLanes] = useState<string[]>([]);
-  const [emailReadiness, setEmailReadiness] = useState<any>(null);
+  const [proposedOfferings, setProposedOfferings] = useState<any[]>(restoredSnapshot?.proposedOfferings ?? []);
+  const [proposedCampaigns, setProposedCampaigns] = useState<any[]>(restoredSnapshot?.proposedCampaigns ?? []);
+  const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>(restoredSnapshot?.selectedCampaigns ?? []);
+  const [proposedActionLanes, setProposedActionLanes] = useState<any[]>(restoredSnapshot?.proposedActionLanes ?? []);
+  const [selectedActionLanes, setSelectedActionLanes] = useState<string[]>(restoredSnapshot?.selectedActionLanes ?? []);
+  const [currentActionLaneCampaignIndex, setCurrentActionLaneCampaignIndex] = useState(restoredSnapshot?.currentActionLaneCampaignIndex ?? 0);
+  const [emailReadiness, setEmailReadiness] = useState<any>(parentEmailReadiness ?? null);
   const [showDevHarness, setShowDevHarness] = useState(false);
   const [isConductorExpanded, setIsConductorExpanded] = useState(false);
+  const [activationSelection, setActivationSelection] = useState<{ campaignId: string; laneId: string; source: 'guided' | 'manual' } | null>(null);
+  const actionLaneNarrationKeysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (currentStep === 'welcome') return;
+    const snapshot: OnboardingSnapshot = {
+      version: 1,
+      currentStep,
+      connectionCount,
+      activeImportId,
+      uploadedAssets,
+      comprehensiveSynthesis,
+      selectedLanes,
+      wizardMessages,
+      strategicDraft,
+      proposedOfferings,
+      proposedCampaigns,
+      selectedCampaigns,
+      proposedActionLanes,
+      selectedActionLanes,
+      currentActionLaneCampaignIndex,
+    };
+    try {
+      localStorage.setItem(getOnboardingStorageKey(user?.id), JSON.stringify(snapshot));
+    } catch (error) {
+      console.warn('Failed to persist onboarding checkpoint:', error);
+    }
+  }, [
+    user?.id,
+    currentStep,
+    connectionCount,
+    activeImportId,
+    uploadedAssets,
+    comprehensiveSynthesis,
+    selectedLanes,
+    wizardMessages,
+    strategicDraft,
+    proposedOfferings,
+    proposedCampaigns,
+    selectedCampaigns,
+    proposedActionLanes,
+    selectedActionLanes,
+    currentActionLaneCampaignIndex,
+  ]);
 
   const seedState = () => {
-    setUploadedAssets(MOCK_IP_ASSETS);
+    setUploadedAssets(MOCK_IP_ASSETS.map(asset => ({
+      title: asset.name,
+      interpretation: asset.type,
+      summary: asset.name,
+      frameworks: [],
+    })));
     setComprehensiveSynthesis(MOCK_SYNTHESIS);
     setProposedOfferings(MOCK_OFFERINGS);
     setSelectedLanes(MOCK_OFFERINGS.map(o => o.id));
     setProposedCampaigns(MOCK_CAMPAIGNS);
-    setSelectedCampaigns([MOCK_CAMPAIGNS[0].id]);
+    setSelectedCampaigns(MOCK_CAMPAIGNS[0] ? [MOCK_CAMPAIGNS[0].id] : []);
+    setCurrentActionLaneCampaignIndex(0);
     setStrategicDraft({
       posture: { text: "Strategic AI Lead", objectives: ["Efficiency", "Scale"], preferredTone: "Professional" },
       theses: [{ title: "AI Velocity", content: "AI is the new leverage.", tags: ["AI", "SDLC"] }]
     });
+  };
+
+  const continueAfterAccountCreation = async () => {
+    if (user) {
+      setCurrentStep('connectivity');
+      return;
+    }
+    if (!onAuth || !accountEmail || !accountPassword) return;
+
+    localStorage.setItem(CONTINUE_ONBOARDING_AFTER_AUTH_KEY, 'true');
+    await onAuth('signup', accountEmail, accountPassword, accountName || 'Test Operator');
+  };
+
+  const completeOnboarding = () => {
+    clearOnboardingSnapshot(user?.id);
+    clearOnboardingSnapshot();
+    onComplete();
   };
 
   // Dynamic Step Narration Trigger
@@ -99,6 +221,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     } else if (step === 'knowledge') {
       systemPrompt = `${narrationHeader} Network sensing complete. We've identified ${connectionCount || 'their'} professional nodes. Now moving to 'Expertise Grounding'. Ask them to provide strategic assets (PDFs, decks) to sharpen the outreach frameworks.`;
     } else if (step === 'intent') {
+      setIsLoading(true);
+      setGenerationMessage('Generating revenue lanes from your network and expertise...');
       setWizardMessages(prev => [...prev, { 
         id: crypto.randomUUID(), 
         role: 'assistant', 
@@ -134,11 +258,16 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
             role: 'assistant', 
             text: "An error occurred while generating Revenue Lanes." 
           }]);
+        } finally {
+          setIsLoading(false);
+          setGenerationMessage(null);
         }
         setIsConductorThinking(false);
       }, 50);
       return;
     } else if (step === 'campaigns') {
+      setIsLoading(true);
+      setGenerationMessage('Designing campaign blueprints for each selected revenue lane...');
       setWizardMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -174,17 +303,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
             role: 'assistant',
             text: "An error occurred while generating campaigns."
           }]);
+        } finally {
+          setIsLoading(false);
+          setGenerationMessage(null);
         }
         setIsConductorThinking(false);
       }, 50);
       return;
     } else if (step === 'actionLanes') {
-      const campaignCount = proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)).length;
-      setWizardMessages(prev => [...prev, {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: `Strategy is locked. I've designed your Tactical Arsenal to power your ${campaignCount} active campaigns. Each 'Action Lane' below acts as a high-fidelity channel to reach your targets. I've tagged which campaign each lane supports.`
-      }]);
       setIsConductorThinking(false);
       return;
     } else if (step === 'connectivity') {
@@ -192,6 +318,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         id: crypto.randomUUID(),
         role: 'assistant',
         text: "Excellent selection. To fuel these lanes, I need to establish the following technical connections."
+      }]);
+      setIsConductorThinking(false);
+      return;
+    } else if (step === 'account') {
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: "Your strategy is ready to activate. Create a workspace account now so I can save this plan, attach connectors to the right owner, and continue into execution setup."
       }]);
       setIsConductorThinking(false);
       return;
@@ -209,7 +343,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     try {
       const response = await api.converse({
         message: systemPrompt,
-        guestSessionId: !user ? guestSessionId : undefined,
+        ...(!user ? { guestSessionId } : {}),
         context: {
           currentStep: step,
           strategicDraft,
@@ -233,10 +367,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
 
   // Step-specific Narration Trigger
   useEffect(() => {
-    if (currentStep === 'channels' && user) {
+    if (currentStep === 'connectivity') {
       api.getEmailReadiness().then(setEmailReadiness).catch(console.error);
     }
-  }, [currentStep, user, api]);
+  }, [currentStep, api]);
+
+  useEffect(() => {
+    if (parentEmailReadiness) setEmailReadiness(parentEmailReadiness);
+  }, [parentEmailReadiness]);
 
   useEffect(() => {
     if (currentStep !== 'welcome' && currentStep !== 'briefing') {
@@ -331,7 +469,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         
         const response = await api.converse({
           message: text,
-          guestSessionId: (!user ? guestSessionId : undefined) as string | undefined,
+          ...(!user ? { guestSessionId } : {}),
           context: {
             currentStep,
             refinementMode,
@@ -443,11 +581,184 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     );
   };
 
+  const selectedActionLaneCampaigns = proposedCampaigns.filter(campaign => selectedCampaigns.includes(campaign.id));
+
+  const laneSupportsCampaign = (lane: any, campaignId: string) => {
+    if (Array.isArray(lane.campaignIds)) return lane.campaignIds.includes(campaignId);
+    if (lane.campaignId) return lane.campaignId === campaignId;
+    return true;
+  };
+
+  const refreshEmailReadiness = async () => {
+    const readiness = await api.getEmailReadiness();
+    setEmailReadiness(readiness);
+    return readiness;
+  };
+
+  const handleOutlookConnect = async () => {
+    if (!onConnectOutlook) return;
+    setIsLoading(true);
+    try {
+      await onConnectOutlook();
+      const readiness = await refreshEmailReadiness();
+      if (readiness?.ready) {
+        const connectorLabel = readiness.connector?.connectorName || readiness.connector?.providerDisplayName || 'Outlook';
+        setWizardMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: `${connectorLabel} is connected. We can now use it for approved email actions in the action engine.`,
+        }]);
+      }
+    } catch (error) {
+      console.error('Outlook connection refresh failed:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentStep !== 'actionLanes') return;
+
+    const activeCampaigns = selectedActionLaneCampaigns;
+    const safeCampaignIndex = Math.min(currentActionLaneCampaignIndex, Math.max(activeCampaigns.length - 1, 0));
+    const currentCampaign = activeCampaigns[safeCampaignIndex];
+    if (!currentCampaign) return;
+
+    const campaignLanes = proposedActionLanes.filter(lane => laneSupportsCampaign(lane, currentCampaign.id));
+    if (campaignLanes.length === 0) return;
+
+    const narrationKey = `action-lanes:${currentCampaign.id}:${campaignLanes.map(lane => lane.id).join('|')}`;
+    if (
+      actionLaneNarrationKeysRef.current.has(narrationKey) ||
+      wizardMessages.some(message => message.contextKey === narrationKey)
+    ) {
+      return;
+    }
+    actionLaneNarrationKeysRef.current.add(narrationKey);
+
+    const fallbackText = `For ${currentCampaign.title}, I am recommending ${campaignLanes.map(lane => lane.title).join(' and ')} because they match the target, goal, and current outreach posture of this campaign. Review these lanes as execution motions: keep the ones you want the engine to turn into concrete actions, or tell me what feels too aggressive, too manual, or missing.`;
+
+    setIsConductorThinking(true);
+    setTimeout(async () => {
+      try {
+        const response = await api.converse({
+          message: `[SYSTEM: ACTION LANE REVIEW MODE] Start a focused conversation about the proposed action lanes for this specific campaign. Do not restate the whole onboarding flow. Explain why these lanes fit, call out tradeoffs, and ask the user what they want to adjust before moving to the next campaign. Keep it concise and practical.
+
+Campaign:
+- Title: ${currentCampaign.title}
+- Revenue lane: ${currentCampaign.laneTitle || 'Not specified'}
+- Description: ${currentCampaign.description || 'Not specified'}
+- Target: ${currentCampaign.targetSegment || 'Not specified'}
+- Goal: ${currentCampaign.goalMetric || 'Not specified'}
+
+Suggested action lanes:
+${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics: ${(lane.tactics || []).join('; ')}`).join('\n')}`,
+          ...(!user ? { guestSessionId } : {}),
+          context: {
+            currentStep,
+            campaign: currentCampaign,
+            actionLanes: campaignLanes,
+            selectedActionLanes,
+            comprehensiveSynthesis,
+          },
+        });
+
+        setWizardMessages(prev => {
+          if (prev.some(message => message.contextKey === narrationKey)) return prev;
+          return [...prev, {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: response.reply || fallbackText,
+            contextKey: narrationKey,
+          }];
+        });
+        setConductorMessage(response.reply || fallbackText);
+      } catch (error) {
+        console.error('Action lane narration error:', error);
+        setWizardMessages(prev => {
+          if (prev.some(message => message.contextKey === narrationKey)) return prev;
+          return [...prev, {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: fallbackText,
+            contextKey: narrationKey,
+          }];
+        });
+        setConductorMessage(fallbackText);
+      } finally {
+        setIsConductorThinking(false);
+      }
+    }, 50);
+  }, [
+    currentStep,
+    currentActionLaneCampaignIndex,
+    selectedActionLaneCampaigns,
+    proposedActionLanes,
+    selectedActionLanes,
+    wizardMessages,
+    api,
+    user,
+    guestSessionId,
+    comprehensiveSynthesis,
+  ]);
+
   const nextStep = (step: Step) => {
     setUploadStatus('idle');
+    setGenerationMessage(null);
     setCurrentStep(step);
     window.scrollTo(0, 0);
   };
+
+  const designActionLanes = async () => {
+    setIsLoading(true);
+    setGenerationMessage('Designing campaign-specific action lanes...');
+    try {
+      const res = await api.proposeActionLanes({
+        selectedCampaigns: proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)),
+        comprehensiveSynthesis: comprehensiveSynthesis || ''
+      });
+      if (res.success) {
+        setProposedActionLanes(res.actionLanes);
+        setSelectedActionLanes(res.actionLanes.map((l: any) => l.id));
+        setCurrentActionLaneCampaignIndex(0);
+        setCurrentStep('actionLanes');
+      }
+    } catch (e) {
+      console.error(e);
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: 'I hit an issue while designing action lanes. Please try again.'
+      }]);
+    } finally {
+      setIsLoading(false);
+      setGenerationMessage(null);
+    }
+  };
+
+  const renderGenerationCards = (
+    count: number,
+    labels: string[] = ['Analyzing inputs', 'Mapping targets', 'Drafting recommendations']
+  ) => (
+    <div className="mission-grid generation-card-grid">
+      {Array.from({ length: count }).map((_, index) => (
+        <div key={index} className="mission-card generation-card neural-pulse">
+          <div className="card-content">
+            <div className="generation-card-icon">
+              <RefreshCw size={26} />
+            </div>
+            <h3>{labels[index] || 'Designing option'}</h3>
+            <p>Building a recommendation from your profile, assets, and selected strategy.</p>
+            <div className="generation-lines">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -595,6 +906,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         <p>I have mapped your network and expertise. Select a mission to initialize the campaign.</p>
       </div>
 
+      {proposedOfferings.length === 0 && (
+        <>
+          <div className="generation-status-panel neural-pulse">
+            <RefreshCw size={18} />
+            <div>
+              <strong>{generationMessage || 'Generating revenue lanes...'}</strong>
+              <span>Scanning your relationship graph, experience signals, and uploaded assets for viable offers.</span>
+            </div>
+          </div>
+          {renderGenerationCards(5, [
+            'Reading network signals',
+            'Finding market fit',
+            'Packaging expertise',
+            'Scoring evidence',
+            'Drafting revenue lanes'
+          ])}
+        </>
+      )}
+
+      {proposedOfferings.length > 0 && (
       <div className="mission-grid">
         {proposedOfferings.map(mission => {
           const isSelected = selectedLanes.includes(mission.id);
@@ -626,14 +957,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
           );
         })}
       </div>
+      )}
       
       <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('knowledge')}>Back</button>
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('knowledge')} disabled={isLoading}>Back</button>
         <button 
           className="onboarding-btn-primary" 
           onClick={() => setCurrentStep('campaigns')}
-          disabled={selectedLanes.length === 0}
-          style={{ opacity: selectedLanes.length === 0 ? 0.5 : 1, cursor: selectedLanes.length === 0 ? 'not-allowed' : 'pointer' }}
+          disabled={selectedLanes.length === 0 || isLoading}
+          style={{ opacity: selectedLanes.length === 0 || isLoading ? 0.5 : 1, cursor: selectedLanes.length === 0 || isLoading ? 'not-allowed' : 'pointer' }}
         >
           Confirm Selected Lanes <ArrowRight size={18} />
         </button>
@@ -851,17 +1183,20 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
 
       {/* Loading state when no campaigns yet */}
       {proposedCampaigns.length === 0 && (
-        <div className="mission-grid">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="mission-card neural-pulse" style={{ minHeight: '200px', opacity: 0.4 }}>
-              <div className="card-content">
-                <div style={{ height: '1.5rem', width: '60%', background: 'rgba(0,0,0,0.05)', borderRadius: '4px', marginBottom: '0.75rem' }} />
-                <div style={{ height: '1rem', width: '80%', background: 'rgba(0,0,0,0.03)', borderRadius: '4px', marginBottom: '0.5rem' }} />
-                <div style={{ height: '1rem', width: '40%', background: 'rgba(0,0,0,0.03)', borderRadius: '4px' }} />
-              </div>
+        <>
+          <div className="generation-status-panel neural-pulse">
+            <RefreshCw size={18} />
+            <div>
+              <strong>{generationMessage || 'Designing campaign blueprints...'}</strong>
+              <span>Analyzing selected revenue lanes, targets, messaging hooks, and campaign goals.</span>
             </div>
-          ))}
-        </div>
+          </div>
+          {renderGenerationCards(3, [
+            'Selecting audience',
+            'Defining message angle',
+            'Setting campaign goals'
+          ])}
+        </>
       )}
 
       {/* Campaign Cards */}
@@ -904,32 +1239,37 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         </div>
       )}
 
+      {proposedCampaigns.length > 0 && isLoading && generationMessage && (
+        <div className="generation-status-panel neural-pulse">
+          <RefreshCw size={18} />
+          <div>
+            <strong>{generationMessage}</strong>
+            <span>Building one action-lane set per campaign so the next step is scoped and reviewable.</span>
+          </div>
+        </div>
+      )}
+
+      {proposedCampaigns.length > 0 && isLoading && generationMessage && renderGenerationCards(
+        Math.min(Math.max(selectedCampaigns.length, 3), 6),
+        [
+          'Designing email lane',
+          'Designing LinkedIn DM lane',
+          'Designing content lane',
+          'Planning warm intros',
+          'Mapping follow-ups',
+          'Preparing action wizard'
+        ]
+      )}
+
       <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('intent')}>Back</button>
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('intent')} disabled={isLoading}>Back</button>
         <button
           className="onboarding-btn-primary"
-          onClick={async () => {
-            setIsLoading(true);
-            try {
-              const res = await api.proposeActionLanes({
-                selectedCampaigns: proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)),
-                comprehensiveSynthesis
-              });
-              if (res.success) {
-                setProposedActionLanes(res.actionLanes);
-                setSelectedActionLanes(res.actionLanes.map((l: any) => l.id));
-                setCurrentStep('actionLanes');
-              }
-            } catch (e) {
-              console.error(e);
-            } finally {
-              setIsLoading(false);
-            }
-          }}
-          disabled={selectedCampaigns.length === 0}
-          style={{ opacity: selectedCampaigns.length === 0 ? 0.5 : 1, cursor: selectedCampaigns.length === 0 ? 'not-allowed' : 'pointer' }}
+          onClick={designActionLanes}
+          disabled={selectedCampaigns.length === 0 || isLoading}
+          style={{ opacity: selectedCampaigns.length === 0 || isLoading ? 0.5 : 1, cursor: selectedCampaigns.length === 0 || isLoading ? 'not-allowed' : 'pointer' }}
         >
-          Activate Campaigns <ArrowRight size={18} />
+          {isLoading && generationMessage ? 'Designing Action Lanes...' : 'Activate Campaigns'} <ArrowRight size={18} />
         </button>
       </div>
     </div>
@@ -971,41 +1311,55 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
 
         <div className="onboarding-footer">
           <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('campaigns')}>Back</button>
-          <button className="onboarding-btn-primary" onClick={async () => {
-            setIsLoading(true);
-            try {
-              const res = await api.proposeActionLanes({
-                selectedCampaigns: proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)),
-                comprehensiveSynthesis
-              });
-              if (res.success) {
-                setProposedActionLanes(res.actionLanes);
-                setSelectedActionLanes(res.actionLanes.map((l: any) => l.id));
-                setCurrentStep('actionLanes');
-              }
-            } catch (e) {
-              console.error(e);
-            } finally {
-              setIsLoading(false);
-            }
-          }}>
-            Design Tactical Arsenal <ArrowRight size={18} />
+          <button className="onboarding-btn-primary" onClick={designActionLanes} disabled={isLoading}>
+            {isLoading && generationMessage ? 'Designing...' : 'Design Tactical Arsenal'} <ArrowRight size={18} />
           </button>
         </div>
       </div>
     );
   };
   const renderActionLanes = () => {
+    const activeCampaigns = selectedActionLaneCampaigns;
+    const safeCampaignIndex = Math.min(currentActionLaneCampaignIndex, Math.max(activeCampaigns.length - 1, 0));
+    const currentCampaign = activeCampaigns[safeCampaignIndex];
+    const campaignLanes = currentCampaign
+      ? proposedActionLanes.filter(lane => laneSupportsCampaign(lane, currentCampaign.id))
+      : [];
+    const selectedCampaignLaneCount = campaignLanes.filter(lane => selectedActionLanes.includes(lane.id)).length;
+    const isFirstCampaign = safeCampaignIndex === 0;
+    const isLastCampaign = safeCampaignIndex >= activeCampaigns.length - 1;
+
     return (
       <div className="onboarding-content">
         <div className="onboarding-header">
-          <div className="phase-indicator">Phase 06a: Tactical Arsenal</div>
-          <h1>Choose your action lanes.</h1>
-          <p>I've recommended these tactical channels to drive your campaigns.</p>
+          <div className="phase-indicator">
+            Phase 06a: Tactical Arsenal {activeCampaigns.length > 0 ? `- Campaign ${safeCampaignIndex + 1} of ${activeCampaigns.length}` : ''}
+          </div>
+          <h1>Choose action lanes for this campaign.</h1>
+          <p>Approve the execution motions for one campaign before moving to the next.</p>
         </div>
 
-        <div className="mission-grid" style={{ marginBottom: '2rem' }}>
-          {proposedActionLanes.map(lane => {
+        {currentCampaign && (
+          <div className="campaign-lane-context">
+            <div className="campaign-lane-kicker">{currentCampaign.laneTitle || 'Campaign'}</div>
+            <h3>{currentCampaign.title}</h3>
+            <p>{currentCampaign.description}</p>
+            <div className="campaign-lane-meta">
+              <span>Target: {currentCampaign.targetSegment || 'Defined audience'}</span>
+              <span>Goal: {currentCampaign.goalMetric || 'Qualified progress'}</span>
+              <span>Selected lanes: {selectedCampaignLaneCount}</span>
+            </div>
+          </div>
+        )}
+
+        {currentCampaign && campaignLanes.length === 0 && (
+          <div className="empty-tactical-state">
+            No action lanes were generated for this campaign yet. Go back and regenerate the tactical arsenal.
+          </div>
+        )}
+
+        <div className="mission-grid campaign-lane-grid" style={{ marginBottom: '2rem' }}>
+          {campaignLanes.map(lane => {
             const isSelected = selectedActionLanes.includes(lane.id);
             return (
               <div 
@@ -1022,19 +1376,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
                   </div>
                   <h3 style={{ fontSize: '1.05rem', marginBottom: '0.5rem' }}>{lane.title}</h3>
                   <p style={{ fontSize: '0.85rem', marginBottom: '1rem', color: '#475569' }}>{lane.description}</p>
-                  
-                  {lane.campaignIds && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '1rem' }}>
-                      {lane.campaignIds.map((cid: string) => {
-                        const campaign = proposedCampaigns.find(c => c.id === cid);
-                        return campaign ? (
-                          <span key={cid} style={{ fontSize: '0.65rem', padding: '2px 8px', background: 'rgba(0, 112, 186, 0.1)', color: '#0070ba', borderRadius: '4px', fontWeight: 600 }}>
-                            {campaign.title}
-                          </span>
-                        ) : null;
-                      })}
-                    </div>
-                  )}
 
                   <div style={{ fontSize: '0.75rem', color: '#64748b', textAlign: 'left' }}>
                     <ul style={{ paddingLeft: '1rem', margin: 0 }}>
@@ -1048,13 +1389,24 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         </div>
 
         <div className="onboarding-footer">
-          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('analysis')}>Back</button>
+          <button
+            className="onboarding-btn-secondary"
+            onClick={() => {
+              if (isFirstCampaign) setCurrentStep('campaigns');
+              else setCurrentActionLaneCampaignIndex(safeCampaignIndex - 1);
+            }}
+          >
+            {isFirstCampaign ? 'Back' : 'Previous Campaign'}
+          </button>
           <button 
             className="onboarding-btn-primary" 
-            onClick={() => setCurrentStep('connectivity')}
-            disabled={selectedActionLanes.length === 0}
+            onClick={() => {
+              if (isLastCampaign) setCurrentStep(user ? 'connectivity' : 'account');
+              else setCurrentActionLaneCampaignIndex(safeCampaignIndex + 1);
+            }}
+            disabled={!currentCampaign || selectedCampaignLaneCount === 0}
           >
-            Connectivity Hub <ArrowRight size={18} />
+            {isLastCampaign ? (user ? 'Connectivity Hub' : 'Create Workspace') : 'Next Campaign'} <ArrowRight size={18} />
           </button>
         </div>
       </div>
@@ -1075,10 +1427,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', margin: '2rem 0', width: '100%', maxWidth: '500px' }}>
           {requiredConnectors.includes('outlook') && (
-            <div className="mission-card" style={{ padding: '1.5rem', width: '100%', border: emailReadiness?.ready ? '1px solid #10b981' : '1px solid rgba(0,0,0,0.1)' }}>
+            <div className={`connector-status-card ${emailReadiness?.ready ? 'connected' : ''}`}>
                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
-                <div style={{ padding: '0.75rem', borderRadius: '12px', background: 'rgba(0, 112, 186, 0.1)', color: '#0070ba' }}>
-                  <Mail size={24} />
+                <div className="connector-status-icon">
+                  {emailReadiness?.ready ? <CheckCircle size={24} /> : <Mail size={24} />}
                 </div>
                 <div style={{ textAlign: 'left' }}>
                   <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Outlook Connection</h3>
@@ -1092,15 +1444,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
                 <button 
                   className="onboarding-btn-secondary" 
                   style={{ width: '100%', justifyContent: 'center', border: '1px solid #0070ba' }}
-                  onClick={onConnectOutlook}
+                  onClick={handleOutlookConnect}
                   disabled={isAnyWorking}
                 >
                   {isAnyWorking ? 'Connecting...' : 'Connect jeff@boggssystems.com'}
                 </button>
               ) : (
-                <div style={{ padding: '0.75rem', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <CheckCircle size={16} color="#10b981" />
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#065f46' }}><strong>Live:</strong> {emailReadiness.address}</p>
+                <div className="connector-live-state">
+                  <CheckCircle size={16} />
+                  <p><strong>Connected:</strong> {emailReadiness.connector?.connectorName || emailReadiness.connector?.providerDisplayName || 'Outlook is ready for approved email actions'}</p>
                 </div>
               )}
             </div>
@@ -1138,32 +1490,185 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     );
   };
 
+  const renderAccountGate = () => (
+    <div className="onboarding-content">
+      <div className="onboarding-header">
+        <div className="phase-indicator">Phase 06b: Workspace Account</div>
+        <h1>Create your workspace.</h1>
+        <p>Save this strategy before connecting Outlook or initializing durable action cycles. No payment is required.</p>
+      </div>
+
+      <div className="account-gate-card">
+        <div className="account-gate-summary">
+          <div className="connector-status-icon">
+            <ShieldCheck size={24} />
+          </div>
+          <div>
+            <h3>Your execution plan is ready</h3>
+            <p>{selectedCampaigns.length} campaigns and {selectedActionLanes.length} action lanes will move into your workspace.</p>
+          </div>
+        </div>
+
+        <form
+          className="account-gate-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void continueAfterAccountCreation();
+          }}
+        >
+          <label>
+            Name
+            <input value={accountName} onChange={(event) => setAccountName(event.target.value)} placeholder="Your name" />
+          </label>
+          <label>
+            Email
+            <input value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} placeholder="you@example.com" type="email" />
+          </label>
+          <label>
+            Password
+            <input value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} type="password" />
+          </label>
+          <button className="onboarding-btn-primary account-submit" disabled={isAnyWorking || !accountEmail || !accountPassword} type="submit">
+            {isAnyWorking ? 'Creating Workspace...' : 'Create Account and Continue'} <ArrowRight size={18} />
+          </button>
+        </form>
+      </div>
+
+      <div className="cycle-note">
+        <Target size={18} />
+        <div>
+          <strong>Next step</strong>
+          <span>After account creation, you will connect Outlook to this workspace and initialize the first action cycle.</span>
+        </div>
+      </div>
+
+      <div className="onboarding-footer">
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('actionLanes')}>Back</button>
+        <button className="onboarding-btn-primary" onClick={() => void continueAfterAccountCreation()} disabled={isAnyWorking || !accountEmail || !accountPassword}>
+          Continue <ArrowRight size={18} />
+        </button>
+      </div>
+    </div>
+  );
+
 
 
   const renderActivation = () => {
-    const firstActiveCampaign = proposedCampaigns.find(c => selectedCampaigns.includes(c.id)) || proposedCampaigns[0];
+    const activeCampaigns = proposedCampaigns.filter(c => selectedCampaigns.includes(c.id));
+    const campaignLaneGroups = activeCampaigns.map(campaign => ({
+      campaign,
+      lanes: proposedActionLanes.filter(lane => selectedActionLanes.includes(lane.id) && laneSupportsCampaign(lane, campaign.id)),
+    })).filter(group => group.lanes.length > 0);
+    const firstGroup = campaignLaneGroups[0];
+    const selectedGroup = activationSelection
+      ? campaignLaneGroups.find(group => group.campaign.id === activationSelection.campaignId)
+      : null;
+    const selectedLane = activationSelection && selectedGroup
+      ? selectedGroup.lanes.find(lane => lane.id === activationSelection.laneId)
+      : null;
+
+    const beginActionCycle = (campaignId?: string, laneId?: string, source: 'guided' | 'manual' = 'guided') => {
+      const campaign = campaignLaneGroups.find(group => group.campaign.id === campaignId)?.campaign || firstGroup?.campaign;
+      const lane = campaignLaneGroups.find(group => group.campaign.id === campaign?.id)?.lanes.find(candidate => candidate.id === laneId)
+        || campaignLaneGroups.find(group => group.campaign.id === campaign?.id)?.lanes[0];
+      if (!campaign || !lane) return;
+
+      setActivationSelection({ campaignId: campaign.id, laneId: lane.id, source });
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: `First action cycle queued for ${campaign.title} via ${lane.title}. Next, the engine should explain why this lane is the right starting point, identify the first concrete action, and ask for approval before anything is sent or logged.`,
+      }]);
+    };
     
     return (
       <div className="onboarding-content">
         <div className="onboarding-header">
           <div className="phase-indicator">Phase 07: Activation</div>
-          <h1>Campaign Ready. Let's start the outreach.</h1>
-          <p>I've drafted your first mission based on your <strong>{firstActiveCampaign?.title || 'selected'}</strong> campaign.</p>
+          <h1>Action cycles are ready.</h1>
+          <p>Review the approved campaign lanes, then start the first cycle when you are ready. Nothing is sent without approval.</p>
         </div>
 
-        <div className="campaign-preview-card">
-          <div className="preview-header"><Target size={20} /><h4>Mission: {firstActiveCampaign?.title || 'Strategic Outreach'}</h4></div>
-          <div className="preview-body">
-            <div className="preview-prospect"><div className="avatar" /><div className="details"><strong>Alex Chen</strong><span>CTO at TechScale (Network Match)</span></div></div>
-            <div className="preview-draft">
-              <p>"Hey Alex, I noticed TechScale is scaling its engineering team. I've been working on a framework around <strong>{firstActiveCampaign?.messagingHook || 'Strategic Velocity'}</strong> that I thought might be relevant to your current roadmap..."</p>
+        <div className="activation-command-center">
+          <button
+            type="button"
+            className={`cycle-play-button ${activationSelection?.source === 'guided' ? 'engaged' : ''}`}
+            onClick={() => beginActionCycle()}
+            disabled={!firstGroup}
+          >
+            <span className="cycle-ring" />
+            <PlayCircle size={44} />
+          </button>
+          <div>
+            <h3>Start First Action Cycle</h3>
+            <p>Let the engine choose the first campaign lane, explain the choice, and stage the first action for your approval.</p>
+          </div>
+        </div>
+
+        {selectedLane && selectedGroup && (
+          <div className="cycle-selection-panel">
+            <div className="campaign-lane-kicker">Queued action cycle</div>
+            <h3>{selectedGroup.campaign.title}</h3>
+            <p>
+              Starting with <strong>{selectedLane.title}</strong>. The next screen should generate the first concrete action,
+              explain the rationale, and keep you in the approval loop.
+            </p>
+          </div>
+        )}
+
+        <div className="activation-campaign-list">
+          {campaignLaneGroups.map(({ campaign, lanes }, campaignIndex) => (
+            <div key={campaign.id} className="activation-campaign-card">
+              <div className="activation-campaign-header">
+                <div>
+                  <div className="campaign-lane-kicker">Campaign {campaignIndex + 1}</div>
+                  <h3>{campaign.title}</h3>
+                  <p>{campaign.description}</p>
+                </div>
+                <span>{lanes.length} lanes</span>
+              </div>
+
+              <div className="activation-lane-list">
+                {lanes.map(lane => {
+                  const isQueued = activationSelection?.campaignId === campaign.id && activationSelection?.laneId === lane.id;
+                  return (
+                    <button
+                      key={lane.id}
+                      type="button"
+                      className={`activation-lane-row ${isQueued ? 'queued' : ''}`}
+                      onClick={() => beginActionCycle(campaign.id, lane.id, 'manual')}
+                    >
+                      <Layers size={18} />
+                      <span>
+                        <strong>{lane.title}</strong>
+                        <small>{lane.description}</small>
+                      </span>
+                      <ArrowRight size={16} />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+          ))}
+
+          {campaignLaneGroups.length === 0 && (
+            <div className="empty-tactical-state">
+              No approved action lanes are available yet. Go back and approve at least one action lane before activation.
+            </div>
+          )}
+        </div>
+
+        <div className="cycle-note">
+          <Target size={18} />
+          <div>
+            <strong>Next step after activation</strong>
+            <span>The workspace will open with the selected campaign lane ready for the first explained, approval-based action cycle.</span>
           </div>
         </div>
 
         <div className="onboarding-footer">
-          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('channels')}>Back</button>
-          <button className="onboarding-btn-primary" onClick={() => onComplete()}>
+          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('connectivity')}>Back</button>
+          <button className="onboarding-btn-primary" onClick={completeOnboarding} disabled={campaignLaneGroups.length === 0}>
             Initialize Workspace <Rocket size={18} />
           </button>
         </div>
@@ -1185,7 +1690,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   );
 
   const renderDevHarness = () => {
-    if (process.env.NODE_ENV === 'production') return null;
+    if (import.meta.env['MODE'] === 'production') return null;
     
     return (
       <div style={{ position: 'fixed', bottom: '20px', left: '20px', zIndex: 9999 }}>
@@ -1228,7 +1733,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
             </button>
             <div style={{ borderTop: '1px solid #334155', margin: '0.5rem 0' }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
-              {(['briefing', 'intent', 'relationships', 'knowledge', 'campaigns', 'analysis', 'channels', 'activation'] as Step[]).map(s => (
+            {(['briefing', 'intent', 'relationships', 'knowledge', 'campaigns', 'analysis', 'account', 'connectivity', 'activation'] as Step[]).map(s => (
                 <button 
                   key={s} 
                   onClick={() => setCurrentStep(s)}
@@ -1259,7 +1764,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
       <div className="onboarding-wizard-container">
         <div className="onboarding-progress-header">
           <div className="progress-dots">
-            {['briefing', 'relationships', 'knowledge', 'intent', 'campaigns', 'actionLanes', 'connectivity', 'activation'].map((s) => (
+            {['briefing', 'relationships', 'knowledge', 'intent', 'campaigns', 'actionLanes', 'account', 'connectivity', 'activation'].map((s) => (
               <div key={s} className={`dot ${currentStep === s ? 'active' : ''}`} />
             ))}
           </div>
@@ -1271,6 +1776,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
         {currentStep === 'knowledge' && renderKnowledge()}
         {currentStep === 'campaigns' && renderCampaigns()}
         {currentStep === 'actionLanes' && renderActionLanes()}
+        {currentStep === 'account' && renderAccountGate()}
         {currentStep === 'connectivity' && renderConnectivity()}
         {currentStep === 'activation' && renderActivation()}
         {currentStep === 'welcome' && renderWelcome()}

@@ -1,17 +1,23 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  ActionItemConfirmationSource,
+  ActionItemStatus,
   CampaignStatus,
   ActionLaneStatus,
   ActionCycleStatus,
+  ActivityType,
   prisma,
 } from '@opportunity-os/db';
 import {
+  ConfirmActionItemDto,
   CreateCampaignDto,
   UpdateCampaignDto,
   CreateActionLaneDto,
   UpdateActionLaneDto,
   CreateActionCycleDto,
   UpdateActionCycleDto,
+  CreateActionItemDto,
+  UpdateActionItemDto,
 } from './dto/campaign.dto';
 
 @Injectable()
@@ -51,6 +57,19 @@ export class CampaignOrchestrationService {
         actionLanes: {
           include: {
             actionCycles: {
+              include: {
+                actionItems: {
+                  orderBy: { priorityScore: 'desc' },
+                  take: 10,
+                },
+              },
+              orderBy: [{ cycleNumber: 'desc' }, { priorityScore: 'desc' }],
+              take: 10,
+            },
+            actionItems: {
+              where: {
+                status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress] },
+              },
               orderBy: { priorityScore: 'desc' },
               take: 10,
             },
@@ -84,6 +103,7 @@ export class CampaignOrchestrationService {
           select: {
             actionLanes: true,
             actionCycles: true,
+            actionItems: true,
           },
         },
       },
@@ -145,7 +165,20 @@ export class CampaignOrchestrationService {
       include: {
         campaign: { select: { id: true, userId: true, title: true } },
         actionCycles: {
+          include: {
+            actionItems: {
+              orderBy: { priorityScore: 'desc' },
+              take: 10,
+            },
+          },
+          orderBy: [{ cycleNumber: 'desc' }, { priorityScore: 'desc' }],
+        },
+        actionItems: {
+          where: {
+            status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress] },
+          },
           orderBy: { priorityScore: 'desc' },
+          take: 20,
         },
         campaignMetrics: {
           orderBy: { computedAt: 'desc' },
@@ -183,6 +216,7 @@ export class CampaignOrchestrationService {
         _count: {
           select: {
             actionCycles: true,
+            actionItems: true,
           },
         },
       },
@@ -221,17 +255,24 @@ export class CampaignOrchestrationService {
       data: {
         campaignId: actionLane.campaignId,
         actionLaneId: data.actionLaneId,
+        cycleNumber: data.cycleNumber,
+        title: data.title,
+        objective: data.objective,
         targetType: data.targetType,
         targetId: data.targetId,
         actionType: data.actionType,
         priorityScore: data.priorityScore || 50,
-        status: ActionCycleStatus.surfaced,
-        surfacedAt: new Date(),
+        status: data.status || ActionCycleStatus.planned,
+        surfacedAt: data.status === ActionCycleStatus.surfaced ? new Date() : undefined,
         executionDataJson: data.executionDataJson,
+        generatedReasoningJson: data.generatedReasoningJson,
+        startsAt: data.startsAt,
+        endsAt: data.endsAt,
       },
       include: {
         campaign: true,
         actionLane: true,
+        actionItems: true,
       },
     });
   }
@@ -242,6 +283,13 @@ export class CampaignOrchestrationService {
       include: {
         campaign: { select: { id: true, userId: true, title: true } },
         actionLane: true,
+        actionItems: {
+          include: {
+            targetPerson: true,
+            targetCompany: true,
+          },
+          orderBy: { priorityScore: 'desc' },
+        },
       },
     });
 
@@ -277,8 +325,13 @@ export class CampaignOrchestrationService {
       include: {
         campaign: { select: { id: true, title: true } },
         actionLane: { select: { id: true, title: true, laneType: true } },
+        _count: {
+          select: {
+            actionItems: true,
+          },
+        },
       },
-      orderBy: { priorityScore: 'desc' },
+      orderBy: [{ cycleNumber: 'desc' }, { priorityScore: 'desc' }],
     });
   }
 
@@ -294,12 +347,14 @@ export class CampaignOrchestrationService {
     if (data.status) {
       switch (data.status) {
         case ActionCycleStatus.pursuing:
+        case ActionCycleStatus.active:
           updateData.pursuingAt = new Date();
           break;
         case ActionCycleStatus.executed:
           updateData.executedAt = new Date();
           break;
         case ActionCycleStatus.confirmed:
+        case ActionCycleStatus.completed:
           updateData.confirmedAt = new Date();
           break;
       }
@@ -311,6 +366,7 @@ export class CampaignOrchestrationService {
       include: {
         campaign: true,
         actionLane: true,
+        actionItems: true,
       },
     });
   }
@@ -320,6 +376,165 @@ export class CampaignOrchestrationService {
     
     return prisma.actionCycle.delete({
       where: { id: actionCycleId },
+    });
+  }
+
+  // ACTION ITEM OPERATIONS
+  async createActionItem(userId: string, data: CreateActionItemDto) {
+    const actionLane = await this.verifyActionLaneOwnership(userId, data.actionLaneId);
+
+    if (data.actionCycleId) {
+      await this.verifyActionCycleBelongsToLane(userId, data.actionCycleId, actionLane.id);
+    }
+
+    await this.verifyOptionalTargets(userId, data.targetPersonId, data.targetCompanyId);
+
+    return prisma.actionItem.create({
+      data: {
+        userId,
+        campaignId: actionLane.campaignId,
+        actionLaneId: actionLane.id,
+        actionCycleId: data.actionCycleId,
+        targetType: data.targetType,
+        targetId: data.targetId,
+        targetPersonId: data.targetPersonId,
+        targetCompanyId: data.targetCompanyId,
+        actionType: data.actionType,
+        title: data.title,
+        instructions: data.instructions,
+        draftContent: data.draftContent,
+        finalContent: data.finalContent,
+        externalUrl: data.externalUrl,
+        externalProvider: data.externalProvider,
+        status: data.status || ActionItemStatus.suggested,
+        confirmationRequired: data.confirmationRequired ?? true,
+        priorityScore: data.priorityScore || 50,
+        dueAt: data.dueAt,
+        metadataJson: data.metadataJson,
+        preparedAt: data.status === ActionItemStatus.ready ? new Date() : undefined,
+      },
+      include: this.actionItemInclude(),
+    });
+  }
+
+  async getActionItem(userId: string, actionItemId: string) {
+    const actionItem = await prisma.actionItem.findFirst({
+      where: { id: actionItemId, userId },
+      include: this.actionItemInclude(),
+    });
+
+    if (!actionItem) {
+      throw new NotFoundException('Action item not found');
+    }
+
+    return actionItem;
+  }
+
+  async listActionItems(
+    userId: string,
+    filters: {
+      campaignId?: string;
+      actionLaneId?: string;
+      actionCycleId?: string;
+      status?: ActionItemStatus;
+    },
+  ) {
+    const where: any = { userId };
+
+    if (filters.campaignId) {
+      await this.findCampaign(userId, filters.campaignId);
+      where.campaignId = filters.campaignId;
+    }
+
+    if (filters.actionLaneId) {
+      const actionLane = await this.verifyActionLaneOwnership(userId, filters.actionLaneId);
+      where.actionLaneId = actionLane.id;
+    }
+
+    if (filters.actionCycleId) {
+      const actionCycle = await this.getActionCycle(userId, filters.actionCycleId);
+      where.actionCycleId = actionCycle.id;
+    }
+
+    if (filters.status) {
+      where.status = filters.status;
+    }
+
+    return prisma.actionItem.findMany({
+      where,
+      include: this.actionItemInclude(),
+      orderBy: [{ dueAt: 'asc' }, { priorityScore: 'desc' }, { createdAt: 'desc' }],
+    });
+  }
+
+  async updateActionItem(userId: string, actionItemId: string, data: UpdateActionItemDto) {
+    await this.getActionItem(userId, actionItemId);
+
+    const updateData: any = {
+      ...data,
+      updatedAt: new Date(),
+    };
+
+    this.applyActionItemStatusTimestamps(updateData, data.status);
+
+    return prisma.actionItem.update({
+      where: { id: actionItemId },
+      data: updateData,
+      include: this.actionItemInclude(),
+    });
+  }
+
+  async confirmActionItem(userId: string, actionItemId: string, data: ConfirmActionItemDto) {
+    const actionItem = await this.getActionItem(userId, actionItemId);
+    const occurredAt = data.occurredAt || new Date();
+    const confirmationSource = data.confirmationSource || ActionItemConfirmationSource.user_confirmed;
+    const confirmedStatus = this.confirmedStatusForAction(actionItem.actionType);
+    const finalContent = data.finalContent ?? actionItem.finalContent ?? actionItem.draftContent;
+
+    return prisma.$transaction(async (tx) => {
+      const activity = await tx.activity.create({
+        data: {
+          userId,
+          personId: actionItem.targetPersonId,
+          companyId: actionItem.targetCompanyId,
+          activityType: this.activityTypeForAction(actionItem.actionType),
+          channel: actionItem.externalProvider || this.channelForLane(actionItem.actionLane.laneType),
+          direction: 'outbound',
+          subject: actionItem.title,
+          bodySummary: finalContent,
+          occurredAt,
+          outcome: data.outcome || 'confirmed',
+          metadataJson: {
+            actionItemId: actionItem.id,
+            campaignId: actionItem.campaignId,
+            actionLaneId: actionItem.actionLaneId,
+            actionCycleId: actionItem.actionCycleId,
+            confirmationSource,
+            actionType: actionItem.actionType,
+          },
+        },
+      });
+
+      return tx.actionItem.update({
+        where: { id: actionItem.id },
+        data: {
+          status: confirmedStatus,
+          confirmationSource,
+          finalContent,
+          activityId: activity.id,
+          completedAt: occurredAt,
+          updatedAt: new Date(),
+        },
+        include: this.actionItemInclude(),
+      });
+    });
+  }
+
+  async deleteActionItem(userId: string, actionItemId: string) {
+    await this.getActionItem(userId, actionItemId);
+
+    return prisma.actionItem.delete({
+      where: { id: actionItemId },
     });
   }
 
@@ -336,9 +551,24 @@ export class CampaignOrchestrationService {
       include: {
         actionCycles: {
           where: { 
-            status: { in: [ActionCycleStatus.surfaced, ActionCycleStatus.pursuing] }
+            status: { in: [ActionCycleStatus.planned, ActionCycleStatus.active, ActionCycleStatus.surfaced, ActionCycleStatus.pursuing] }
+          },
+          include: {
+            actionItems: {
+              where: {
+                status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress] },
+              },
+              orderBy: { priorityScore: 'desc' },
+            },
           },
           orderBy: { priorityScore: 'desc' },
+        },
+        actionItems: {
+          where: {
+            status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress] },
+          },
+          orderBy: { priorityScore: 'desc' },
+          take: 5,
         },
         campaignMetrics: {
           where: { metricType: 'conversion_rate' },
@@ -376,6 +606,7 @@ export class CampaignOrchestrationService {
     }
 
     const nextExecution = bestLane.lane.actionCycles[0];
+    const nextItem = bestLane.lane.actionItems[0] || nextExecution?.actionItems?.[0];
     
     return {
       recommendation: bestLane.recommendation,
@@ -383,6 +614,7 @@ export class CampaignOrchestrationService {
         campaign,
         actionLane: bestLane.lane,
         actionCycle: nextExecution,
+        actionItem: nextItem || null,
         confidence: bestLane.totalScore,
         alternativeLanes: laneScores.slice(1, 3).map(ls => ({
           lane: ls.lane,
@@ -463,6 +695,87 @@ export class CampaignOrchestrationService {
     }
 
     return actionLane;
+  }
+
+  private async verifyActionCycleBelongsToLane(userId: string, actionCycleId: string, actionLaneId: string) {
+    const actionCycle = await this.getActionCycle(userId, actionCycleId);
+
+    if (actionCycle.actionLaneId !== actionLaneId) {
+      throw new BadRequestException('Action cycle does not belong to the provided action lane');
+    }
+
+    return actionCycle;
+  }
+
+  private async verifyOptionalTargets(userId: string, targetPersonId?: string, targetCompanyId?: string) {
+    if (targetPersonId) {
+      const person = await prisma.person.findFirst({ where: { id: targetPersonId, userId } });
+      if (!person) throw new NotFoundException('Target person not found');
+    }
+
+    if (targetCompanyId) {
+      const company = await prisma.company.findFirst({ where: { id: targetCompanyId, userId } });
+      if (!company) throw new NotFoundException('Target company not found');
+    }
+  }
+
+  private actionItemInclude() {
+    return {
+      campaign: { select: { id: true, title: true, status: true } },
+      actionLane: { select: { id: true, title: true, laneType: true, status: true } },
+      actionCycle: { select: { id: true, title: true, cycleNumber: true, status: true } },
+      targetPerson: true,
+      targetCompany: true,
+      activity: true,
+      workspaceCommand: { select: { id: true, commandType: true, status: true } },
+    };
+  }
+
+  private applyActionItemStatusTimestamps(updateData: any, status?: ActionItemStatus) {
+    if (!status) return;
+
+    const now = new Date();
+    switch (status) {
+      case ActionItemStatus.ready:
+        updateData.preparedAt = now;
+        break;
+      case ActionItemStatus.in_progress:
+        updateData.openedAt = now;
+        break;
+      case ActionItemStatus.sent_confirmed:
+      case ActionItemStatus.published_confirmed:
+      case ActionItemStatus.converted:
+        updateData.completedAt = now;
+        break;
+      case ActionItemStatus.skipped:
+      case ActionItemStatus.failed:
+        updateData.skippedAt = now;
+        break;
+      case ActionItemStatus.responded:
+        updateData.respondedAt = now;
+        break;
+    }
+  }
+
+  private confirmedStatusForAction(actionType: string): ActionItemStatus {
+    return actionType.includes('post') || actionType.includes('publish')
+      ? ActionItemStatus.published_confirmed
+      : ActionItemStatus.sent_confirmed;
+  }
+
+  private activityTypeForAction(actionType: string): ActivityType {
+    if (actionType.includes('linkedin')) return ActivityType.linkedin_message;
+    if (actionType.includes('email')) return ActivityType.email;
+    if (actionType.includes('call')) return ActivityType.call;
+    if (actionType.includes('follow')) return ActivityType.follow_up;
+    return ActivityType.note_event;
+  }
+
+  private channelForLane(laneType: string): string {
+    if (laneType.includes('linkedin')) return 'linkedin';
+    if (laneType.includes('email')) return 'email';
+    if (laneType.includes('call')) return 'phone';
+    return laneType;
   }
 
   private generateLaneRecommendation(lane: any, activeExecutionCount: number, conversionRate: number): string {
