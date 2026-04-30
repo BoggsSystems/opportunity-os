@@ -1,21 +1,21 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { ConfigService } from '@nestjs/config';
-import { ValidationPipe } from '@nestjs/common';
-import { createLogger } from '@opportunity-os/logger';
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "./app.module";
+import { ConfigService } from "@nestjs/config";
+import { ValidationPipe } from "@nestjs/common";
+import { createLogger } from "@opportunity-os/logger";
 
-import { IoAdapter } from '@nestjs/platform-socket.io';
+import { IoAdapter } from "@nestjs/platform-socket.io";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   app.useWebSocketAdapter(new IoAdapter(app));
-  
+
   const configService = app.get(ConfigService);
-  const logger = createLogger('bootstrap');
-  
-  const port = configService.get<number>('PORT') || 3002;
-  const host = process.env['HOST'] || '0.0.0.0';
-  
+  const logger = createLogger("bootstrap");
+
+  const port = configService.get<number>("PORT") || 3002;
+  const host = process.env["HOST"] || "0.0.0.0";
+
   app.enableCors();
   app.useGlobalPipes(
     new ValidationPipe({
@@ -27,9 +27,9 @@ async function bootstrap() {
       },
     }),
   );
-  
+
   await app.listen(port, host);
-  
+
   logger.info(`Application is running on: http://${host}:${port}`);
 }
 

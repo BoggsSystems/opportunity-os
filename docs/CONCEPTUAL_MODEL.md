@@ -2431,9 +2431,31 @@ Represents:
 Relationships:
 
 * belongs to one User
-* may create many Referral Invites or Referral Attributions
+* may create many Referral Visits, Referral Invites, or Referral Attributions
 
 MVP: V1 logical modeling
+
+**Referral Visit / Referral Click**
+
+A lightweight analytics event captured when a visitor arrives through a referral link.
+
+Represents:
+
+* raw referral funnel traffic before signup
+* anonymous visitor/session continuity
+* landing page and campaign/UTM context
+* anti-abuse signals such as hashed IP/user-agent/device metadata
+* later conversion linkage to a referred user or Referral Attribution
+
+Relationships:
+
+* may belong to one Referral Link
+* may belong to one referrer User
+* may later attach to one referred User after signup
+* may later attach to one Referral Attribution
+* does not grant rewards directly
+
+MVP: yes, analytics and anti-abuse
 
 **Referral Invite**
 

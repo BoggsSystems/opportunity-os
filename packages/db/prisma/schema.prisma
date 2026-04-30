@@ -659,6 +659,8 @@ model User {
   referralLinks                ReferralLink[]
   referralAttributionsGiven    ReferralAttribution[]       @relation("ReferralReferrer")
   referralAttributionsReceived ReferralAttribution[]       @relation("ReferralReferred")
+  referralVisitsGiven          ReferralVisit[]             @relation("ReferralVisitReferrer")
+  referralVisitsConverted      ReferralVisit[]             @relation("ReferralVisitReferred")
   referralRewards              ReferralReward[]
   growthCredits                GrowthCredit[]
   goalProgress                 GoalProgress[]
@@ -2408,10 +2410,57 @@ model ReferralLink {
 
   user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   attributions ReferralAttribution[]
+  visits       ReferralVisit[]
 
   @@index([userId])
   @@index([userId, isActive])
   @@map("referral_links")
+}
+
+model ReferralVisit {
+  id                    String    @id @default(uuid()) @db.Uuid
+  referralLinkId        String?   @db.Uuid
+  referralAttributionId String?   @db.Uuid
+  referrerUserId        String?   @db.Uuid
+  referredUserId        String?   @db.Uuid
+  referralCode          String?
+  visitorId             String?
+  guestSessionId        String?
+  landingPath           String?
+  landingUrl            String?
+  referrerUrl           String?
+  utmSource             String?
+  utmMedium             String?
+  utmCampaign           String?
+  utmContent            String?
+  utmTerm               String?
+  ipHash                String?
+  userAgentHash         String?
+  country               String?
+  region                String?
+  city                  String?
+  deviceType            String?
+  browser               String?
+  convertedAt           DateTime?
+  metadataJson          Json?
+  createdAt             DateTime  @default(now())
+
+  referralLink        ReferralLink?        @relation(fields: [referralLinkId], references: [id], onDelete: SetNull)
+  referralAttribution ReferralAttribution? @relation(fields: [referralAttributionId], references: [id], onDelete: SetNull)
+  referrer            User?                @relation("ReferralVisitReferrer", fields: [referrerUserId], references: [id], onDelete: SetNull)
+  referred            User?                @relation("ReferralVisitReferred", fields: [referredUserId], references: [id], onDelete: SetNull)
+
+  @@index([referralLinkId])
+  @@index([referralAttributionId])
+  @@index([referrerUserId])
+  @@index([referredUserId])
+  @@index([referralCode])
+  @@index([visitorId])
+  @@index([guestSessionId])
+  @@index([utmSource, utmCampaign])
+  @@index([createdAt])
+  @@index([convertedAt])
+  @@map("referral_visits")
 }
 
 model ReferralAttribution {
@@ -2429,6 +2478,7 @@ model ReferralAttribution {
   referred     User                @relation("ReferralReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
   milestones   ReferralMilestone[]
   rewards      ReferralReward[]
+  visits       ReferralVisit[]
 
   @@index([referrerUserId])
   @@index([referralLinkId])

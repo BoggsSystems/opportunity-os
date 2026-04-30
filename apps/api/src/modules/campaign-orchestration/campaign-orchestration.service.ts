@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import {
   ActionItemConfirmationSource,
   ActionItemStatus,
@@ -11,8 +15,9 @@ import {
   ConversationMessageDirection,
   ConversationMessageSource,
   ConversationThreadStatus,
+  ReferralMilestoneType,
   prisma,
-} from '@opportunity-os/db';
+} from "@opportunity-os/db";
 import {
   CaptureConversationMessageDto,
   ConfirmActionItemDto,
@@ -28,26 +33,41 @@ import {
   FinalizeOnboardingPlanDto,
   SynthesizeConversationThreadDto,
   UpdateActionItemDto,
-} from './dto/campaign.dto';
-import { AiService } from '../ai/ai.service';
+} from "./dto/campaign.dto";
+import { AiService } from "../ai/ai.service";
+import { CommercialService } from "../commercial/commercial.service";
 
 @Injectable()
 export class CampaignOrchestrationService {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly commercialService: CommercialService,
+  ) {}
 
-  async finalizeOnboardingPlan(userId: string, data: FinalizeOnboardingPlanDto) {
-    const selectedCampaigns = data.campaigns.filter((campaign) => data.selectedCampaignIds.includes(campaign.id));
-    const selectedLanes = data.actionLanes.filter((lane) => data.selectedActionLaneIds.includes(lane.id));
+  async finalizeOnboardingPlan(
+    userId: string,
+    data: FinalizeOnboardingPlanDto,
+  ) {
+    const selectedCampaigns = data.campaigns.filter((campaign) =>
+      data.selectedCampaignIds.includes(campaign.id),
+    );
+    const selectedLanes = data.actionLanes.filter((lane) =>
+      data.selectedActionLaneIds.includes(lane.id),
+    );
 
     if (!selectedCampaigns.length) {
-      throw new BadRequestException('At least one selected campaign is required');
+      throw new BadRequestException(
+        "At least one selected campaign is required",
+      );
     }
 
     if (!selectedLanes.length) {
-      throw new BadRequestException('At least one selected action lane is required');
+      throw new BadRequestException(
+        "At least one selected action lane is required",
+      );
     }
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const campaignIdMap = new Map<string, string>();
       const laneIdMap = new Map<string, string>();
       const persistedCampaigns: any[] = [];
@@ -79,7 +99,10 @@ export class CampaignOrchestrationService {
       }
 
       for (const lane of selectedLanes) {
-        const campaignIds = this.onboardingLaneCampaignIds(lane, selectedCampaigns);
+        const campaignIds = this.onboardingLaneCampaignIds(
+          lane,
+          selectedCampaigns,
+        );
         for (const onboardingCampaignId of campaignIds) {
           const campaignId = campaignIdMap.get(onboardingCampaignId);
           if (!campaignId) continue;
@@ -90,7 +113,7 @@ export class CampaignOrchestrationService {
               laneType: this.inferActionLaneType(lane),
               title: lane.title,
               description: lane.description,
-              strategy: lane.tactics?.join('\n') || lane.description,
+              strategy: lane.tactics?.join("\n") || lane.description,
               targetCriteriaJson: {
                 campaignIds: lane.campaignIds,
                 requiredConnectors: lane.requiredConnectors,
@@ -102,7 +125,7 @@ export class CampaignOrchestrationService {
               status: ActionLaneStatus.ACTIVE,
               metadataJson: {
                 onboardingLaneId: lane.id,
-                source: 'onboarding',
+                source: "onboarding",
               },
             },
           });
@@ -111,20 +134,31 @@ export class CampaignOrchestrationService {
         }
       }
 
-      const selectedCampaignId = data.activationSelection?.campaignId || selectedCampaigns[0]?.id;
-      const selectedLaneId = data.activationSelection?.laneId || selectedLanes[0]?.id;
-      const persistedCampaignId = selectedCampaignId ? campaignIdMap.get(selectedCampaignId) : undefined;
-      const persistedLaneId = selectedCampaignId && selectedLaneId
-        ? laneIdMap.get(`${selectedCampaignId}:${selectedLaneId}`)
+      const selectedCampaignId =
+        data.activationSelection?.campaignId || selectedCampaigns[0]?.id;
+      const selectedLaneId =
+        data.activationSelection?.laneId || selectedLanes[0]?.id;
+      const persistedCampaignId = selectedCampaignId
+        ? campaignIdMap.get(selectedCampaignId)
         : undefined;
+      const persistedLaneId =
+        selectedCampaignId && selectedLaneId
+          ? laneIdMap.get(`${selectedCampaignId}:${selectedLaneId}`)
+          : undefined;
 
       let actionCycle: any = null;
       let actionItem: any = null;
 
       if (persistedCampaignId && persistedLaneId) {
-        const campaign = selectedCampaigns.find((candidate) => candidate.id === selectedCampaignId);
-        const lane = selectedLanes.find((candidate) => candidate.id === selectedLaneId);
-        const laneType = lane ? this.inferActionLaneType(lane) : ActionLaneType.other;
+        const campaign = selectedCampaigns.find(
+          (candidate) => candidate.id === selectedCampaignId,
+        );
+        const lane = selectedLanes.find(
+          (candidate) => candidate.id === selectedLaneId,
+        );
+        const laneType = lane
+          ? this.inferActionLaneType(lane)
+          : ActionLaneType.other;
         const firstAction = this.firstActionForLane(laneType);
 
         actionCycle = await tx.actionCycle.create({
@@ -132,20 +166,20 @@ export class CampaignOrchestrationService {
             campaignId: persistedCampaignId,
             actionLaneId: persistedLaneId,
             cycleNumber: 1,
-            title: `First action cycle: ${lane?.title || 'Selected action lane'}`,
-            objective: `Stage and approve the first ${lane?.title || 'action'} for ${campaign?.title || 'the selected campaign'}.`,
+            title: `First action cycle: ${lane?.title || "Selected action lane"}`,
+            objective: `Stage and approve the first ${lane?.title || "action"} for ${campaign?.title || "the selected campaign"}.`,
             actionType: firstAction.actionType,
             status: ActionCycleStatus.surfaced,
             priorityScore: 90,
             surfacedAt: new Date(),
             executionDataJson: {
-              source: 'onboarding',
+              source: "onboarding",
               campaign: campaign ? JSON.parse(JSON.stringify(campaign)) : null,
               lane: lane ? JSON.parse(JSON.stringify(lane)) : null,
               nextSteps: firstAction.steps,
             },
             generatedReasoningJson: {
-              rationale: `This lane was selected during onboarding as the first action cycle for ${campaign?.title || 'the campaign'}.`,
+              rationale: `This lane was selected during onboarding as the first action cycle for ${campaign?.title || "the campaign"}.`,
               approvalRequired: true,
             },
           },
@@ -166,7 +200,7 @@ export class CampaignOrchestrationService {
             priorityScore: 90,
             externalProvider: firstAction.externalProvider,
             metadataJson: {
-              source: 'onboarding',
+              source: "onboarding",
               onboardingCampaignId: selectedCampaignId,
               onboardingLaneId: selectedLaneId,
               nextSteps: firstAction.steps,
@@ -182,6 +216,19 @@ export class CampaignOrchestrationService {
         firstActionItem: actionItem,
       };
     });
+
+    await this.commercialService.recordReferralMilestone(
+      userId,
+      ReferralMilestoneType.onboarding_completed,
+      {
+        entityType: result.firstActionCycle
+          ? "action_cycle"
+          : "onboarding_plan",
+        entityId: result.firstActionCycle?.id,
+      },
+    );
+
+    return result;
   }
 
   // CAMPAIGN OPERATIONS
@@ -221,32 +268,38 @@ export class CampaignOrchestrationService {
             actionCycles: {
               include: {
                 actionItems: {
-                  orderBy: { priorityScore: 'desc' },
+                  orderBy: { priorityScore: "desc" },
                   take: 10,
                 },
               },
-              orderBy: [{ cycleNumber: 'desc' }, { priorityScore: 'desc' }],
+              orderBy: [{ cycleNumber: "desc" }, { priorityScore: "desc" }],
               take: 10,
             },
             actionItems: {
               where: {
-                status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress] },
+                status: {
+                  in: [
+                    ActionItemStatus.suggested,
+                    ActionItemStatus.ready,
+                    ActionItemStatus.in_progress,
+                  ],
+                },
               },
-              orderBy: { priorityScore: 'desc' },
+              orderBy: { priorityScore: "desc" },
               take: 10,
             },
           },
-          orderBy: { priorityScore: 'desc' },
+          orderBy: { priorityScore: "desc" },
         },
         campaignMetrics: {
-          orderBy: { computedAt: 'desc' },
+          orderBy: { computedAt: "desc" },
           take: 20,
         },
       },
     });
 
     if (!campaign) {
-      throw new NotFoundException('Campaign not found');
+      throw new NotFoundException("Campaign not found");
     }
 
     return campaign;
@@ -254,9 +307,9 @@ export class CampaignOrchestrationService {
 
   async listCampaigns(userId: string, status?: CampaignStatus) {
     return prisma.campaign.findMany({
-      where: { 
+      where: {
         userId,
-        ...(status && { status })
+        ...(status && { status }),
       },
       include: {
         offering: { select: { id: true, title: true, offeringType: true } },
@@ -269,13 +322,17 @@ export class CampaignOrchestrationService {
           },
         },
       },
-      orderBy: { priorityScore: 'desc' },
+      orderBy: { priorityScore: "desc" },
     });
   }
 
-  async updateCampaign(userId: string, campaignId: string, data: UpdateCampaignDto) {
+  async updateCampaign(
+    userId: string,
+    campaignId: string,
+    data: UpdateCampaignDto,
+  ) {
     await this.findCampaign(userId, campaignId);
-    
+
     return prisma.campaign.update({
       where: { id: campaignId },
       data: {
@@ -292,7 +349,7 @@ export class CampaignOrchestrationService {
 
   async deleteCampaign(userId: string, campaignId: string) {
     await this.findCampaign(userId, campaignId);
-    
+
     return prisma.campaign.delete({
       where: { id: campaignId },
     });
@@ -302,7 +359,7 @@ export class CampaignOrchestrationService {
   async createActionLane(userId: string, data: CreateActionLaneDto) {
     // Verify campaign ownership
     await this.findCampaign(userId, data.campaignId);
-    
+
     return prisma.actionLane.create({
       data: {
         campaignId: data.campaignId,
@@ -329,36 +386,46 @@ export class CampaignOrchestrationService {
         actionCycles: {
           include: {
             actionItems: {
-              orderBy: { priorityScore: 'desc' },
+              orderBy: { priorityScore: "desc" },
               take: 10,
             },
           },
-          orderBy: [{ cycleNumber: 'desc' }, { priorityScore: 'desc' }],
+          orderBy: [{ cycleNumber: "desc" }, { priorityScore: "desc" }],
         },
         actionItems: {
           where: {
-            status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress] },
+            status: {
+              in: [
+                ActionItemStatus.suggested,
+                ActionItemStatus.ready,
+                ActionItemStatus.in_progress,
+              ],
+            },
           },
-          orderBy: { priorityScore: 'desc' },
+          orderBy: { priorityScore: "desc" },
           take: 20,
         },
         campaignMetrics: {
-          orderBy: { computedAt: 'desc' },
+          orderBy: { computedAt: "desc" },
           take: 10,
         },
       },
     });
 
     if (!actionLane || actionLane.campaign.userId !== userId) {
-      throw new NotFoundException('Action lane not found');
+      throw new NotFoundException("Action lane not found");
     }
 
     return actionLane;
   }
 
-  async listActionLanes(userId: string, campaignId?: string, status?: ActionLaneStatus) {
+  async listActionLanes(
+    userId: string,
+    campaignId?: string,
+    status?: ActionLaneStatus,
+  ) {
     const where: any = {};
-    
+
     if (campaignId) {
       where.campaignId = campaignId;
       // Verify campaign ownership
@@ -366,7 +433,7 @@ export class CampaignOrchestrationService {
     } else {
       where.campaign = { is: { userId } };
     }
-    
+
     if (status) {
       where.status = status;
     }
@@ -382,13 +449,17 @@ export class CampaignOrchestrationService {
           },
         },
       },
-      orderBy: { priorityScore: 'desc' },
+      orderBy: { priorityScore: "desc" },
     });
   }
 
-  async updateActionLane(userId: string, actionLaneId: string, data: UpdateActionLaneDto) {
+  async updateActionLane(
+    userId: string,
+    actionLaneId: string,
+    data: UpdateActionLaneDto,
+  ) {
     await this.getActionLane(userId, actionLaneId);
-    
+
     return prisma.actionLane.update({
       where: { id: actionLaneId },
       data: {
@@ -403,7 +474,7 @@ export class CampaignOrchestrationService {
 
   async deleteActionLane(userId: string, actionLaneId: string) {
     await this.getActionLane(userId, actionLaneId);
-    
+
     return prisma.actionLane.delete({
       where: { id: actionLaneId },
     });
@@ -411,7 +482,10 @@ export class CampaignOrchestrationService {
 
   // ACTION CYCLE OPERATIONS
   async createActionCycle(userId: string, data: CreateActionCycleDto) {
-    const actionLane = await this.verifyActionLaneOwnership(userId, data.actionLaneId);
+    const actionLane = await this.verifyActionLaneOwnership(
+      userId,
+      data.actionLaneId,
+    );
 
     return prisma.actionCycle.create({
       data: {
@@ -425,7 +499,8 @@ export class CampaignOrchestrationService {
         actionType: data.actionType,
         priorityScore: data.priorityScore || 50,
         status: data.status || ActionCycleStatus.planned,
-        surfacedAt: data.status === ActionCycleStatus.surfaced ? new Date() : undefined,
+        surfacedAt:
+          data.status === ActionCycleStatus.surfaced ? new Date() : undefined,
         executionDataJson: data.executionDataJson,
         generatedReasoningJson: data.generatedReasoningJson,
         startsAt: data.startsAt,
@@ -450,21 +525,26 @@ export class CampaignOrchestrationService {
             targetPerson: true,
             targetCompany: true,
           },
-          orderBy: { priorityScore: 'desc' },
+          orderBy: { priorityScore: "desc" },
         },
       },
     });
 
     if (!actionCycle || actionCycle.campaign.userId !== userId) {
-      throw new NotFoundException('Action cycle not found');
+      throw new NotFoundException("Action cycle not found");
     }
 
     return actionCycle;
   }
 
-  async listActionCycles(userId: string, campaignId?: string, actionLaneId?: string, status?: ActionCycleStatus) {
+  async listActionCycles(
+    userId: string,
+    campaignId?: string,
+    actionLaneId?: string,
+    status?: ActionCycleStatus,
+  ) {
     const where: any = {};
-    
+
     if (campaignId) {
       where.campaignId = campaignId;
       // Verify campaign ownership
@@ -472,12 +552,15 @@ export class CampaignOrchestrationService {
     } else if (actionLaneId) {
       where.actionLaneId = actionLaneId;
       // Verify lane ownership
-      const actionLane = await this.verifyActionLaneOwnership(userId, actionLaneId);
+      const actionLane = await this.verifyActionLaneOwnership(
+        userId,
+        actionLaneId,
+      );
       where.campaignId = actionLane.campaignId;
     } else {
       where.campaign = { is: { userId } };
     }
-    
+
     if (status) {
       where.status = status;
     }
@@ -493,13 +576,17 @@ export class CampaignOrchestrationService {
           },
         },
       },
-      orderBy: [{ cycleNumber: 'desc' }, { priorityScore: 'desc' }],
+      orderBy: [{ cycleNumber: "desc" }, { priorityScore: "desc" }],
     });
   }
 
-  async updateActionCycle(userId: string, actionCycleId: string, data: UpdateActionCycleDto) {
+  async updateActionCycle(
+    userId: string,
+    actionCycleId: string,
+    data: UpdateActionCycleDto,
+  ) {
     await this.getActionCycle(userId, actionCycleId);
-    
+
     const updateData: any = {
       ...data,
       updatedAt: new Date(),
@@ -535,7 +622,7 @@ export class CampaignOrchestrationService {
 
   async deleteActionCycle(userId: string, actionCycleId: string) {
     await this.getActionCycle(userId, actionCycleId);
-    
+
     return prisma.actionCycle.delete({
       where: { id: actionCycleId },
     });
@@ -543,13 +630,24 @@ export class CampaignOrchestrationService {
 
   // ACTION ITEM OPERATIONS
   async createActionItem(userId: string, data: CreateActionItemDto) {
-    const actionLane = await this.verifyActionLaneOwnership(userId, data.actionLaneId);
+    const actionLane = await this.verifyActionLaneOwnership(
+      userId,
+      data.actionLaneId,
+    );
 
     if (data.actionCycleId) {
-      await this.verifyActionCycleBelongsToLane(userId, data.actionCycleId, actionLane.id);
+      await this.verifyActionCycleBelongsToLane(
+        userId,
+        data.actionCycleId,
+        actionLane.id,
+      );
     }
 
-    await this.verifyOptionalTargets(userId, data.targetPersonId, data.targetCompanyId);
+    await this.verifyOptionalTargets(
+      userId,
+      data.targetPersonId,
+      data.targetCompanyId,
+    );
 
     return prisma.actionItem.create({
       data: {
@@ -573,7 +671,8 @@ export class CampaignOrchestrationService {
         priorityScore: data.priorityScore || 50,
         dueAt: data.dueAt,
         metadataJson: data.metadataJson,
-        preparedAt: data.status === ActionItemStatus.ready ? new Date() : undefined,
+        preparedAt:
+          data.status === ActionItemStatus.ready ? new Date() : undefined,
       },
       include: this.actionItemInclude(),
     });
@@ -586,7 +685,7 @@ export class CampaignOrchestrationService {
     });
 
     if (!actionItem) {
-      throw new NotFoundException('Action item not found');
+      throw new NotFoundException("Action item not found");
     }
 
     return actionItem;
@@ -597,9 +696,12 @@ export class CampaignOrchestrationService {
     const thread = await prisma.conversationThread.findFirst({
       where: { userId, actionItemId },
       include: this.conversationThreadInclude(),
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { updatedAt: "desc" },
     });
-    const panelType = this.actionCanvasPanelType(actionItem.actionType, actionItem.actionLane.laneType);
+    const panelType = this.actionCanvasPanelType(
+      actionItem.actionType,
+      actionItem.actionLane.laneType,
+    );
 
     return {
       panelType,
@@ -612,13 +714,20 @@ export class CampaignOrchestrationService {
       context: {
         objective: actionItem.actionCycle?.title || actionItem.title,
         primaryInstruction: actionItem.instructions,
-        targetLabel: actionItem.targetPerson?.fullName || actionItem.targetCompany?.name || actionItem.targetType || 'Campaign audience',
+        targetLabel:
+          actionItem.targetPerson?.fullName ||
+          actionItem.targetCompany?.name ||
+          actionItem.targetType ||
+          "Campaign audience",
         externalProvider: actionItem.externalProvider,
         externalUrl: actionItem.externalUrl,
         draftContent: actionItem.draftContent,
         finalContent: actionItem.finalContent,
       },
-      availableCommands: this.actionCanvasCommands(panelType, actionItem.status),
+      availableCommands: this.actionCanvasCommands(
+        panelType,
+        actionItem.status,
+      ),
     };
   }
 
@@ -639,12 +748,18 @@ export class CampaignOrchestrationService {
     }
 
     if (filters.actionLaneId) {
-      const actionLane = await this.verifyActionLaneOwnership(userId, filters.actionLaneId);
+      const actionLane = await this.verifyActionLaneOwnership(
+        userId,
+        filters.actionLaneId,
+      );
       where.actionLaneId = actionLane.id;
     }
 
     if (filters.actionCycleId) {
-      const actionCycle = await this.getActionCycle(userId, filters.actionCycleId);
+      const actionCycle = await this.getActionCycle(
+        userId,
+        filters.actionCycleId,
+      );
       where.actionCycleId = actionCycle.id;
     }
 
@@ -655,11 +770,19 @@ export class CampaignOrchestrationService {
     return prisma.actionItem.findMany({
       where,
       include: this.actionItemInclude(),
-      orderBy: [{ dueAt: 'asc' }, { priorityScore: 'desc' }, { createdAt: 'desc' }],
+      orderBy: [
+        { dueAt: "asc" },
+        { priorityScore: "desc" },
+        { createdAt: "desc" },
+      ],
     });
   }
 
-  async updateActionItem(userId: string, actionItemId: string, data: UpdateActionItemDto) {
+  async updateActionItem(
+    userId: string,
+    actionItemId: string,
+    data: UpdateActionItemDto,
+  ) {
     await this.getActionItem(userId, actionItemId);
 
     const updateData: any = {
@@ -676,26 +799,36 @@ export class CampaignOrchestrationService {
     });
   }
 
-  async confirmActionItem(userId: string, actionItemId: string, data: ConfirmActionItemDto) {
+  async confirmActionItem(
+    userId: string,
+    actionItemId: string,
+    data: ConfirmActionItemDto,
+  ) {
     const actionItem = await this.getActionItem(userId, actionItemId);
     const occurredAt = data.occurredAt || new Date();
-    const confirmationSource = data.confirmationSource || ActionItemConfirmationSource.user_confirmed;
-    const confirmedStatus = this.confirmedStatusForAction(actionItem.actionType);
-    const finalContent = data.finalContent ?? actionItem.finalContent ?? actionItem.draftContent;
+    const confirmationSource =
+      data.confirmationSource || ActionItemConfirmationSource.user_confirmed;
+    const confirmedStatus = this.confirmedStatusForAction(
+      actionItem.actionType,
+    );
+    const finalContent =
+      data.finalContent ?? actionItem.finalContent ?? actionItem.draftContent;
 
-    return prisma.$transaction(async (tx) => {
+    const confirmedActionItem = await prisma.$transaction(async (tx) => {
       const activity = await tx.activity.create({
         data: {
           userId,
           personId: actionItem.targetPersonId,
           companyId: actionItem.targetCompanyId,
           activityType: this.activityTypeForAction(actionItem.actionType),
-          channel: actionItem.externalProvider || this.channelForLane(actionItem.actionLane.laneType),
-          direction: 'outbound',
+          channel:
+            actionItem.externalProvider ||
+            this.channelForLane(actionItem.actionLane.laneType),
+          direction: "outbound",
           subject: actionItem.title,
           bodySummary: finalContent,
           occurredAt,
-          outcome: data.outcome || 'confirmed',
+          outcome: data.outcome || "confirmed",
           metadataJson: {
             actionItemId: actionItem.id,
             campaignId: actionItem.campaignId,
@@ -720,6 +853,30 @@ export class CampaignOrchestrationService {
         include: this.actionItemInclude(),
       });
     });
+
+    if (actionItem.actionCycleId) {
+      await this.commercialService.recordReferralMilestone(
+        userId,
+        ReferralMilestoneType.first_cycle_completed,
+        {
+          entityType: "action_cycle",
+          entityId: actionItem.actionCycleId,
+        },
+      );
+    }
+
+    if (confirmedStatus === ActionItemStatus.sent_confirmed) {
+      await this.commercialService.recordReferralMilestone(
+        userId,
+        ReferralMilestoneType.first_outreach_sent,
+        {
+          entityType: "action_item",
+          entityId: actionItem.id,
+        },
+      );
+    }
+
+    return confirmedActionItem;
   }
 
   async deleteActionItem(userId: string, actionItemId: string) {
@@ -731,7 +888,10 @@ export class CampaignOrchestrationService {
   }
 
   // CONVERSATION FEEDBACK LOOP
-  async createConversationThread(userId: string, data: CreateConversationThreadDto) {
+  async createConversationThread(
+    userId: string,
+    data: CreateConversationThreadDto,
+  ) {
     const context = await this.resolveConversationContext(userId, data);
 
     return prisma.conversationThread.create({
@@ -759,18 +919,21 @@ export class CampaignOrchestrationService {
     });
 
     if (!thread) {
-      throw new NotFoundException('Conversation thread not found');
+      throw new NotFoundException("Conversation thread not found");
     }
 
     return thread;
   }
 
-  async getOrCreateActionItemConversationThread(userId: string, actionItemId: string) {
+  async getOrCreateActionItemConversationThread(
+    userId: string,
+    actionItemId: string,
+  ) {
     const actionItem = await this.getActionItem(userId, actionItemId);
     const existing = await prisma.conversationThread.findFirst({
       where: { userId, actionItemId },
       include: this.conversationThreadInclude(),
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
 
     if (existing) return existing;
@@ -784,7 +947,10 @@ export class CampaignOrchestrationService {
         actionItemId: actionItem.id,
         targetPersonId: actionItem.targetPersonId,
         targetCompanyId: actionItem.targetCompanyId,
-        channel: this.channelForActionItem(actionItem.actionType, actionItem.actionLane.laneType),
+        channel: this.channelForActionItem(
+          actionItem.actionType,
+          actionItem.actionLane.laneType,
+        ),
         externalProvider: actionItem.externalProvider,
         externalThreadUrl: actionItem.externalUrl,
         status: ConversationThreadStatus.waiting_for_reply,
@@ -797,13 +963,19 @@ export class CampaignOrchestrationService {
     });
   }
 
-  async captureConversationMessage(userId: string, threadId: string, data: CaptureConversationMessageDto) {
+  async captureConversationMessage(
+    userId: string,
+    threadId: string,
+    data: CaptureConversationMessageDto,
+  ) {
     const thread = await this.getConversationThread(userId, threadId);
     const hasText = Boolean(data.bodyText?.trim());
     const attachmentUrls = data.attachmentUrls || [];
 
     if (!hasText && attachmentUrls.length === 0) {
-      throw new BadRequestException('Message text or at least one attachment is required');
+      throw new BadRequestException(
+        "Message text or at least one attachment is required",
+      );
     }
 
     const direction = data.direction || ConversationMessageDirection.inbound;
@@ -815,7 +987,11 @@ export class CampaignOrchestrationService {
           userId,
           threadId: thread.id,
           direction,
-          source: data.source || (attachmentUrls.length > 0 ? ConversationMessageSource.screenshot : ConversationMessageSource.manual_paste),
+          source:
+            data.source ||
+            (attachmentUrls.length > 0
+              ? ConversationMessageSource.screenshot
+              : ConversationMessageSource.manual_paste),
           bodyText: data.bodyText,
           attachmentUrls,
           attachmentMimeTypes: data.attachmentMimeTypes || [],
@@ -827,15 +1003,19 @@ export class CampaignOrchestrationService {
       await tx.conversationThread.update({
         where: { id: thread.id },
         data: {
-          status: direction === ConversationMessageDirection.inbound
-            ? ConversationThreadStatus.needs_response
-            : ConversationThreadStatus.waiting_for_reply,
+          status:
+            direction === ConversationMessageDirection.inbound
+              ? ConversationThreadStatus.needs_response
+              : ConversationThreadStatus.waiting_for_reply,
           lastMessageAt: occurredAt,
           updatedAt: new Date(),
         },
       });
 
-      if (direction === ConversationMessageDirection.inbound && thread.actionItemId) {
+      if (
+        direction === ConversationMessageDirection.inbound &&
+        thread.actionItemId
+      ) {
         await tx.actionItem.update({
           where: { id: thread.actionItemId },
           data: {
@@ -850,7 +1030,11 @@ export class CampaignOrchestrationService {
     });
   }
 
-  async synthesizeConversationThread(userId: string, threadId: string, data: SynthesizeConversationThreadDto = {}) {
+  async synthesizeConversationThread(
+    userId: string,
+    threadId: string,
+    data: SynthesizeConversationThreadDto = {},
+  ) {
     const thread = await this.getConversationThread(userId, threadId);
     const synthesis = await this.deriveConversationSynthesis(thread);
 
@@ -866,7 +1050,11 @@ export class CampaignOrchestrationService {
             actionCycleId: thread.actionCycleId,
             targetPersonId: thread.targetPersonId,
             targetCompanyId: thread.targetCompanyId,
-            targetType: thread.targetPersonId ? 'person' : thread.targetCompanyId ? 'company' : 'conversation',
+            targetType: thread.targetPersonId
+              ? "person"
+              : thread.targetCompanyId
+                ? "company"
+                : "conversation",
             targetId: thread.targetPersonId || thread.targetCompanyId,
             actionType: synthesis.suggestedActionType,
             title: synthesis.recommendedNextAction,
@@ -925,114 +1113,186 @@ export class CampaignOrchestrationService {
     });
   }
 
-  async intakeConversationFeedback(userId: string, data: ConversationFeedbackIntakeDto) {
-    const hasEvidence = Boolean(data.bodyText?.trim()) || Boolean(data.attachmentUrls?.length);
+  async intakeConversationFeedback(
+    userId: string,
+    data: ConversationFeedbackIntakeDto,
+  ) {
+    const hasEvidence =
+      Boolean(data.bodyText?.trim()) || Boolean(data.attachmentUrls?.length);
 
     if (!hasEvidence) {
-      throw new BadRequestException('Reply text or at least one attachment is required');
+      throw new BadRequestException(
+        "Reply text or at least one attachment is required",
+      );
     }
 
     if (data.threadIdHint) {
-      const thread = await this.getConversationThread(userId, data.threadIdHint);
-      return this.captureAndSynthesizeAttributedFeedback(userId, thread.id, data);
+      const thread = await this.getConversationThread(
+        userId,
+        data.threadIdHint,
+      );
+      return this.captureAndSynthesizeAttributedFeedback(
+        userId,
+        thread.id,
+        data,
+      );
     }
 
     if (data.actionItemIdHint) {
-      const thread = await this.getOrCreateActionItemConversationThread(userId, data.actionItemIdHint);
-      return this.captureAndSynthesizeAttributedFeedback(userId, thread.id, data);
+      const thread = await this.getOrCreateActionItemConversationThread(
+        userId,
+        data.actionItemIdHint,
+      );
+      return this.captureAndSynthesizeAttributedFeedback(
+        userId,
+        thread.id,
+        data,
+      );
     }
 
-    const candidates = await this.findConversationAttributionCandidates(userId, data);
+    const candidates = await this.findConversationAttributionCandidates(
+      userId,
+      data,
+    );
     const topCandidate = candidates[0];
 
-    if (topCandidate && topCandidate.confidence >= 0.75 && topCandidate.threadId) {
-      return this.captureAndSynthesizeAttributedFeedback(userId, topCandidate.threadId, data, candidates);
+    if (
+      topCandidate &&
+      topCandidate.confidence >= 0.75 &&
+      topCandidate.threadId
+    ) {
+      return this.captureAndSynthesizeAttributedFeedback(
+        userId,
+        topCandidate.threadId,
+        data,
+        candidates,
+      );
     }
 
-    if (topCandidate && topCandidate.confidence >= 0.75 && topCandidate.actionItemId) {
-      const thread = await this.getOrCreateActionItemConversationThread(userId, topCandidate.actionItemId);
-      return this.captureAndSynthesizeAttributedFeedback(userId, thread.id, data, candidates);
+    if (
+      topCandidate &&
+      topCandidate.confidence >= 0.75 &&
+      topCandidate.actionItemId
+    ) {
+      const thread = await this.getOrCreateActionItemConversationThread(
+        userId,
+        topCandidate.actionItemId,
+      );
+      return this.captureAndSynthesizeAttributedFeedback(
+        userId,
+        thread.id,
+        data,
+        candidates,
+      );
     }
 
     return {
-      status: candidates.length ? 'needs_clarification' : 'no_match',
+      status: candidates.length ? "needs_clarification" : "no_match",
       candidates,
       clarificationQuestion: candidates.length
-        ? 'Which conversation should I attach this response to?'
-        : 'I could not confidently match this response to an open conversation. Which campaign or action was this from?',
+        ? "Which conversation should I attach this response to?"
+        : "I could not confidently match this response to an open conversation. Which campaign or action was this from?",
     };
   }
 
   // AI DECISION SUPPORT
   async getNextBestAction(userId: string, campaignId: string) {
     const campaign = await this.getCampaign(userId, campaignId);
-    
+
     // Get all active lanes with their execution records
     const lanesWithCycles = await prisma.actionLane.findMany({
-      where: { 
+      where: {
         campaignId,
-        status: ActionLaneStatus.ACTIVE 
+        status: ActionLaneStatus.ACTIVE,
       },
       include: {
         actionCycles: {
-          where: { 
-            status: { in: [ActionCycleStatus.planned, ActionCycleStatus.active, ActionCycleStatus.surfaced, ActionCycleStatus.pursuing] }
+          where: {
+            status: {
+              in: [
+                ActionCycleStatus.planned,
+                ActionCycleStatus.active,
+                ActionCycleStatus.surfaced,
+                ActionCycleStatus.pursuing,
+              ],
+            },
           },
           include: {
             actionItems: {
               where: {
-                status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress] },
+                status: {
+                  in: [
+                    ActionItemStatus.suggested,
+                    ActionItemStatus.ready,
+                    ActionItemStatus.in_progress,
+                  ],
+                },
               },
-              orderBy: { priorityScore: 'desc' },
+              orderBy: { priorityScore: "desc" },
             },
           },
-          orderBy: { priorityScore: 'desc' },
+          orderBy: { priorityScore: "desc" },
         },
         actionItems: {
           where: {
-            status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress] },
+            status: {
+              in: [
+                ActionItemStatus.suggested,
+                ActionItemStatus.ready,
+                ActionItemStatus.in_progress,
+              ],
+            },
           },
-          orderBy: { priorityScore: 'desc' },
+          orderBy: { priorityScore: "desc" },
           take: 5,
         },
         campaignMetrics: {
-          where: { metricType: 'conversion_rate' },
-          orderBy: { computedAt: 'desc' },
+          where: { metricType: "conversion_rate" },
+          orderBy: { computedAt: "desc" },
           take: 3,
         },
       },
-      orderBy: { priorityScore: 'desc' },
+      orderBy: { priorityScore: "desc" },
     });
 
     // AI decision logic for lane prioritization
-    const laneScores = lanesWithCycles.map(lane => {
-      const recentConversionRate = lane.campaignMetrics[0]?.metricValue.toNumber() || 0;
+    const laneScores = lanesWithCycles.map((lane) => {
+      const recentConversionRate =
+        lane.campaignMetrics[0]?.metricValue.toNumber() || 0;
       const activeExecutionCount = lane.actionCycles.length;
       const lanePriority = lane.priorityScore;
-      
+
       // Score based on performance, capacity, and priority
       const performanceScore = recentConversionRate * 0.4;
       const capacityScore = activeExecutionCount < 3 ? 0.3 : 0; // Prefer lanes with capacity
       const priorityScore = (lanePriority / 100) * 0.3;
-      
+
       return {
         lane,
         totalScore: performanceScore + capacityScore + priorityScore,
-        recommendation: this.generateLaneRecommendation(lane, activeExecutionCount, recentConversionRate),
+        recommendation: this.generateLaneRecommendation(
+          lane,
+          activeExecutionCount,
+          recentConversionRate,
+        ),
       };
     });
 
     // Sort by total score
     laneScores.sort((a, b) => b.totalScore - a.totalScore);
-    
+
     const bestLane = laneScores[0];
     if (!bestLane) {
-      return { recommendation: 'No active lanes available for action', nextAction: null };
+      return {
+        recommendation: "No active lanes available for action",
+        nextAction: null,
+      };
     }
 
     const nextExecution = bestLane.lane.actionCycles[0];
-    const nextItem = bestLane.lane.actionItems[0] || nextExecution?.actionItems?.[0];
-    
+    const nextItem =
+      bestLane.lane.actionItems[0] || nextExecution?.actionItems?.[0];
+
     return {
       recommendation: bestLane.recommendation,
       nextAction: {
@@ -1041,7 +1301,7 @@ export class CampaignOrchestrationService {
         actionCycle: nextExecution,
         actionItem: nextItem || null,
         confidence: bestLane.totalScore,
-        alternativeLanes: laneScores.slice(1, 3).map(ls => ({
+        alternativeLanes: laneScores.slice(1, 3).map((ls) => ({
           lane: ls.lane,
           score: ls.totalScore,
           recommendation: ls.recommendation,
@@ -1051,9 +1311,14 @@ export class CampaignOrchestrationService {
   }
 
   // CAMPAIGN METRICS
-  async updateCampaignMetrics(userId: string, campaignId: string, metricType: string, value: number) {
+  async updateCampaignMetrics(
+    userId: string,
+    campaignId: string,
+    metricType: string,
+    value: number,
+  ) {
     await this.findCampaign(userId, campaignId);
-    
+
     return prisma.campaignMetric.create({
       data: {
         campaignId,
@@ -1065,9 +1330,14 @@ export class CampaignOrchestrationService {
     });
   }
 
-  async updateLaneMetrics(userId: string, actionLaneId: string, metricType: string, value: number) {
+  async updateLaneMetrics(
+    userId: string,
+    actionLaneId: string,
+    metricType: string,
+    value: number,
+  ) {
     await this.getActionLane(userId, actionLaneId);
-    
+
     return prisma.campaignMetric.create({
       data: {
         actionLaneId,
@@ -1079,9 +1349,13 @@ export class CampaignOrchestrationService {
     });
   }
 
-  async getCampaignMetrics(userId: string, campaignId: string, metricType?: string) {
+  async getCampaignMetrics(
+    userId: string,
+    campaignId: string,
+    metricType?: string,
+  ) {
     await this.findCampaign(userId, campaignId);
-    
+
     const where: any = { campaignId };
     if (metricType) {
       where.metricType = metricType;
@@ -1089,7 +1363,7 @@ export class CampaignOrchestrationService {
 
     return prisma.campaignMetric.findMany({
       where,
-      orderBy: { computedAt: 'desc' },
+      orderBy: { computedAt: "desc" },
       take: 50,
     });
   }
@@ -1099,15 +1373,18 @@ export class CampaignOrchestrationService {
     const campaign = await prisma.campaign.findFirst({
       where: { id: campaignId, userId },
     });
-    
+
     if (!campaign) {
-      throw new NotFoundException('Campaign not found');
+      throw new NotFoundException("Campaign not found");
     }
-    
+
     return campaign;
   }
 
-  private async verifyActionLaneOwnership(userId: string, actionLaneId: string) {
+  private async verifyActionLaneOwnership(
+    userId: string,
+    actionLaneId: string,
+  ) {
     const actionLane = await prisma.actionLane.findFirst({
       where: { id: actionLaneId },
       include: {
@@ -1116,56 +1393,90 @@ export class CampaignOrchestrationService {
     });
 
     if (!actionLane || actionLane.campaign.userId !== userId) {
-      throw new NotFoundException('Action lane not found');
+      throw new NotFoundException("Action lane not found");
     }
 
     return actionLane;
   }
 
-  private async verifyActionCycleBelongsToLane(userId: string, actionCycleId: string, actionLaneId: string) {
+  private async verifyActionCycleBelongsToLane(
+    userId: string,
+    actionCycleId: string,
+    actionLaneId: string,
+  ) {
     const actionCycle = await this.getActionCycle(userId, actionCycleId);
 
     if (actionCycle.actionLaneId !== actionLaneId) {
-      throw new BadRequestException('Action cycle does not belong to the provided action lane');
+      throw new BadRequestException(
+        "Action cycle does not belong to the provided action lane",
+      );
     }
 
     return actionCycle;
   }
 
-  private async verifyOptionalTargets(userId: string, targetPersonId?: string, targetCompanyId?: string) {
+  private async verifyOptionalTargets(
+    userId: string,
+    targetPersonId?: string,
+    targetCompanyId?: string,
+  ) {
     if (targetPersonId) {
-      const person = await prisma.person.findFirst({ where: { id: targetPersonId, userId } });
-      if (!person) throw new NotFoundException('Target person not found');
+      const person = await prisma.person.findFirst({
+        where: { id: targetPersonId, userId },
+      });
+      if (!person) throw new NotFoundException("Target person not found");
     }
 
     if (targetCompanyId) {
-      const company = await prisma.company.findFirst({ where: { id: targetCompanyId, userId } });
-      if (!company) throw new NotFoundException('Target company not found');
+      const company = await prisma.company.findFirst({
+        where: { id: targetCompanyId, userId },
+      });
+      if (!company) throw new NotFoundException("Target company not found");
     }
   }
 
   private actionItemInclude() {
     return {
       campaign: { select: { id: true, title: true, status: true } },
-      actionLane: { select: { id: true, title: true, laneType: true, status: true } },
-      actionCycle: { select: { id: true, title: true, cycleNumber: true, status: true } },
+      actionLane: {
+        select: { id: true, title: true, laneType: true, status: true },
+      },
+      actionCycle: {
+        select: { id: true, title: true, cycleNumber: true, status: true },
+      },
       targetPerson: true,
       targetCompany: true,
       activity: true,
-      workspaceCommand: { select: { id: true, commandType: true, status: true } },
+      workspaceCommand: {
+        select: { id: true, commandType: true, status: true },
+      },
     };
   }
 
   private conversationThreadInclude() {
     return {
-      campaign: { select: { id: true, title: true, status: true, targetSegment: true } },
-      actionLane: { select: { id: true, campaignId: true, title: true, laneType: true, status: true } },
-      actionCycle: { select: { id: true, title: true, cycleNumber: true, status: true } },
-      actionItem: { select: { id: true, title: true, actionType: true, status: true } },
+      campaign: {
+        select: { id: true, title: true, status: true, targetSegment: true },
+      },
+      actionLane: {
+        select: {
+          id: true,
+          campaignId: true,
+          title: true,
+          laneType: true,
+          status: true,
+        },
+      },
+      actionCycle: {
+        select: { id: true, title: true, cycleNumber: true, status: true },
+      },
+      actionItem: {
+        select: { id: true, title: true, actionType: true, status: true },
+      },
       targetPerson: true,
       targetCompany: true,
-      messages: { orderBy: { occurredAt: 'asc' as const } },
-      insights: { orderBy: { createdAt: 'desc' as const }, take: 5 },
+      messages: { orderBy: { occurredAt: "asc" as const } },
+      insights: { orderBy: { createdAt: "desc" as const }, take: 5 },
     };
   }
 
@@ -1177,7 +1488,9 @@ export class CampaignOrchestrationService {
   ) {
     const message = await this.captureConversationMessage(userId, threadId, {
       direction: ConversationMessageDirection.inbound,
-      source: data.attachmentUrls?.length ? ConversationMessageSource.screenshot : ConversationMessageSource.manual_paste,
+      source: data.attachmentUrls?.length
+        ? ConversationMessageSource.screenshot
+        : ConversationMessageSource.manual_paste,
       bodyText: data.bodyText || data.message,
       attachmentUrls: data.attachmentUrls || [],
       attachmentMimeTypes: data.attachmentMimeTypes || [],
@@ -1189,13 +1502,17 @@ export class CampaignOrchestrationService {
         campaignIdHint: data.campaignIdHint,
       },
     });
-    const synthesis = await this.synthesizeConversationThread(userId, threadId, {
-      createSuggestedAction: data.createSuggestedAction ?? true,
-    });
+    const synthesis = await this.synthesizeConversationThread(
+      userId,
+      threadId,
+      {
+        createSuggestedAction: data.createSuggestedAction ?? true,
+      },
+    );
     const thread = await this.getConversationThread(userId, threadId);
 
     return {
-      status: 'captured',
+      status: "captured",
       thread,
       message,
       insight: synthesis.insight,
@@ -1204,24 +1521,41 @@ export class CampaignOrchestrationService {
     };
   }
 
-  private async findConversationAttributionCandidates(userId: string, data: ConversationFeedbackIntakeDto) {
+  private async findConversationAttributionCandidates(
+    userId: string,
+    data: ConversationFeedbackIntakeDto,
+  ) {
     const [threads, actionItems] = await Promise.all([
       prisma.conversationThread.findMany({
         where: {
           userId,
-          status: { in: [ConversationThreadStatus.active, ConversationThreadStatus.waiting_for_reply, ConversationThreadStatus.needs_response] },
+          status: {
+            in: [
+              ConversationThreadStatus.active,
+              ConversationThreadStatus.waiting_for_reply,
+              ConversationThreadStatus.needs_response,
+            ],
+          },
         },
         include: this.conversationThreadInclude(),
-        orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ lastMessageAt: "desc" }, { createdAt: "desc" }],
         take: 12,
       }),
       prisma.actionItem.findMany({
         where: {
           userId,
-          status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress, ActionItemStatus.sent_confirmed, ActionItemStatus.published_confirmed] },
+          status: {
+            in: [
+              ActionItemStatus.suggested,
+              ActionItemStatus.ready,
+              ActionItemStatus.in_progress,
+              ActionItemStatus.sent_confirmed,
+              ActionItemStatus.published_confirmed,
+            ],
+          },
         },
         include: this.actionItemInclude(),
-        orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
         take: 12,
       }),
     ]);
@@ -1239,12 +1573,16 @@ export class CampaignOrchestrationService {
       });
 
       return {
-        type: 'conversation_thread',
+        type: "conversation_thread",
         threadId: thread.id,
         actionItemId: thread.actionItemId,
         confidence: scored.confidence,
         reasons: scored.reasons,
-        label: thread.actionItem?.title || thread.actionLane?.title || thread.campaign?.title || thread.channel,
+        label:
+          thread.actionItem?.title ||
+          thread.actionLane?.title ||
+          thread.campaign?.title ||
+          thread.channel,
         campaign: thread.campaign,
         actionLane: thread.actionLane,
         actionItem: thread.actionItem,
@@ -1255,7 +1593,10 @@ export class CampaignOrchestrationService {
 
     const actionItemCandidates = actionItems.map((actionItem: any) => {
       const scored = this.scoreAttributionCandidate(data, {
-        channel: this.channelForActionItem(actionItem.actionType, actionItem.actionLane.laneType),
+        channel: this.channelForActionItem(
+          actionItem.actionType,
+          actionItem.actionLane.laneType,
+        ),
         campaignId: actionItem.campaignId,
         campaignTitle: actionItem.campaign?.title,
         laneTitle: actionItem.actionLane?.title,
@@ -1266,7 +1607,7 @@ export class CampaignOrchestrationService {
       });
 
       return {
-        type: 'action_item',
+        type: "action_item",
         threadId: undefined,
         actionItemId: actionItem.id,
         confidence: scored.confidence,
@@ -1274,7 +1615,12 @@ export class CampaignOrchestrationService {
         label: actionItem.title,
         campaign: actionItem.campaign,
         actionLane: actionItem.actionLane,
-        actionItem: { id: actionItem.id, title: actionItem.title, actionType: actionItem.actionType, status: actionItem.status },
+        actionItem: {
+          id: actionItem.id,
+          title: actionItem.title,
+          actionType: actionItem.actionType,
+          status: actionItem.status,
+        },
         targetPerson: actionItem.targetPerson,
         targetCompany: actionItem.targetCompany,
       };
@@ -1300,8 +1646,9 @@ export class CampaignOrchestrationService {
     },
   ) {
     let score = 0.15;
-    const reasons: string[] = ['Recent open campaign conversation'];
-    const evidence = `${data.message || ''} ${data.bodyText || ''} ${data.personHint || ''} ${data.companyHint || ''}`.toLowerCase();
+    const reasons: string[] = ["Recent open campaign conversation"];
+    const evidence =
+      `${data.message || ""} ${data.bodyText || ""} ${data.personHint || ""} ${data.companyHint || ""}`.toLowerCase();
 
     if (data.channelHint && candidate.channel?.includes(data.channelHint)) {
       score += 0.25;
@@ -1310,25 +1657,33 @@ export class CampaignOrchestrationService {
 
     if (data.campaignIdHint && candidate.campaignId === data.campaignIdHint) {
       score += 0.3;
-      reasons.push('Campaign hint matches');
+      reasons.push("Campaign hint matches");
     }
 
-    if (data.personHint && candidate.personName && this.textIncludesLoose(candidate.personName, data.personHint)) {
+    if (
+      data.personHint &&
+      candidate.personName &&
+      this.textIncludesLoose(candidate.personName, data.personHint)
+    ) {
       score += 0.25;
       reasons.push(`Person matches ${candidate.personName}`);
     }
 
-    if (data.companyHint && candidate.companyName && this.textIncludesLoose(candidate.companyName, data.companyHint)) {
+    if (
+      data.companyHint &&
+      candidate.companyName &&
+      this.textIncludesLoose(candidate.companyName, data.companyHint)
+    ) {
       score += 0.2;
       reasons.push(`Company matches ${candidate.companyName}`);
     }
 
     for (const [label, value, weight] of [
-      ['person', candidate.personName, 0.25],
-      ['company', candidate.companyName, 0.2],
-      ['campaign', candidate.campaignTitle, 0.15],
-      ['lane', candidate.laneTitle, 0.12],
-      ['action', candidate.actionTitle, 0.12],
+      ["person", candidate.personName, 0.25],
+      ["company", candidate.companyName, 0.2],
+      ["campaign", candidate.campaignTitle, 0.15],
+      ["lane", candidate.laneTitle, 0.12],
+      ["action", candidate.actionTitle, 0.12],
     ] as Array<[string, string | undefined, number]>) {
       if (value && this.textIncludesLoose(evidence, value)) {
         score += weight;
@@ -1339,7 +1694,7 @@ export class CampaignOrchestrationService {
     const recencyBoost = this.recencyBoost(candidate.lastMessageAt);
     if (recencyBoost > 0) {
       score += recencyBoost;
-      reasons.push('Recent action/thread');
+      reasons.push("Recent action/thread");
     }
 
     return {
@@ -1351,8 +1706,13 @@ export class CampaignOrchestrationService {
   private textIncludesLoose(source: string, target: string): boolean {
     const normalizedSource = source.toLowerCase();
     const normalizedTarget = target.toLowerCase();
-    return normalizedSource.includes(normalizedTarget)
-      || normalizedTarget.split(/\s+/).filter(Boolean).some((part) => part.length > 2 && normalizedSource.includes(part));
+    return (
+      normalizedSource.includes(normalizedTarget) ||
+      normalizedTarget
+        .split(/\s+/)
+        .filter(Boolean)
+        .some((part) => part.length > 2 && normalizedSource.includes(part))
+    );
   }
 
   private recencyBoost(value?: Date | string): number {
@@ -1366,7 +1726,10 @@ export class CampaignOrchestrationService {
     return 0;
   }
 
-  private async resolveConversationContext(userId: string, data: CreateConversationThreadDto) {
+  private async resolveConversationContext(
+    userId: string,
+    data: CreateConversationThreadDto,
+  ) {
     const context: {
       campaignId?: string;
       actionLaneId?: string;
@@ -1393,7 +1756,10 @@ export class CampaignOrchestrationService {
     }
 
     if (data.actionLaneId) {
-      const actionLane = await this.verifyActionLaneOwnership(userId, data.actionLaneId);
+      const actionLane = await this.verifyActionLaneOwnership(
+        userId,
+        data.actionLaneId,
+      );
       context.actionLaneId = actionLane.id;
       context.campaignId = actionLane.campaignId;
     }
@@ -1405,7 +1771,11 @@ export class CampaignOrchestrationService {
       context.actionLaneId = actionCycle.actionLaneId;
     }
 
-    await this.verifyOptionalTargets(userId, data.targetPersonId, data.targetCompanyId);
+    await this.verifyOptionalTargets(
+      userId,
+      data.targetPersonId,
+      data.targetCompanyId,
+    );
     context.targetPersonId = data.targetPersonId;
     context.targetCompanyId = data.targetCompanyId;
 
@@ -1413,12 +1783,23 @@ export class CampaignOrchestrationService {
   }
 
   private async deriveConversationSynthesis(thread: any) {
-    const inboundMessages = (thread.messages || []).filter((message: any) => message.direction === ConversationMessageDirection.inbound);
+    const inboundMessages = (thread.messages || []).filter(
+      (message: any) =>
+        message.direction === ConversationMessageDirection.inbound,
+    );
     const latestInbound = inboundMessages[inboundMessages.length - 1];
-    const allText = inboundMessages.map((message: any) => message.bodyText || '').join('\n').toLowerCase();
-    const imageAttachmentCount = (thread.messages || []).reduce((count: number, message: any) => (
-      count + (message.attachmentMimeTypes || []).filter((mimeType: string) => mimeType.startsWith('image/')).length
-    ), 0);
+    const allText = inboundMessages
+      .map((message: any) => message.bodyText || "")
+      .join("\n")
+      .toLowerCase();
+    const imageAttachmentCount = (thread.messages || []).reduce(
+      (count: number, message: any) =>
+        count +
+        (message.attachmentMimeTypes || []).filter((mimeType: string) =>
+          mimeType.startsWith("image/"),
+        ).length,
+      0,
+    );
 
     try {
       const aiSynthesis = await this.aiService.synthesizeConversationFeedback({
@@ -1429,54 +1810,90 @@ export class CampaignOrchestrationService {
       return {
         ...aiSynthesis,
         sentiment: aiSynthesis.sentiment as ConversationInsightSentiment,
-        evidenceMessageIds: (thread.messages || []).map((message: any) => message.id),
+        evidenceMessageIds: (thread.messages || []).map(
+          (message: any) => message.id,
+        ),
         imageAttachmentCount,
-        synthesisMode: 'ai_multimodal',
+        synthesisMode: "ai_multimodal",
       };
     } catch {
       // Keep the action loop functional when AI credentials are missing or the model returns invalid JSON.
     }
 
-    const positiveTerms = ['interested', 'thanks', 'helpful', 'sounds good', 'yes', 'open', 'happy to', 'let’s', "let's", 'useful'];
-    const negativeTerms = ['not interested', 'no thanks', 'unsubscribe', 'stop', 'irrelevant', 'busy', 'not now'];
-    const objectionTerms = ['cost', 'budget', 'timing', 'too busy', 'already', 'not now', 'priority', 'security', 'approval'];
+    const positiveTerms = [
+      "interested",
+      "thanks",
+      "helpful",
+      "sounds good",
+      "yes",
+      "open",
+      "happy to",
+      "let’s",
+      "let's",
+      "useful",
+    ];
+    const negativeTerms = [
+      "not interested",
+      "no thanks",
+      "unsubscribe",
+      "stop",
+      "irrelevant",
+      "busy",
+      "not now",
+    ];
+    const objectionTerms = [
+      "cost",
+      "budget",
+      "timing",
+      "too busy",
+      "already",
+      "not now",
+      "priority",
+      "security",
+      "approval",
+    ];
 
     const hasPositive = positiveTerms.some((term) => allText.includes(term));
     const hasNegative = negativeTerms.some((term) => allText.includes(term));
     const objections = objectionTerms.filter((term) => allText.includes(term));
-    const buyingSignals = positiveTerms.filter((term) => allText.includes(term));
-    const sentiment = hasPositive && hasNegative
-      ? ConversationInsightSentiment.mixed
-      : hasPositive
-        ? ConversationInsightSentiment.positive
-        : hasNegative
-          ? ConversationInsightSentiment.negative
-          : allText.trim() || imageAttachmentCount > 0
-            ? ConversationInsightSentiment.neutral
-            : ConversationInsightSentiment.unknown;
+    const buyingSignals = positiveTerms.filter((term) =>
+      allText.includes(term),
+    );
+    const sentiment =
+      hasPositive && hasNegative
+        ? ConversationInsightSentiment.mixed
+        : hasPositive
+          ? ConversationInsightSentiment.positive
+          : hasNegative
+            ? ConversationInsightSentiment.negative
+            : allText.trim() || imageAttachmentCount > 0
+              ? ConversationInsightSentiment.neutral
+              : ConversationInsightSentiment.unknown;
 
-    const intent = sentiment === ConversationInsightSentiment.positive
-      ? 'engaged'
-      : sentiment === ConversationInsightSentiment.negative
-        ? 'disqualified_or_low_priority'
-        : objections.length > 0
-          ? 'objection_handling'
-          : 'needs_follow_up';
+    const intent =
+      sentiment === ConversationInsightSentiment.positive
+        ? "engaged"
+        : sentiment === ConversationInsightSentiment.negative
+          ? "disqualified_or_low_priority"
+          : objections.length > 0
+            ? "objection_handling"
+            : "needs_follow_up";
 
-    const channelLabel = (thread.channel || 'conversation').replace(/_/g, ' ');
+    const channelLabel = (thread.channel || "conversation").replace(/_/g, " ");
     const summary = latestInbound?.bodyText
       ? `Latest ${channelLabel} reply captured: "${this.truncate(latestInbound.bodyText, 180)}"`
       : imageAttachmentCount > 0
-        ? `Latest ${channelLabel} feedback captured from ${imageAttachmentCount} image attachment${imageAttachmentCount === 1 ? '' : 's'}.`
+        ? `Latest ${channelLabel} feedback captured from ${imageAttachmentCount} image attachment${imageAttachmentCount === 1 ? "" : "s"}.`
         : `Conversation feedback captured for ${channelLabel}.`;
 
-    const recommendedNextAction = sentiment === ConversationInsightSentiment.negative
-      ? 'Decide whether to close this thread or send a brief graceful exit'
-      : objections.length > 0
-        ? 'Draft an objection-handling reply'
-        : sentiment === ConversationInsightSentiment.positive
-          ? 'Draft a reply that advances to a concrete next step'
-          : 'Draft a lightweight follow-up response';
+    const recommendedNextAction =
+      sentiment === ConversationInsightSentiment.negative
+        ? "Decide whether to close this thread or send a brief graceful exit"
+        : objections.length > 0
+          ? "Draft an objection-handling reply"
+          : sentiment === ConversationInsightSentiment.positive
+            ? "Draft a reply that advances to a concrete next step"
+            : "Draft a lightweight follow-up response";
 
     return {
       summary,
@@ -1486,23 +1903,38 @@ export class CampaignOrchestrationService {
       buyingSignals,
       recommendedNextAction,
       suggestedActionType: this.followUpActionTypeForChannel(thread.channel),
-      draftFollowUp: this.draftFollowUpForSynthesis(sentiment, objections, thread),
-      priorityScore: sentiment === ConversationInsightSentiment.positive ? 85 : objections.length > 0 ? 75 : 60,
-      evidenceMessageIds: (thread.messages || []).map((message: any) => message.id),
+      draftFollowUp: this.draftFollowUpForSynthesis(
+        sentiment,
+        objections,
+        thread,
+      ),
+      priorityScore:
+        sentiment === ConversationInsightSentiment.positive
+          ? 85
+          : objections.length > 0
+            ? 75
+            : 60,
+      evidenceMessageIds: (thread.messages || []).map(
+        (message: any) => message.id,
+      ),
       imageAttachmentCount,
-      synthesisMode: 'deterministic_first_pass',
+      synthesisMode: "deterministic_first_pass",
     };
   }
 
   private followUpActionTypeForChannel(channel: string): string {
-    if (channel?.includes('linkedin')) return 'linkedin_reply_follow_up';
-    if (channel?.includes('email')) return 'email_reply_follow_up';
-    if (channel?.includes('youtube')) return 'youtube_comment_follow_up';
-    return 'conversation_follow_up';
+    if (channel?.includes("linkedin")) return "linkedin_reply_follow_up";
+    if (channel?.includes("email")) return "email_reply_follow_up";
+    if (channel?.includes("youtube")) return "youtube_comment_follow_up";
+    return "conversation_follow_up";
   }
 
-  private draftFollowUpForSynthesis(sentiment: ConversationInsightSentiment, objections: string[], thread: any): string {
-    const campaignTitle = thread.campaign?.title || 'this campaign';
+  private draftFollowUpForSynthesis(
+    sentiment: ConversationInsightSentiment,
+    objections: string[],
+    thread: any,
+  ): string {
+    const campaignTitle = thread.campaign?.title || "this campaign";
 
     if (sentiment === ConversationInsightSentiment.positive) {
       return `Thanks for the thoughtful reply. It sounds like this is relevant to ${campaignTitle}. Would it be useful if I shared a concrete example or a short next step?`;
@@ -1520,43 +1952,64 @@ export class CampaignOrchestrationService {
   }
 
   private channelForActionItem(actionType: string, laneType: string): string {
-    if (actionType.includes('linkedin') || laneType.includes('linkedin')) return actionType.includes('post') ? 'linkedin_post' : 'linkedin_dm';
-    if (actionType.includes('email') || laneType.includes('email')) return 'email';
-    if (actionType.includes('youtube') || laneType.includes('video')) return 'youtube';
+    if (actionType.includes("linkedin") || laneType.includes("linkedin"))
+      return actionType.includes("post") ? "linkedin_post" : "linkedin_dm";
+    if (actionType.includes("email") || laneType.includes("email"))
+      return "email";
+    if (actionType.includes("youtube") || laneType.includes("video"))
+      return "youtube";
     return this.channelForLane(laneType);
   }
 
   private actionCanvasPanelType(actionType: string, laneType: string): string {
-    if (actionType.includes('email') || laneType.includes('email')) return 'email';
-    if (actionType.includes('linkedin') && (actionType.includes('post') || laneType.includes('content'))) return 'linkedin_post';
-    if (actionType.includes('linkedin') || laneType.includes('linkedin')) return 'linkedin_dm';
-    if (actionType.includes('youtube') || laneType.includes('video')) return 'content';
-    if (laneType.includes('content')) return 'content';
-    return 'generic';
+    if (actionType.includes("email") || laneType.includes("email"))
+      return "email";
+    if (
+      actionType.includes("linkedin") &&
+      (actionType.includes("post") || laneType.includes("content"))
+    )
+      return "linkedin_post";
+    if (actionType.includes("linkedin") || laneType.includes("linkedin"))
+      return "linkedin_dm";
+    if (actionType.includes("youtube") || laneType.includes("video"))
+      return "content";
+    if (laneType.includes("content")) return "content";
+    return "generic";
   }
 
-  private actionCanvasCommands(panelType: string, status: ActionItemStatus): string[] {
-    const base = ['capture_feedback', 'ask_conductor'];
+  private actionCanvasCommands(
+    panelType: string,
+    status: ActionItemStatus,
+  ): string[] {
+    const base = ["capture_feedback", "ask_conductor"];
 
     if (
       status === ActionItemStatus.suggested ||
       status === ActionItemStatus.ready ||
       status === ActionItemStatus.in_progress
     ) {
-      if (panelType === 'email') return ['edit_draft', 'send_or_confirm', ...base];
-      if (panelType === 'linkedin_dm') return ['open_linkedin', 'confirm_sent', ...base];
-      if (panelType === 'linkedin_post' || panelType === 'content') return ['edit_content', 'confirm_published', ...base];
-      return ['confirm_done', ...base];
+      if (panelType === "email")
+        return ["edit_draft", "send_or_confirm", ...base];
+      if (panelType === "linkedin_dm")
+        return ["open_linkedin", "confirm_sent", ...base];
+      if (panelType === "linkedin_post" || panelType === "content")
+        return ["edit_content", "confirm_published", ...base];
+      return ["confirm_done", ...base];
     }
 
     return base;
   }
 
   private truncate(value: string, maxLength: number): string {
-    return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
+    return value.length > maxLength
+      ? `${value.slice(0, maxLength - 1)}...`
+      : value;
   }
 
-  private applyActionItemStatusTimestamps(updateData: any, status?: ActionItemStatus) {
+  private applyActionItemStatusTimestamps(
+    updateData: any,
+    status?: ActionItemStatus,
+  ) {
     if (!status) return;
 
     const now = new Date();
@@ -1582,136 +2035,176 @@ export class CampaignOrchestrationService {
     }
   }
 
-  private onboardingLaneCampaignIds(lane: any, selectedCampaigns: Array<{ id: string }>): string[] {
+  private onboardingLaneCampaignIds(
+    lane: any,
+    selectedCampaigns: Array<{ id: string }>,
+  ): string[] {
     if (Array.isArray(lane.campaignIds) && lane.campaignIds.length > 0) {
-      return lane.campaignIds.filter((id: string) => selectedCampaigns.some((campaign) => campaign.id === id));
+      return lane.campaignIds.filter((id: string) =>
+        selectedCampaigns.some((campaign) => campaign.id === id),
+      );
     }
 
     return selectedCampaigns.map((campaign) => campaign.id);
   }
 
-  private onboardingSelectionPriority(data: FinalizeOnboardingPlanDto, laneId: string): number {
+  private onboardingSelectionPriority(
+    data: FinalizeOnboardingPlanDto,
+    laneId: string,
+  ): number {
     return data.activationSelection?.laneId === laneId ? 90 : 70;
   }
 
   private inferActionLaneType(lane: any): ActionLaneType {
-    const value = `${lane.type || ''} ${lane.title || ''} ${lane.description || ''}`.toLowerCase();
+    const value =
+      `${lane.type || ""} ${lane.title || ""} ${lane.description || ""}`.toLowerCase();
 
-    if (value.includes('linkedin') && value.includes('dm')) return ActionLaneType.linkedin_dm;
-    if (value.includes('linkedin') && (value.includes('message') || value.includes('messaging'))) return ActionLaneType.linkedin_messaging;
-    if (value.includes('linkedin') && (value.includes('post') || value.includes('content'))) return ActionLaneType.linkedin_content;
-    if (value.includes('linkedin') && value.includes('comment')) return ActionLaneType.linkedin_commenting;
-    if (value.includes('email') || value.includes('outlook') || value.includes('gmail')) return ActionLaneType.email;
-    if (value.includes('warm') || value.includes('intro') || value.includes('referral')) return ActionLaneType.warm_intro;
-    if (value.includes('research')) return ActionLaneType.account_research;
-    if (value.includes('call')) return ActionLaneType.call_outreach;
+    if (value.includes("linkedin") && value.includes("dm"))
+      return ActionLaneType.linkedin_dm;
+    if (
+      value.includes("linkedin") &&
+      (value.includes("message") || value.includes("messaging"))
+    )
+      return ActionLaneType.linkedin_messaging;
+    if (
+      value.includes("linkedin") &&
+      (value.includes("post") || value.includes("content"))
+    )
+      return ActionLaneType.linkedin_content;
+    if (value.includes("linkedin") && value.includes("comment"))
+      return ActionLaneType.linkedin_commenting;
+    if (
+      value.includes("email") ||
+      value.includes("outlook") ||
+      value.includes("gmail")
+    )
+      return ActionLaneType.email;
+    if (
+      value.includes("warm") ||
+      value.includes("intro") ||
+      value.includes("referral")
+    )
+      return ActionLaneType.warm_intro;
+    if (value.includes("research")) return ActionLaneType.account_research;
+    if (value.includes("call")) return ActionLaneType.call_outreach;
 
     return ActionLaneType.other;
   }
 
   private firstActionForLane(laneType: ActionLaneType) {
-    if (laneType === ActionLaneType.linkedin_dm || laneType === ActionLaneType.linkedin_messaging) {
+    if (
+      laneType === ActionLaneType.linkedin_dm ||
+      laneType === ActionLaneType.linkedin_messaging
+    ) {
       return {
-        actionType: 'linkedin_dm_select_contact',
-        targetType: 'person',
-        externalProvider: 'linkedin',
-        title: 'Select first LinkedIn DM contact',
-        instructions: 'Review suggested LinkedIn contacts for this campaign, choose the first recipient, then draft a DM for manual approval and send confirmation.',
+        actionType: "linkedin_dm_select_contact",
+        targetType: "person",
+        externalProvider: "linkedin",
+        title: "Select first LinkedIn DM contact",
+        instructions:
+          "Review suggested LinkedIn contacts for this campaign, choose the first recipient, then draft a DM for manual approval and send confirmation.",
         steps: [
-          'Find best-fit LinkedIn contacts from imported/profile data.',
-          'Select the first recipient.',
-          'Draft a concise LinkedIn DM.',
-          'Open LinkedIn for manual send.',
-          'Confirm sent so the system can log the action.',
+          "Find best-fit LinkedIn contacts from imported/profile data.",
+          "Select the first recipient.",
+          "Draft a concise LinkedIn DM.",
+          "Open LinkedIn for manual send.",
+          "Confirm sent so the system can log the action.",
         ],
       };
     }
 
     if (laneType === ActionLaneType.email) {
       return {
-        actionType: 'email_select_recipient',
-        targetType: 'person',
-        externalProvider: 'outlook',
-        title: 'Select first email outreach recipient',
-        instructions: 'Review suggested recipients for this campaign, choose the first contact, then generate an email draft for approval before sending.',
+        actionType: "email_select_recipient",
+        targetType: "person",
+        externalProvider: "outlook",
+        title: "Select first email outreach recipient",
+        instructions:
+          "Review suggested recipients for this campaign, choose the first contact, then generate an email draft for approval before sending.",
         steps: [
-          'Find best-fit recipients for the campaign.',
-          'Select the first recipient.',
-          'Draft the email.',
-          'Ask for approval before sending.',
-          'Log send and follow-up state.',
+          "Find best-fit recipients for the campaign.",
+          "Select the first recipient.",
+          "Draft the email.",
+          "Ask for approval before sending.",
+          "Log send and follow-up state.",
         ],
       };
     }
 
     if (laneType === ActionLaneType.linkedin_content) {
       return {
-        actionType: 'linkedin_post_draft',
-        targetType: 'audience',
-        externalProvider: 'linkedin',
-        title: 'Draft first LinkedIn post',
-        instructions: 'Draft a campaign-aligned LinkedIn post for review, then ask the user to publish manually and confirm.',
+        actionType: "linkedin_post_draft",
+        targetType: "audience",
+        externalProvider: "linkedin",
+        title: "Draft first LinkedIn post",
+        instructions:
+          "Draft a campaign-aligned LinkedIn post for review, then ask the user to publish manually and confirm.",
         steps: [
-          'Choose the post angle.',
-          'Draft the LinkedIn post.',
-          'Ask for approval.',
-          'Open LinkedIn for manual publishing.',
-          'Confirm published and log the action.',
+          "Choose the post angle.",
+          "Draft the LinkedIn post.",
+          "Ask for approval.",
+          "Open LinkedIn for manual publishing.",
+          "Confirm published and log the action.",
         ],
       };
     }
 
     return {
-      actionType: 'manual_action_prepare',
-      targetType: 'campaign',
-      externalProvider: 'manual',
-      title: 'Prepare first campaign action',
-      instructions: 'Prepare the first concrete action for this campaign lane and ask for approval before any external execution.',
+      actionType: "manual_action_prepare",
+      targetType: "campaign",
+      externalProvider: "manual",
+      title: "Prepare first campaign action",
+      instructions:
+        "Prepare the first concrete action for this campaign lane and ask for approval before any external execution.",
       steps: [
-        'Explain why this lane is first.',
-        'Prepare the first action.',
-        'Ask for approval.',
-        'Log completion after confirmation.',
+        "Explain why this lane is first.",
+        "Prepare the first action.",
+        "Ask for approval.",
+        "Log completion after confirmation.",
       ],
     };
   }
 
   private confirmedStatusForAction(actionType: string): ActionItemStatus {
-    return actionType.includes('post') || actionType.includes('publish')
+    return actionType.includes("post") || actionType.includes("publish")
       ? ActionItemStatus.published_confirmed
       : ActionItemStatus.sent_confirmed;
   }
 
   private activityTypeForAction(actionType: string): ActivityType {
-    if (actionType.includes('linkedin')) return ActivityType.linkedin_message;
-    if (actionType.includes('email')) return ActivityType.email;
-    if (actionType.includes('call')) return ActivityType.call;
-    if (actionType.includes('follow')) return ActivityType.follow_up;
+    if (actionType.includes("linkedin")) return ActivityType.linkedin_message;
+    if (actionType.includes("email")) return ActivityType.email;
+    if (actionType.includes("call")) return ActivityType.call;
+    if (actionType.includes("follow")) return ActivityType.follow_up;
     return ActivityType.note_event;
   }
 
   private channelForLane(laneType: string): string {
-    if (laneType.includes('linkedin')) return 'linkedin';
-    if (laneType.includes('email')) return 'email';
-    if (laneType.includes('call')) return 'phone';
+    if (laneType.includes("linkedin")) return "linkedin";
+    if (laneType.includes("email")) return "email";
+    if (laneType.includes("call")) return "phone";
     return laneType;
   }
 
-  private generateLaneRecommendation(lane: any, activeExecutionCount: number, conversionRate: number): string {
-    const laneType = lane.laneType.replace('_', ' ');
-    
+  private generateLaneRecommendation(
+    lane: any,
+    activeExecutionCount: number,
+    conversionRate: number,
+  ): string {
+    const laneType = lane.laneType.replace("_", " ");
+
     if (activeExecutionCount === 0) {
       return `${laneType} lane is idle - consider surfacing new targets or refining strategy`;
     }
-    
+
     if (conversionRate > 0.3) {
       return `${laneType} lane is performing well - consider increasing capacity or expanding target criteria`;
     }
-    
+
     if (conversionRate < 0.1) {
       return `${laneType} lane needs attention - review strategy, target criteria, or messaging`;
     }
-    
+
     return `${laneType} lane is steady - continue current approach and monitor performance`;
   }
 }

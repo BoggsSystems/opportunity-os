@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   AuthenticationSessionStatus,
   VerificationTokenType,
@@ -12,23 +12,24 @@ import {
   OfferingType,
   CampaignStatus,
   prisma,
-} from '@opportunity-os/db';
-import { getConfig } from '@opportunity-os/config';
+} from "@opportunity-os/db";
+import { getConfig } from "@opportunity-os/config";
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   PASSWORD_RESET_TOKEN_TTL_HOURS,
   REFRESH_TOKEN_TTL_DAYS,
   VERIFICATION_TOKEN_TTL_HOURS,
-} from './auth.constants';
-import { LoginDto } from './dto/login.dto';
-import { SignUpDto } from './dto/signup.dto';
-import { PasswordService } from './password.service';
-import { TokenService } from './token.service';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { RefreshSessionDto } from './dto/refresh-session.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
-import { VerifyEmailDto } from './dto/verify-email.dto';
-import { AuthenticatedUser } from './auth.types';
+} from "./auth.constants";
+import { LoginDto } from "./dto/login.dto";
+import { SignUpDto } from "./dto/signup.dto";
+import { PasswordService } from "./password.service";
+import { TokenService } from "./token.service";
+import { ForgotPasswordDto } from "./dto/forgot-password.dto";
+import { RefreshSessionDto } from "./dto/refresh-session.dto";
+import { ResetPasswordDto } from "./dto/reset-password.dto";
+import { VerifyEmailDto } from "./dto/verify-email.dto";
+import { AuthenticatedUser } from "./auth.types";
+import { CommercialService } from "../commercial/commercial.service";
 
 @Injectable()
 export class AuthService {
@@ -37,6 +38,7 @@ export class AuthService {
   constructor(
     private readonly passwordService: PasswordService,
     private readonly tokenService: TokenService,
+    private readonly commercialService: CommercialService,
   ) {}
 
   async signUp(dto: SignUpDto) {
@@ -49,12 +51,13 @@ export class AuthService {
     });
 
     if (existingIdentity) {
-      throw new ConflictException('An account with that email already exists');
+      throw new ConflictException("An account with that email already exists");
     }
 
     const passwordHash = await this.passwordService.hashPassword(dto.password);
     const verificationToken = this.tokenService.generateOpaqueToken();
-    const verificationTokenHash = this.tokenService.hashOpaqueToken(verificationToken);
+    const verificationTokenHash =
+      this.tokenService.hashOpaqueToken(verificationToken);
     const refreshToken = this.tokenService.generateOpaqueToken();
     const refreshTokenHash = this.tokenService.hashOpaqueToken(refreshToken);
     const sessionExpiresAt = this.addDays(REFRESH_TOKEN_TTL_DAYS);
@@ -80,7 +83,7 @@ export class AuthService {
       await tx.credential.create({
         data: {
           authenticationIdentityId: identity.id,
-          credentialType: 'password',
+          credentialType: "password",
           passwordHash,
         },
       });
@@ -99,7 +102,7 @@ export class AuthService {
         data: {
           userId: user.id,
           authenticationIdentityId: identity.id,
-          clientType: 'api',
+          clientType: "api",
           refreshTokenHash,
           expiresAt: sessionExpiresAt,
           lastUsedAt: new Date(),
@@ -108,14 +111,16 @@ export class AuthService {
 
       const freePlan = await tx.plan.findUnique({
         where: {
-          code: 'free_explorer',
+          code: "free_explorer",
         },
         include: {
           planFeatures: true,
         },
       });
 
-      let subscription: Awaited<ReturnType<typeof tx.subscription.create>> | null = null;
+      let subscription: Awaited<
+        ReturnType<typeof tx.subscription.create>
+      > | null = null;
 
       if (freePlan) {
         const now = new Date();
@@ -123,10 +128,14 @@ export class AuthService {
           data: {
             userId: user.id,
             planId: freePlan.id,
-            status: 'active',
+            status: "active",
             startedAt: now,
-            currentPeriodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
-            currentPeriodEnd: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)),
+            currentPeriodStart: new Date(
+              Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+            ),
+            currentPeriodEnd: new Date(
+              Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+            ),
           },
         });
       }
@@ -148,83 +157,91 @@ export class AuthService {
         });
       }
 
-        // Handle Initial Strategy from Pre-Auth Audit
-        if (dto.initialStrategy) {
-          const strategy = typeof dto.initialStrategy === 'string' 
-            ? JSON.parse(dto.initialStrategy) 
+      // Handle Initial Strategy from Pre-Auth Audit
+      if (dto.initialStrategy) {
+        const strategy =
+          typeof dto.initialStrategy === "string"
+            ? JSON.parse(dto.initialStrategy)
             : dto.initialStrategy;
-          
-          if (strategy.posture || strategy.comprehensiveSynthesis) {
-            await tx.userPosture.create({
+
+        if (strategy.posture || strategy.comprehensiveSynthesis) {
+          await tx.userPosture.create({
+            data: {
+              userId: user.id,
+              postureText:
+                strategy.comprehensiveSynthesis || strategy.posture?.text || "",
+              objectives: strategy.posture?.objectives || [],
+              preferredTone: strategy.posture?.preferredTone || "Professional",
+            },
+          });
+        }
+
+        // Map to track temporary frontend IDs to created DB IDs for offerings
+        const offeringIdMap = new Map<string, string>();
+
+        const lanesToProcess = strategy.selectedLanes || strategy.offerings;
+        if (lanesToProcess && Array.isArray(lanesToProcess)) {
+          for (const offering of lanesToProcess) {
+            const createdOffering = await tx.offering.create({
               data: {
                 userId: user.id,
-                postureText: strategy.comprehensiveSynthesis || strategy.posture?.text || '',
-                objectives: strategy.posture?.objectives || [],
-                preferredTone: strategy.posture?.preferredTone || 'Professional'
-              }
+                title: offering.title,
+                description: offering.description,
+                offeringType:
+                  (offering.type as OfferingType) || OfferingType.service,
+                status: OfferingStatus.active,
+              },
             });
-          }
-  
-          // Map to track temporary frontend IDs to created DB IDs for offerings
-          const offeringIdMap = new Map<string, string>();
-  
-          const lanesToProcess = strategy.selectedLanes || strategy.offerings;
-          if (lanesToProcess && Array.isArray(lanesToProcess)) {
-            for (const offering of lanesToProcess) {
-              const createdOffering = await tx.offering.create({
-                data: {
-                  userId: user.id,
-                  title: offering.title,
-                  description: offering.description,
-                  offeringType: (offering.type as OfferingType) || OfferingType.service,
-                  status: OfferingStatus.active
-                }
-              });
-              
-              if (offering.id) {
-                offeringIdMap.set(offering.id, createdOffering.id);
-              }
-            }
-          }
-  
-          if (strategy.selectedCampaigns && Array.isArray(strategy.selectedCampaigns)) {
-            for (const campaign of strategy.selectedCampaigns) {
-              // Map temporary laneId to the actual offeringId created above
-              const offeringId = campaign.laneId ? offeringIdMap.get(campaign.laneId) : null;
-              
-              await tx.campaign.create({
-                data: {
-                  userId: user.id,
-                  offeringId: offeringId,
-                  title: campaign.title,
-                  description: campaign.description,
-                  targetSegment: campaign.targetSegment,
-                  strategicAngle: campaign.messagingHook,
-                  successDefinition: campaign.goalMetric,
-                  status: CampaignStatus.ACTIVE,
-                  metadataJson: {
-                    duration: campaign.duration,
-                    channel: campaign.channel,
-                    laneTitle: campaign.laneTitle
-                  }
-                }
-              });
-            }
-          }
-  
-          if (strategy.theses && Array.isArray(strategy.theses)) {
-            for (const thesis of strategy.theses) {
-              await tx.strategicThesis.create({
-                data: {
-                  userId: user.id,
-                  title: thesis.title,
-                  content: thesis.content,
-                  relevanceTags: thesis.tags
-                }
-              });
+
+            if (offering.id) {
+              offeringIdMap.set(offering.id, createdOffering.id);
             }
           }
         }
+
+        if (
+          strategy.selectedCampaigns &&
+          Array.isArray(strategy.selectedCampaigns)
+        ) {
+          for (const campaign of strategy.selectedCampaigns) {
+            // Map temporary laneId to the actual offeringId created above
+            const offeringId = campaign.laneId
+              ? offeringIdMap.get(campaign.laneId)
+              : null;
+
+            await tx.campaign.create({
+              data: {
+                userId: user.id,
+                offeringId: offeringId,
+                title: campaign.title,
+                description: campaign.description,
+                targetSegment: campaign.targetSegment,
+                strategicAngle: campaign.messagingHook,
+                successDefinition: campaign.goalMetric,
+                status: CampaignStatus.ACTIVE,
+                metadataJson: {
+                  duration: campaign.duration,
+                  channel: campaign.channel,
+                  laneTitle: campaign.laneTitle,
+                },
+              },
+            });
+          }
+        }
+
+        if (strategy.theses && Array.isArray(strategy.theses)) {
+          for (const thesis of strategy.theses) {
+            await tx.strategicThesis.create({
+              data: {
+                userId: user.id,
+                title: thesis.title,
+                content: thesis.content,
+                relevanceTags: thesis.tags,
+              },
+            });
+          }
+        }
+      }
 
       return {
         user,
@@ -239,26 +256,43 @@ export class AuthService {
       };
     });
 
-    return this.buildAuthResponse(result.user, result.identity.id, result.session.id, refreshToken, {
-      subscription: result.subscription
-        ? {
-            id: result.subscription.id,
-            status: result.subscription.status,
-            plan: {
-              id: result.subscription.plan.id,
-              code: result.subscription.plan.code,
-              name: result.subscription.plan.name,
-            },
-          }
-        : null,
-      entitlements:
-        result.subscription?.plan.planFeatures.map((feature) => ({
-          key: feature.featureKey,
-          accessLevel: feature.accessLevel,
-          config: feature.configJson,
-        })) ?? [],
-      ...(this.isNonProduction() ? { verificationToken } : {}),
-    });
+    const referral = await this.commercialService.applyReferralAtSignup(
+      result.user.id,
+      {
+        referralCode: dto.referralCode,
+        referralVisitId: dto.referralVisitId,
+        referralVisitorId: dto.referralVisitorId,
+        guestSessionId: dto.guestSessionId,
+      },
+    );
+
+    return this.buildAuthResponse(
+      result.user,
+      result.identity.id,
+      result.session.id,
+      refreshToken,
+      {
+        subscription: result.subscription
+          ? {
+              id: result.subscription.id,
+              status: result.subscription.status,
+              plan: {
+                id: result.subscription.plan.id,
+                code: result.subscription.plan.code,
+                name: result.subscription.plan.name,
+              },
+            }
+          : null,
+        entitlements:
+          result.subscription?.plan.planFeatures.map((feature) => ({
+            key: feature.featureKey,
+            accessLevel: feature.accessLevel,
+            config: feature.configJson,
+          })) ?? [],
+        referral,
+        ...(this.isNonProduction() ? { verificationToken } : {}),
+      },
+    );
   }
 
   async login(dto: LoginDto) {
@@ -274,20 +308,26 @@ export class AuthService {
     });
 
     if (!identity || !identity.user.isActive) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException("Invalid credentials");
     }
 
     const passwordCredential = identity.credentials.find(
-      (credential) => credential.credentialType === 'password' && credential.passwordHash,
+      (credential) =>
+        credential.credentialType === "password" && credential.passwordHash,
     );
 
     if (!passwordCredential?.passwordHash) {
-      throw new UnauthorizedException('Password sign-in is not configured for this account');
+      throw new UnauthorizedException(
+        "Password sign-in is not configured for this account",
+      );
     }
 
-    const passwordMatches = await this.passwordService.verifyPassword(dto.password, passwordCredential.passwordHash);
-    if (!passwordMatches && email !== 'fintech-recruiter-test@example.com') {
-      throw new UnauthorizedException('Invalid credentials');
+    const passwordMatches = await this.passwordService.verifyPassword(
+      dto.password,
+      passwordCredential.passwordHash,
+    );
+    if (!passwordMatches && email !== "fintech-recruiter-test@example.com") {
+      throw new UnauthorizedException("Invalid credentials");
     }
 
     const refreshToken = this.tokenService.generateOpaqueToken();
@@ -298,7 +338,7 @@ export class AuthService {
       data: {
         userId: identity.user.id,
         authenticationIdentityId: identity.id,
-        clientType: 'api',
+        clientType: "api",
         refreshTokenHash,
         expiresAt: sessionExpiresAt,
         lastUsedAt: new Date(),
@@ -316,7 +356,12 @@ export class AuthService {
       }),
     ]);
 
-    return this.buildAuthResponse(identity.user, identity.id, session.id, refreshToken);
+    return this.buildAuthResponse(
+      identity.user,
+      identity.id,
+      session.id,
+      refreshToken,
+    );
   }
 
   async refreshSession(dto: RefreshSessionDto) {
@@ -336,7 +381,7 @@ export class AuthService {
     });
 
     if (!session || !session.user.isActive) {
-      throw new UnauthorizedException('Refresh token is invalid or expired');
+      throw new UnauthorizedException("Refresh token is invalid or expired");
     }
 
     const refreshToken = this.tokenService.generateOpaqueToken();
@@ -361,7 +406,7 @@ export class AuthService {
 
   async logout(user: AuthenticatedUser | undefined) {
     if (!user?.sessionId) {
-      throw new UnauthorizedException('No active session to revoke');
+      throw new UnauthorizedException("No active session to revoke");
     }
 
     await prisma.authenticationSession.update({
@@ -377,7 +422,7 @@ export class AuthService {
 
   async logoutAll(userId: string) {
     if (!userId) {
-      throw new UnauthorizedException('No authenticated user found');
+      throw new UnauthorizedException("No authenticated user found");
     }
 
     await prisma.authenticationSession.updateMany({
@@ -396,7 +441,7 @@ export class AuthService {
 
   async getCurrentUser(userId: string) {
     if (!userId) {
-      throw new UnauthorizedException('No authenticated user found');
+      throw new UnauthorizedException("No authenticated user found");
     }
 
     const user = await prisma.user.findUnique({
@@ -404,13 +449,13 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException("User not found");
     }
 
     const subscription = await prisma.subscription.findFirst({
       where: {
         userId,
-        status: 'active',
+        status: "active",
       },
       include: {
         plan: {
@@ -420,7 +465,7 @@ export class AuthService {
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     });
 
@@ -476,18 +521,25 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    const token = await this.findActiveVerificationToken(dto.token, VerificationTokenType.password_reset);
+    const token = await this.findActiveVerificationToken(
+      dto.token,
+      VerificationTokenType.password_reset,
+    );
     if (!token.authenticationIdentityId) {
-      throw new BadRequestException('Password reset token is not associated with an identity');
+      throw new BadRequestException(
+        "Password reset token is not associated with an identity",
+      );
     }
 
-    const passwordHash = await this.passwordService.hashPassword(dto.newPassword);
+    const passwordHash = await this.passwordService.hashPassword(
+      dto.newPassword,
+    );
 
     await prisma.$transaction(async (tx) => {
       const existingCredential = await tx.credential.findFirst({
         where: {
           authenticationIdentityId: token.authenticationIdentityId!,
-          credentialType: 'password',
+          credentialType: "password",
         },
       });
 
@@ -505,7 +557,7 @@ export class AuthService {
         await tx.credential.create({
           data: {
             authenticationIdentityId: token.authenticationIdentityId!,
-            credentialType: 'password',
+            credentialType: "password",
             passwordHash,
           },
         });
@@ -536,9 +588,14 @@ export class AuthService {
   }
 
   async verifyEmail(dto: VerifyEmailDto) {
-    const token = await this.findActiveVerificationToken(dto.token, VerificationTokenType.email_verify);
+    const token = await this.findActiveVerificationToken(
+      dto.token,
+      VerificationTokenType.email_verify,
+    );
     if (!token.userId || !token.authenticationIdentityId) {
-      throw new BadRequestException('Verification token is not associated with a user identity');
+      throw new BadRequestException(
+        "Verification token is not associated with a user identity",
+      );
     }
 
     const verifiedAt = new Date();
@@ -569,22 +626,25 @@ export class AuthService {
   }
 
   async validateAccessToken(accessToken: string): Promise<AuthenticatedUser> {
-    console.log('🔐 AUTH SERVICE: validateAccessToken called');
-    console.log('🔐 AUTH SERVICE: Token length:', accessToken.length);
-    console.log('🔐 AUTH SERVICE: Token prefix:', accessToken.substring(0, 30) + '...');
-    
+    console.log("🔐 AUTH SERVICE: validateAccessToken called");
+    console.log("🔐 AUTH SERVICE: Token length:", accessToken.length);
+    console.log(
+      "🔐 AUTH SERVICE: Token prefix:",
+      accessToken.substring(0, 30) + "...",
+    );
+
     try {
       const claims = this.tokenService.verifyAccessToken(accessToken);
-      console.log('🔐 AUTH SERVICE: Token claims:', {
+      console.log("🔐 AUTH SERVICE: Token claims:", {
         sub: claims.sub,
         sid: claims.sid,
         email: claims.email,
         identityId: claims.identityId,
         exp: claims.exp,
-        iat: claims.iat
+        iat: claims.iat,
       });
-      
-      console.log('🔐 AUTH SERVICE: Looking up session:', claims.sid);
+
+      console.log("🔐 AUTH SERVICE: Looking up session:", claims.sid);
       const session = await prisma.authenticationSession.findUnique({
         where: { id: claims.sid },
         include: {
@@ -592,16 +652,16 @@ export class AuthService {
         },
       });
 
-      console.log('🔐 AUTH SERVICE: Session found:', !!session);
+      console.log("🔐 AUTH SERVICE: Session found:", !!session);
       if (session) {
-        console.log('🔐 AUTH SERVICE: Session details:', {
+        console.log("🔐 AUTH SERVICE: Session details:", {
           sessionId: session.id,
           userId: session.userId,
           userActive: session.user.isActive,
           status: session.status,
           revokedAt: session.revokedAt,
           expiresAt: session.expiresAt,
-          isExpired: session.expiresAt <= new Date()
+          isExpired: session.expiresAt <= new Date(),
         });
       }
 
@@ -612,10 +672,10 @@ export class AuthService {
         userActive: session?.user.isActive,
         sessionActive: session?.status === AuthenticationSessionStatus.active,
         notRevoked: !session?.revokedAt,
-        notExpired: session?.expiresAt > new Date()
+        notExpired: session?.expiresAt > new Date(),
       };
 
-      console.log('🔐 AUTH SERVICE: Validation checks:', checks);
+      console.log("🔐 AUTH SERVICE: Validation checks:", checks);
 
       if (
         !session ||
@@ -625,11 +685,11 @@ export class AuthService {
         session.revokedAt ||
         session.expiresAt <= new Date()
       ) {
-        console.log('🔐 AUTH SERVICE: Session validation FAILED');
-        throw new UnauthorizedException('Session is invalid or expired');
+        console.log("🔐 AUTH SERVICE: Session validation FAILED");
+        throw new UnauthorizedException("Session is invalid or expired");
       }
 
-      console.log('🔐 AUTH SERVICE: Session validation SUCCESS');
+      console.log("🔐 AUTH SERVICE: Session validation SUCCESS");
       return {
         id: session.userId,
         email: claims.email,
@@ -637,12 +697,15 @@ export class AuthService {
         authenticationIdentityId: session.authenticationIdentityId ?? undefined,
       };
     } catch (error) {
-      console.error('🔐 AUTH SERVICE: validateAccessToken error:', error);
+      console.error("🔐 AUTH SERVICE: validateAccessToken error:", error);
       throw error;
     }
   }
 
-  private async findActiveVerificationToken(rawToken: string, tokenType: VerificationTokenType) {
+  private async findActiveVerificationToken(
+    rawToken: string,
+    tokenType: VerificationTokenType,
+  ) {
     const token = await prisma.verificationToken.findFirst({
       where: {
         tokenHash: this.tokenService.hashOpaqueToken(rawToken),
@@ -655,14 +718,21 @@ export class AuthService {
     });
 
     if (!token) {
-      throw new BadRequestException('Token is invalid or expired');
+      throw new BadRequestException("Token is invalid or expired");
     }
 
     return token;
   }
 
   private buildAuthResponse(
-    user: { id: string; email: string; fullName: string | null; timezone: string | null; emailVerifiedAt: Date | null; isActive: boolean },
+    user: {
+      id: string;
+      email: string;
+      fullName: string | null;
+      timezone: string | null;
+      emailVerifiedAt: Date | null;
+      isActive: boolean;
+    },
     authenticationIdentityId: string | undefined,
     sessionId: string,
     refreshToken: string,
@@ -720,6 +790,6 @@ export class AuthService {
   }
 
   private isNonProduction(): boolean {
-    return this.config.NODE_ENV !== 'production';
+    return this.config.NODE_ENV !== "production";
   }
 }

@@ -2783,6 +2783,60 @@ Purpose: shareable referral handles owned by a user.
 
 ---
 
+### `referral_visits`
+
+Purpose: pre-signup referral traffic analytics and anti-abuse context.
+
+#### Columns
+
+* `id` UUID PK
+* `referral_link_id` UUID NULL FK -> `referral_links.id`
+* `referral_attribution_id` UUID NULL FK -> `referral_attributions.id`
+* `referrer_user_id` UUID NULL FK -> `users.id`
+* `referred_user_id` UUID NULL FK -> `users.id`
+* `referral_code` VARCHAR NULL
+* `visitor_id` VARCHAR NULL
+* `guest_session_id` VARCHAR NULL
+* `landing_path` TEXT NULL
+* `landing_url` TEXT NULL
+* `referrer_url` TEXT NULL
+* `utm_source` VARCHAR NULL
+* `utm_medium` VARCHAR NULL
+* `utm_campaign` VARCHAR NULL
+* `utm_content` VARCHAR NULL
+* `utm_term` VARCHAR NULL
+* `ip_hash` TEXT NULL
+* `user_agent_hash` TEXT NULL
+* `country` VARCHAR NULL
+* `region` VARCHAR NULL
+* `city` VARCHAR NULL
+* `device_type` VARCHAR NULL
+* `browser` VARCHAR NULL
+* `converted_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `referral_link_id`
+* index on `referral_attribution_id`
+* index on `referrer_user_id`
+* index on `referred_user_id`
+* index on `referral_code`
+* index on `visitor_id`
+* index on `guest_session_id`
+* composite index on (`utm_source`, `utm_campaign`)
+* index on `created_at`
+* index on `converted_at`
+
+#### Notes
+
+* Referral visits are analytics and anti-abuse records, not reward triggers.
+* Application code should attach visits to an attribution when the visitor signs up with a preserved referral code/session.
+* Store hashed IP and user-agent values rather than raw network/browser identifiers when possible.
+
+---
+
 ### `referral_invites`
 
 Purpose: optional explicit invitations sent or shared by a user.
@@ -3646,6 +3700,7 @@ Purpose: durable record of positive or progress-oriented events that can feed co
   * subscriptions
   * usage_counters
   * referral_links
+  * referral_visits as referrer or converted user
   * referral_invites
   * referral_attributions as referrer or referred user
   * referral_rewards
@@ -3796,10 +3851,13 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 ### Growth, Referrals, and Rewards
 
 * `users` -> many `referral_links`
+* `users` -> many `referral_visits` as referrer or converted/referred user
+* `referral_links` -> many optional `referral_visits`
 * `referral_links` -> many optional `referral_invites`
 * `referral_links` -> many optional `referral_attributions`
 * `referral_invites` -> optional `referral_attributions`
 * `referral_attributions` connect one referrer user to one referred user
+* `referral_attributions` -> many optional `referral_visits`
 * `referral_attributions` -> many `referral_milestones`
 * `referral_attributions` -> many `referral_rewards`
 * `referral_milestones` -> optional many `referral_rewards`
@@ -4156,6 +4214,16 @@ These are the most important ones to include early.
 
 * `referral_links(code)`
 * `referral_links(user_id, is_active)`
+* `referral_visits(referral_link_id)`
+* `referral_visits(referral_attribution_id)`
+* `referral_visits(referrer_user_id)`
+* `referral_visits(referred_user_id)`
+* `referral_visits(referral_code)`
+* `referral_visits(visitor_id)`
+* `referral_visits(guest_session_id)`
+* `referral_visits(utm_source, utm_campaign)`
+* `referral_visits(created_at)`
+* `referral_visits(converted_at)`
 * `referral_attributions(referred_user_id)`
 * `referral_attributions(referrer_user_id)`
 * `referral_milestones(referral_attribution_id, milestone_type)`
@@ -4328,6 +4396,7 @@ These are the tables I recommend for the first real schema pass:
 * `capability_execution_logs`
 * `connector_configurations`
 * `referral_links`
+* `referral_visits`
 * `referral_attributions`
 * `referral_milestones`
 * `referral_rewards`
@@ -4423,6 +4492,7 @@ Models to include:
 - CapabilityExecutionLog
 - ConnectorConfiguration
 - ReferralLink
+- ReferralVisit
 - ReferralAttribution
 - ReferralMilestone
 - ReferralReward
@@ -4449,7 +4519,7 @@ Requirements:
 - Ensure WorkspaceCommands can route through UserConnectors to CapabilityProviders
 - Preserve offering context by adding optional offeringId references on Goal, Campaign, OpportunityCycle, AIConversation, AIContextSummary, and AITask
 - Include commercial gating tables needed for bounded free usage: Plan, PlanFeature, Subscription, UsageCounter, ModelAccessPolicy, and GrowthCredit
-- Include referral reward tables for milestone-based rewards: ReferralLink, ReferralAttribution, ReferralMilestone, ReferralReward
+- Include referral reward tables for milestone-based rewards and analytics: ReferralLink, ReferralVisit, ReferralAttribution, ReferralMilestone, ReferralReward
 - Include coaching tables for early momentum support: GoalProgress, WeeklyTarget, MomentumState, CoachingNudge
 - Do not overmodel deferred features yet
 

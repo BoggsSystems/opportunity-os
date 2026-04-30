@@ -1,12 +1,14 @@
-import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
-import { AuthController } from './auth.controller';
-import { AuthGuard } from './auth.guard';
-import { AuthService } from './auth.service';
-import { PasswordService } from './password.service';
-import { TokenService } from './token.service';
+import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
+import { AuthController } from "./auth.controller";
+import { AuthGuard } from "./auth.guard";
+import { AuthService } from "./auth.service";
+import { PasswordService } from "./password.service";
+import { TokenService } from "./token.service";
+import { CommercialModule } from "../commercial/commercial.module";
 
 @Module({
+  imports: [CommercialModule],
   controllers: [AuthController],
   providers: [
     AuthService,
