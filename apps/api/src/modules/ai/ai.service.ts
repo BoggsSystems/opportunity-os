@@ -12,6 +12,7 @@ import { SearchService } from './search.service';
 import { AiProviderFactory } from './ai-provider.factory';
 import { AiRequest, AiMessage } from './interfaces/ai-provider.interface';
 import { CapabilityIntegrationService } from './capability-integration.service';
+import { CommercialService } from '../commercial/commercial.service';
 
 type ConversationRole = 'system' | 'user' | 'assistant';
 
@@ -48,6 +49,7 @@ export class AiService {
     private aiProviderFactory: AiProviderFactory,
     private searchService: SearchService,
     private capabilityIntegrationService: CapabilityIntegrationService,
+    private commercialService: CommercialService,
   ) {}
 
   async summarizeText(input: string): Promise<string> {
@@ -532,13 +534,29 @@ IMPORTANT RULES:
     }
   }
 
-  async generateText(prompt: string, options?: Partial<AiRequest>): Promise<string> {
-    this.logger.log('Generating text with AI');
+  private async getModelForUser(userId?: string): Promise<string | undefined> {
+    if (!userId) return undefined; // Use factory default (haiku/mini)
+    
+    const isPaid = await this.commercialService.isPaidUser(userId);
+    if (isPaid) {
+      // Premium users get the top-tier model
+      return 'anthropic/claude-3.5-sonnet';
+    }
+    
+    // Free users get the efficiency tier
+    return 'openai/gpt-4o-mini';
+  }
+
+  async generateText(prompt: string, options?: Partial<AiRequest>, userId?: string): Promise<string> {
+    this.logger.log(`Generating text with AI (userId=${userId ?? 'GUEST'})`);
+    
+    const model = options?.model || await this.getModelForUser(userId);
     
     const request: AiRequest = {
       prompt,
       temperature: options?.temperature ?? 0.7,
       maxTokens: options?.maxTokens ?? 1000,
+      model,
       ...options,
     };
 
@@ -619,10 +637,13 @@ IMPORTANT RULES:
       searchResults,
     });
 
+    const model = await this.getModelForUser(input.userId);
+
     const request: AiRequest = {
       messages,
       temperature: 0.6,
       maxTokens: 500,
+      model,
       tools: [
         {
           type: 'function',

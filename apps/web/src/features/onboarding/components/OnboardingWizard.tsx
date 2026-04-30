@@ -26,7 +26,7 @@ interface OnboardingWizardProps {
   onSyncEmail?: () => Promise<void>;
 }
 
-type Step = 'briefing' | 'intent' | 'relationships' | 'knowledge' | 'campaigns' | 'analysis' | 'actionLanes' | 'account' | 'connectivity' | 'channels' | 'activation' | 'workspaceIntro' | 'workspaceHandoff' | 'welcome';
+type Step = 'briefing' | 'account' | 'intent' | 'relationships' | 'knowledge' | 'campaigns' | 'analysis' | 'actionLanes' | 'connectivity' | 'channels' | 'activation' | 'workspaceIntro' | 'workspaceHandoff' | 'welcome';
 
 const CONTINUE_ONBOARDING_AFTER_AUTH_KEY = 'opportunity-os:continue-onboarding-after-auth';
 const WORKSPACE_ACTIVATION_PAYLOAD_KEY = 'opportunity-os:workspace-activation-payload';
@@ -422,19 +422,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     }
   };
 
-  // Step-specific Narration Trigger
   useEffect(() => {
-    if (currentStep === 'connectivity') {
-      api.getEmailReadiness().then(setEmailReadiness).catch(console.error);
+    if (currentStep === 'account' && user) {
+      nextStep('intent');
     }
-  }, [currentStep, api]);
+  }, [currentStep, user]);
 
   useEffect(() => {
-    if (parentEmailReadiness) setEmailReadiness(parentEmailReadiness);
-  }, [parentEmailReadiness]);
-
-  useEffect(() => {
-    if (currentStep !== 'welcome' && currentStep !== 'briefing') {
+    if (currentStep !== 'welcome' && currentStep !== 'briefing' && currentStep !== 'account') {
       triggerStepNarration(currentStep);
     }
   }, [currentStep]);
@@ -946,10 +941,19 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
         </div>
       </div>
 
+      {!user && (
+        <div className="mock-preview-ribbon">
+          <div className="ribbon-text">
+            <strong>Guest Mode:</strong> See how it works for a <span className="mock-persona">Founder</span> or <span className="mock-persona">Consultant</span>.
+          </div>
+          <div className="ribbon-cta">Sign up to generate your own personalized strategy.</div>
+        </div>
+      )}
+
       <div className="onboarding-footer">
         <div />
-        <button className="onboarding-btn-primary glow-btn" onClick={() => nextStep('relationships')}>
-          Begin Orchestration <ArrowRight size={18} />
+        <button className="onboarding-btn-primary glow-btn" onClick={() => nextStep('account')}>
+          Initialize Workspace <ArrowRight size={18} />
         </button>
       </div>
     </div>
@@ -1585,9 +1589,9 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
   const renderAccountGate = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <div className="phase-indicator">Phase 06b: Workspace Account</div>
-        <h1>Create your workspace.</h1>
-        <p>Save this strategy before connecting Outlook or initializing durable action cycles. No payment is required.</p>
+        <div className="phase-indicator">Phase 01: Identity</div>
+        <h1>Initialize your system.</h1>
+        <p>Create a secure workspace account to begin the network audit and strategy generation flow.</p>
       </div>
 
       <div className="account-gate-card">
@@ -1596,8 +1600,8 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
             <ShieldCheck size={24} />
           </div>
           <div>
-            <h3>Your execution plan is ready</h3>
-            <p>{selectedCampaigns.length} campaigns and {selectedActionLanes.length} action lanes will move into your workspace.</p>
+            <h3>Secure Orchestration</h3>
+            <p>Your data is processed within your private workspace. We'll start by mapping your professional topography.</p>
           </div>
         </div>
 
@@ -1633,14 +1637,14 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
         <Target size={18} />
         <div>
           <strong>Next step</strong>
-          <span>After account creation, you will connect Outlook to this workspace and initialize the first action cycle.</span>
+          <span>We'll perform a deep audit of your network leverage to identify high-signal opportunities.</span>
         </div>
       </div>
 
       <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('actionLanes')}>Back</button>
+        <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('briefing')}>Back</button>
         <button className="onboarding-btn-primary" onClick={() => void continueAfterAccountCreation()} disabled={isAnyWorking || !accountEmail || !accountPassword}>
-          Continue <ArrowRight size={18} />
+          Secure Account & Continue <ArrowRight size={18} />
         </button>
       </div>
     </div>
@@ -1931,7 +1935,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
       <div className="onboarding-wizard-container">
         <div className="onboarding-progress-header">
           <div className="progress-dots">
-            {['briefing', 'relationships', 'knowledge', 'intent', 'campaigns', 'actionLanes', 'account', 'connectivity', 'activation', 'workspaceIntro', 'workspaceHandoff'].map((s) => (
+            {['briefing', 'account', 'relationships', 'knowledge', 'intent', 'campaigns', 'actionLanes', 'connectivity', 'activation', 'workspaceIntro', 'workspaceHandoff'].map((s) => (
               <div key={s} className={`dot ${currentStep === s ? 'active' : ''}`} />
             ))}
           </div>

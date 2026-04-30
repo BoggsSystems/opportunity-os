@@ -15,6 +15,7 @@ export interface AiRequest {
   context?: Record<string, any>;
   temperature?: number;
   maxTokens?: number;
+  model?: string;
   tools?: any[];
 }
 

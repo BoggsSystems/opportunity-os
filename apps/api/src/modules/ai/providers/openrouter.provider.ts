@@ -21,7 +21,7 @@ export class OpenRouterAiProvider implements AiProvider {
 
     const apiKey = this.configService.get<string>('OPENROUTER_API_KEY');
     const baseUrl = this.configService.get<string>('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1');
-    const model = this.configService.get<string>('OPENROUTER_MODEL', 'anthropic/claude-3-haiku');
+    const model = request.model || this.configService.get<string>('OPENROUTER_MODEL', 'anthropic/claude-3-haiku');
 
     try {
       this.logger.log(`Making OpenRouter request with model: ${model}`);
@@ -90,7 +90,7 @@ export class OpenRouterAiProvider implements AiProvider {
 
     const apiKey = this.configService.get<string>('OPENROUTER_API_KEY');
     const baseUrl = this.configService.get<string>('OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1');
-    const model = this.configService.get<string>('OPENROUTER_MODEL', 'anthropic/claude-3-haiku');
+    const model = request.model || this.configService.get<string>('OPENROUTER_MODEL', 'anthropic/claude-3-haiku');
 
     try {
       this.logger.log(`Making OpenRouter stream request with model: ${model}`);

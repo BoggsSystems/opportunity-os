@@ -152,6 +152,12 @@ export class CommercialService {
     };
   }
 
+  async isPaidUser(userId: string): Promise<boolean> {
+    if (!userId) return false;
+    const sub = await this.resolveActiveSubscription(userId);
+    return !!sub && sub.plan.code !== this.freePlanCode;
+  }
+
   async getEntitlements(userId: string): Promise<any> {
     const subscription = await this.resolveActiveSubscription(userId);
 
@@ -1045,41 +1051,18 @@ export class CommercialService {
 
   private rewardForMilestone(milestoneType: ReferralMilestoneType) {
     const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
-    if (
-      milestoneType === ReferralMilestoneType.signup ||
-      milestoneType === ReferralMilestoneType.onboarding_completed
-    ) {
+    
+    // STRICT POLICY: No rewards for free activity (signup/onboarding/outreach).
+    // Rewards are only granted when a user converts to a paid plan.
+    if (milestoneType === ReferralMilestoneType.paid_conversion) {
       return {
         rewardType: RewardType.ai_usage_credit,
         featureKey: "ai_requests",
-        quantity: 25,
+        quantity: 100, // High-value reward for real revenue
         expiresAt,
       };
     }
-    if (milestoneType === ReferralMilestoneType.first_cycle_completed) {
-      return {
-        rewardType: RewardType.cycle_credit,
-        featureKey: "opportunity_cycles",
-        quantity: 5,
-        expiresAt,
-      };
-    }
-    if (milestoneType === ReferralMilestoneType.first_outreach_sent) {
-      return {
-        rewardType: RewardType.discovery_scan_credit,
-        featureKey: "discovery_scans",
-        quantity: 5,
-        expiresAt,
-      };
-    }
-    if (milestoneType === ReferralMilestoneType.paid_conversion) {
-      return {
-        rewardType: RewardType.subscription_credit,
-        featureKey: "subscription_credit",
-        quantity: 1000,
-        expiresAt,
-      };
-    }
+
     return null;
   }
 

@@ -26,7 +26,6 @@ export class OnboardingController {
     private readonly aiService: AiService,
   ) {}
 
-  @Public()
   @Post('offerings/propose')
   @ApiOperation({ summary: 'Propose revenue lanes based on context' })
   async proposeOfferings(@Body() body: { networkCount: number; networkPosture: string; frameworks: string[]; interpretation: string }) {
@@ -35,7 +34,6 @@ export class OnboardingController {
     return { success: true, offerings };
   }
 
-  @Public()
   @Post('offerings/refine')
   @ApiOperation({ summary: 'Refine revenue lanes based on feedback' })
   async refineOfferings(@Body() body: { currentLanes: any[]; feedback: string; networkCount: number; networkPosture: string; frameworks: string[]; interpretation: string }) {
@@ -44,7 +42,6 @@ export class OnboardingController {
     return { success: true, offerings };
   }
 
-  @Public()
   @Post('campaigns/propose')
   @ApiOperation({ summary: 'Propose campaigns for confirmed revenue lanes' })
   async proposeCampaigns(@Body() body: { selectedLanes: any[]; networkCount: number; frameworks: string[]; interpretation: string }) {
@@ -53,7 +50,6 @@ export class OnboardingController {
     return { success: true, campaigns };
   }
 
-  @Public()
   @Post('campaigns/refine')
   @ApiOperation({ summary: 'Refine campaigns based on feedback' })
   async refineCampaigns(@Body() body: { currentCampaigns: any[]; feedback: string; selectedLanes: any[]; networkCount: number; frameworks: string[]; interpretation: string }) {
@@ -62,7 +58,6 @@ export class OnboardingController {
     return { success: true, campaigns };
   }
   
-  @Public()
   @Post('action-lanes/propose')
   @ApiOperation({ summary: 'Propose tactical action lanes for confirmed campaigns' })
   async proposeActionLanes(@Body() body: { selectedCampaigns: any[]; comprehensiveSynthesis: string }) {
@@ -71,7 +66,6 @@ export class OnboardingController {
     return { success: true, actionLanes };
   }
 
-  @Public()
   @Post('action-lanes/refine')
   @ApiOperation({ summary: 'Refine tactical action lanes based on feedback' })
   async refineActionLanes(@Body() body: { currentActionLanes: any[]; feedback: string; selectedCampaigns: any[]; comprehensiveSynthesis: string }) {

@@ -1172,3 +1172,34 @@
   0% { transform: scale(0.96); opacity: 0.75; }
   100% { transform: scale(1.18); opacity: 0; }
 }
+
+/* Mock Preview Ribbon */
+.mock-preview-ribbon {
+  width: 100%;
+  max-width: 550px;
+  background: #f8fafc;
+  border: 1px dashed var(--os-gray-border);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 10px 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ribbon-text {
+  font-size: 0.95rem;
+  color: var(--os-navy);
+}
+
+.mock-persona {
+  color: var(--os-blue);
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: help;
+}
+
+.ribbon-cta {
+  font-size: 0.85rem;
+  color: var(--os-text-muted);
+}
