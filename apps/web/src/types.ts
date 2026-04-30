@@ -507,7 +507,7 @@ export interface EmailReadiness {
 }
 
 export interface OAuthStartResult {
-  providerName: 'outlook';
+  providerName: 'gmail' | 'outlook';
   authUrl: string;
   state: string;
 }

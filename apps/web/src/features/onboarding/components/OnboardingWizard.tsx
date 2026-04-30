@@ -22,6 +22,7 @@ interface OnboardingWizardProps {
   emailReadiness?: any;
   onAuth?: (mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>;
   onConnectOutlook?: () => Promise<void>;
+  onConnectGmail?: () => Promise<void>;
   onSyncEmail?: () => Promise<void>;
 }
 
@@ -75,7 +76,7 @@ const clearOnboardingSnapshot = (userId?: string) => {
   }
 };
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user, isWorking, notice, api, emailReadiness: parentEmailReadiness, onAuth, onConnectOutlook, onSyncEmail }) => {
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onComplete, user, isWorking, notice, api, emailReadiness: parentEmailReadiness, onAuth, onConnectOutlook, onConnectGmail, onSyncEmail }) => {
   console.log('🏗️ OnboardingWizard MOUNTED/RE-RENDERED');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const restoredSnapshotRef = useRef<OnboardingSnapshot | null>(loadOnboardingSnapshot(user?.id));
@@ -1483,10 +1484,10 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', margin: '2rem 0', width: '100%', maxWidth: '500px' }}>
           {requiredConnectors.includes('outlook') && (
-            <div className={`connector-status-card ${emailReadiness?.ready ? 'connected' : ''}`}>
+            <div className={`connector-status-card ${emailReadiness?.ready && emailReadiness.connector?.providerName === 'outlook' ? 'connected' : ''}`}>
                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
                 <div className="connector-status-icon">
-                  {emailReadiness?.ready ? <CheckCircle size={24} /> : <Mail size={24} />}
+                  {emailReadiness?.ready && emailReadiness.connector?.providerName === 'outlook' ? <CheckCircle size={24} /> : <Mail size={24} />}
                 </div>
                 <div style={{ textAlign: 'left' }}>
                   <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Outlook Connection</h3>
@@ -1496,19 +1497,51 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
                 </div>
               </div>
 
-              {!emailReadiness?.ready ? (
+              {!(emailReadiness?.ready && emailReadiness.connector?.providerName === 'outlook') ? (
                 <button 
                   className="onboarding-btn-secondary" 
                   style={{ width: '100%', justifyContent: 'center', border: '1px solid #0070ba' }}
-                  onClick={handleOutlookConnect}
+                  onClick={onConnectOutlook}
                   disabled={isAnyWorking}
                 >
-                  {isAnyWorking ? 'Connecting...' : 'Connect jeff@boggssystems.com'}
+                  {isAnyWorking ? 'Connecting...' : 'Connect Outlook'}
                 </button>
               ) : (
                 <div className="connector-live-state">
                   <CheckCircle size={16} />
-                  <p><strong>Connected:</strong> {emailReadiness.connector?.connectorName || emailReadiness.connector?.providerDisplayName || 'Outlook is ready for approved email actions'}</p>
+                  <p><strong>Connected:</strong> {emailReadiness.connector?.connectorName || emailReadiness.connector?.providerDisplayName || 'Outlook is ready'}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {requiredConnectors.includes('gmail') && (
+            <div className={`connector-status-card ${emailReadiness?.ready && emailReadiness.connector?.providerName === 'gmail' ? 'connected' : ''}`}>
+               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+                <div className="connector-status-icon">
+                  {emailReadiness?.ready && emailReadiness.connector?.providerName === 'gmail' ? <CheckCircle size={24} /> : <Mail size={24} />}
+                </div>
+                <div style={{ textAlign: 'left' }}>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Gmail Connection</h3>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
+                    Powers: {activeLanes.filter(l => l.requiredConnectors?.includes('gmail')).map(l => l.title).join(', ')}
+                  </p>
+                </div>
+              </div>
+
+              {!(emailReadiness?.ready && emailReadiness.connector?.providerName === 'gmail') ? (
+                <button 
+                  className="onboarding-btn-secondary" 
+                  style={{ width: '100%', justifyContent: 'center', border: '1px solid #ea4335' }}
+                  onClick={onConnectGmail}
+                  disabled={isAnyWorking}
+                >
+                  {isAnyWorking ? 'Connecting...' : 'Connect Gmail'}
+                </button>
+              ) : (
+                <div className="connector-live-state">
+                  <CheckCircle size={16} color="#10b981" />
+                  <p><strong>Connected:</strong> {emailReadiness.connector?.connectorName || emailReadiness.connector?.providerDisplayName || 'Gmail is ready'}</p>
                 </div>
               )}
             </div>
@@ -1537,7 +1570,10 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
           <button 
             className="onboarding-btn-primary" 
             onClick={() => setCurrentStep('activation')}
-            disabled={requiredConnectors.includes('outlook') && !emailReadiness?.ready}
+            disabled={
+              (requiredConnectors.includes('outlook') && !(emailReadiness?.ready && emailReadiness.connector?.providerName === 'outlook')) ||
+              (requiredConnectors.includes('gmail') && !(emailReadiness?.ready && emailReadiness.connector?.providerName === 'gmail'))
+            }
           >
             Ignition: Initialize Action Engine <ArrowRight size={18} />
           </button>

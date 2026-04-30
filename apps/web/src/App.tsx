@@ -994,12 +994,14 @@ export function App() {
         function cleanup() {
           window.clearTimeout(timeout);
           window.removeEventListener('message', onMessage);
+          popup.close();
         }
 
         function onMessage(event: MessageEvent) {
           if (event.origin !== callbackOrigin) return;
           const data = event.data as { type?: string; provider?: string; success?: boolean; emailAddress?: string | null; error?: string | null };
           if (data?.type !== 'opportunity-os-oauth' || data.provider !== 'outlook') return;
+
           cleanup();
           const resolved: { success: boolean; emailAddress?: string | null; error?: string | null } = {
             success: data.success === true,
@@ -1030,6 +1032,71 @@ export function App() {
       setNotice({
         title: 'Outlook connect failed',
         detail: error instanceof Error ? error.message : 'The Microsoft login flow could not be completed.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function startGmailOAuth() {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const start = await api.startEmailOAuth('gmail', window.location.origin);
+      const callbackOrigin = new URL(api.baseUrl).origin;
+      const popup = window.open(start.authUrl, 'opportunity-os-gmail-oauth', 'width=560,height=760');
+      if (!popup) {
+        throw new Error('The OAuth popup was blocked by the browser.');
+      }
+
+      const result = await new Promise<{ success: boolean; emailAddress?: string | null; error?: string | null }>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error('Timed out waiting for Google login to complete.'));
+        }, 120000);
+
+        function cleanup() {
+          window.clearTimeout(timeout);
+          window.removeEventListener('message', onMessage);
+          popup.close();
+        }
+
+        function onMessage(event: MessageEvent) {
+          if (event.origin !== callbackOrigin) return;
+          const data = event.data as { type?: string; provider?: string; success?: boolean; emailAddress?: string | null; error?: string | null };
+          if (data?.type !== 'opportunity-os-oauth' || data.provider !== 'gmail') return;
+
+          cleanup();
+          const resolved: { success: boolean; emailAddress?: string | null; error?: string | null } = {
+            success: data.success === true,
+          };
+          if (data.emailAddress !== undefined) resolved.emailAddress = data.emailAddress;
+          if (data.error !== undefined) resolved.error = data.error;
+          resolve(resolved);
+        }
+
+        window.addEventListener('message', onMessage);
+      });
+
+      if (!result.success) {
+        throw new Error(result.error ?? 'Google login did not complete successfully.');
+      }
+
+      const readiness = await api.getEmailReadiness();
+      setEmailReadiness(readiness);
+      setNotice({
+        title: 'Gmail connected',
+        detail: result.emailAddress
+          ? `Real outreach can now send through ${result.emailAddress}.`
+          : 'Real outreach can now send through Gmail.',
+        tone: 'success',
+      });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Gmail connect failed',
+        detail: error instanceof Error ? error.message : 'The Google login flow could not be completed.',
         tone: 'error',
       });
     } finally {
@@ -1185,6 +1252,7 @@ export function App() {
           notice={notice}
           onAuth={handleAuth}
           onConnectOutlook={startOutlookOAuth}
+          onConnectGmail={startGmailOAuth}
           onSyncEmail={syncEmail}
         />
       );
