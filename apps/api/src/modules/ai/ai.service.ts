@@ -98,6 +98,81 @@ QUERY:`;
     return response.content.replace(/^["']|["']$/g, '').trim();
   }
 
+  async synthesizeConversationFeedback(context: {
+    thread: any;
+    messages: Array<{
+      id: string;
+      direction: string;
+      source: string;
+      bodyText?: string | null;
+      attachmentUrls?: string[];
+      attachmentMimeTypes?: string[];
+      occurredAt?: Date | string;
+    }>;
+  }): Promise<{
+    summary: string;
+    sentiment: 'positive' | 'neutral' | 'negative' | 'mixed' | 'unknown';
+    intent: string;
+    objections: string[];
+    buyingSignals: string[];
+    recommendedNextAction: string;
+    suggestedActionType: string;
+    draftFollowUp: string;
+    priorityScore: number;
+  }> {
+    const systemPrompt = `You synthesize campaign conversation feedback for an action-cycle engine.
+Return strict JSON only with these keys:
+summary, sentiment, intent, objections, buyingSignals, recommendedNextAction, suggestedActionType, draftFollowUp, priorityScore.
+Sentiment must be one of positive, neutral, negative, mixed, unknown.
+Use screenshots/images as evidence when provided. Do not invent names, outcomes, or replies.`;
+
+    const textContext = [
+      `Channel: ${context.thread.channel}`,
+      `Campaign: ${context.thread.campaign?.title || 'unknown'}`,
+      `Action lane: ${context.thread.actionLane?.title || 'unknown'}`,
+      `Action item: ${context.thread.actionItem?.title || 'unknown'}`,
+      '',
+      'Messages:',
+      ...context.messages.map((message, index) => [
+        `${index + 1}. ${message.direction} via ${message.source} at ${message.occurredAt || 'unknown time'}`,
+        message.bodyText ? `Text: ${message.bodyText}` : 'Text: none',
+        message.attachmentUrls?.length ? `Attachments: ${message.attachmentUrls.join(', ')}` : 'Attachments: none',
+      ].join('\n')),
+    ].join('\n');
+
+    const content: AiMessage['content'] = [
+      { type: 'text', text: textContext },
+      ...context.messages.flatMap((message) => (message.attachmentUrls || [])
+        .filter((url) => /^https?:\/\//i.test(url) || /^data:image\//i.test(url))
+        .map((url) => ({ type: 'image_url' as const, image_url: { url } }))),
+    ];
+
+    const response = await this.aiProviderFactory.getProvider().generateText({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content },
+      ],
+      temperature: 0.2,
+      maxTokens: 900,
+    });
+
+    const parsed = JSON.parse(this.extractJsonPayload(response.content));
+
+    return {
+      summary: String(parsed.summary || 'Conversation feedback captured.'),
+      sentiment: ['positive', 'neutral', 'negative', 'mixed', 'unknown'].includes(parsed.sentiment)
+        ? parsed.sentiment
+        : 'unknown',
+      intent: String(parsed.intent || 'needs_follow_up'),
+      objections: Array.isArray(parsed.objections) ? parsed.objections.map(String) : [],
+      buyingSignals: Array.isArray(parsed.buyingSignals) ? parsed.buyingSignals.map(String) : [],
+      recommendedNextAction: String(parsed.recommendedNextAction || 'Draft a follow-up response'),
+      suggestedActionType: String(parsed.suggestedActionType || this.followUpActionTypeForChannel(context.thread.channel)),
+      draftFollowUp: String(parsed.draftFollowUp || 'Thanks for the reply. Would a short example be useful?'),
+      priorityScore: Number.isFinite(Number(parsed.priorityScore)) ? Math.max(0, Math.min(100, Number(parsed.priorityScore))) : 60,
+    };
+  }
+
   async interpretOffering(offeringContext: any): Promise<any> {
     this.logger.log('Interpreting offering context with AI');
     
@@ -1621,6 +1696,13 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
     if (toolNames.includes('propose_goal')) return 'PROPOSE_GOAL';
     if (toolNames.includes('propose_campaign')) return 'PROPOSE_CAMPAIGN';
     return undefined;
+  }
+
+  private followUpActionTypeForChannel(channel: string): string {
+    if (channel?.includes('linkedin')) return 'linkedin_reply_follow_up';
+    if (channel?.includes('email')) return 'email_reply_follow_up';
+    if (channel?.includes('youtube')) return 'youtube_comment_follow_up';
+    return 'conversation_follow_up';
   }
 
   private extractJsonPayload(content: string): string {

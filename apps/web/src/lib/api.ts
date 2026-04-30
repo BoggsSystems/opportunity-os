@@ -250,6 +250,106 @@ export class ApiClient {
     });
   }
 
+  async finalizeOnboardingPlan(body: {
+    campaigns: any[];
+    actionLanes: any[];
+    selectedCampaignIds: string[];
+    selectedActionLaneIds: string[];
+    activationSelection?: { campaignId: string; laneId: string } | null;
+    comprehensiveSynthesis?: string | null;
+  }) {
+    return this.request<{
+      campaigns: any[];
+      actionLanes: any[];
+      firstActionCycle: any | null;
+      firstActionItem: any | null;
+    }>('/campaign-orchestration/onboarding/finalize', {
+      method: 'POST',
+      body,
+    });
+  }
+
+  async getOrCreateActionItemConversationThread(actionItemId: string) {
+    return this.request<any>(`/campaign-orchestration/action-items/${actionItemId}/conversation-thread`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+
+  async getActionItemCanvas(actionItemId: string) {
+    return this.request<any>(`/campaign-orchestration/action-items/${actionItemId}/canvas`);
+  }
+
+  async confirmActionItem(actionItemId: string, body: {
+    finalContent?: string;
+    confirmationSource?: 'user_confirmed' | 'provider_verified' | 'system';
+    outcome?: string;
+    occurredAt?: string;
+  } = {}) {
+    return this.request<any>(`/campaign-orchestration/action-items/${actionItemId}/confirm`, {
+      method: 'POST',
+      body,
+    });
+  }
+
+  async updateActionItem(actionItemId: string, body: {
+    title?: string;
+    instructions?: string;
+    draftContent?: string;
+    finalContent?: string;
+    externalUrl?: string;
+    status?: string;
+    priorityScore?: number;
+    dueAt?: string;
+    metadataJson?: Record<string, any>;
+  }) {
+    return this.request<any>(`/campaign-orchestration/action-items/${actionItemId}`, {
+      method: 'PUT',
+      body,
+    });
+  }
+
+  async captureConversationMessage(threadId: string, body: {
+    direction?: 'outbound' | 'inbound' | 'internal';
+    source?: 'manual_paste' | 'screenshot' | 'upload' | 'provider_sync' | 'system';
+    bodyText?: string;
+    attachmentUrls?: string[];
+    attachmentMimeTypes?: string[];
+    occurredAt?: string;
+    metadataJson?: Record<string, any>;
+  }) {
+    return this.request<any>(`/campaign-orchestration/conversation-threads/${threadId}/messages`, {
+      method: 'POST',
+      body,
+    });
+  }
+
+  async synthesizeConversationThread(threadId: string, body: { createSuggestedAction?: boolean } = {}) {
+    return this.request<any>(`/campaign-orchestration/conversation-threads/${threadId}/synthesize`, {
+      method: 'POST',
+      body,
+    });
+  }
+
+  async intakeConversationFeedback(body: {
+    message?: string;
+    bodyText?: string;
+    attachmentUrls?: string[];
+    attachmentMimeTypes?: string[];
+    channelHint?: string;
+    campaignIdHint?: string;
+    actionItemIdHint?: string;
+    threadIdHint?: string;
+    personHint?: string;
+    companyHint?: string;
+    createSuggestedAction?: boolean;
+  }) {
+    return this.request<any>('/campaign-orchestration/conversation-feedback/intake', {
+      method: 'POST',
+      body,
+    });
+  }
+
   async getSubscription() {
     return this.request<SubscriptionSummary>('/me/subscription');
   }

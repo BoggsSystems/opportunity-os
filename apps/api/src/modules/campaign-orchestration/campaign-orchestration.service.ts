@@ -4,12 +4,20 @@ import {
   ActionItemStatus,
   CampaignStatus,
   ActionLaneStatus,
+  ActionLaneType,
   ActionCycleStatus,
   ActivityType,
+  ConversationInsightSentiment,
+  ConversationMessageDirection,
+  ConversationMessageSource,
+  ConversationThreadStatus,
   prisma,
 } from '@opportunity-os/db';
 import {
+  CaptureConversationMessageDto,
   ConfirmActionItemDto,
+  ConversationFeedbackIntakeDto,
+  CreateConversationThreadDto,
   CreateCampaignDto,
   UpdateCampaignDto,
   CreateActionLaneDto,
@@ -17,11 +25,165 @@ import {
   CreateActionCycleDto,
   UpdateActionCycleDto,
   CreateActionItemDto,
+  FinalizeOnboardingPlanDto,
+  SynthesizeConversationThreadDto,
   UpdateActionItemDto,
 } from './dto/campaign.dto';
+import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class CampaignOrchestrationService {
+  constructor(private readonly aiService: AiService) {}
+
+  async finalizeOnboardingPlan(userId: string, data: FinalizeOnboardingPlanDto) {
+    const selectedCampaigns = data.campaigns.filter((campaign) => data.selectedCampaignIds.includes(campaign.id));
+    const selectedLanes = data.actionLanes.filter((lane) => data.selectedActionLaneIds.includes(lane.id));
+
+    if (!selectedCampaigns.length) {
+      throw new BadRequestException('At least one selected campaign is required');
+    }
+
+    if (!selectedLanes.length) {
+      throw new BadRequestException('At least one selected action lane is required');
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const campaignIdMap = new Map<string, string>();
+      const laneIdMap = new Map<string, string>();
+      const persistedCampaigns: any[] = [];
+      const persistedActionLanes: any[] = [];
+
+      for (const campaign of selectedCampaigns) {
+        const persistedCampaign = await tx.campaign.create({
+          data: {
+            userId,
+            title: campaign.title,
+            description: campaign.description,
+            objective: campaign.goalMetric || campaign.description,
+            successDefinition: campaign.goalMetric,
+            strategicAngle: campaign.messagingHook || campaign.laneTitle,
+            targetSegment: campaign.targetSegment,
+            priorityScore: 70,
+            status: CampaignStatus.PLANNING,
+            metadataJson: {
+              onboardingCampaignId: campaign.id,
+              laneTitle: campaign.laneTitle,
+              duration: campaign.duration,
+              channel: campaign.channel,
+              comprehensiveSynthesis: data.comprehensiveSynthesis,
+            },
+          },
+        });
+        campaignIdMap.set(campaign.id, persistedCampaign.id);
+        persistedCampaigns.push(persistedCampaign);
+      }
+
+      for (const lane of selectedLanes) {
+        const campaignIds = this.onboardingLaneCampaignIds(lane, selectedCampaigns);
+        for (const onboardingCampaignId of campaignIds) {
+          const campaignId = campaignIdMap.get(onboardingCampaignId);
+          if (!campaignId) continue;
+
+          const persistedLane = await tx.actionLane.create({
+            data: {
+              campaignId,
+              laneType: this.inferActionLaneType(lane),
+              title: lane.title,
+              description: lane.description,
+              strategy: lane.tactics?.join('\n') || lane.description,
+              targetCriteriaJson: {
+                campaignIds: lane.campaignIds,
+                requiredConnectors: lane.requiredConnectors,
+              },
+              cadenceJson: {
+                tactics: lane.tactics || [],
+              },
+              priorityScore: this.onboardingSelectionPriority(data, lane.id),
+              status: ActionLaneStatus.ACTIVE,
+              metadataJson: {
+                onboardingLaneId: lane.id,
+                source: 'onboarding',
+              },
+            },
+          });
+          laneIdMap.set(`${onboardingCampaignId}:${lane.id}`, persistedLane.id);
+          persistedActionLanes.push(persistedLane);
+        }
+      }
+
+      const selectedCampaignId = data.activationSelection?.campaignId || selectedCampaigns[0]?.id;
+      const selectedLaneId = data.activationSelection?.laneId || selectedLanes[0]?.id;
+      const persistedCampaignId = selectedCampaignId ? campaignIdMap.get(selectedCampaignId) : undefined;
+      const persistedLaneId = selectedCampaignId && selectedLaneId
+        ? laneIdMap.get(`${selectedCampaignId}:${selectedLaneId}`)
+        : undefined;
+
+      let actionCycle: any = null;
+      let actionItem: any = null;
+
+      if (persistedCampaignId && persistedLaneId) {
+        const campaign = selectedCampaigns.find((candidate) => candidate.id === selectedCampaignId);
+        const lane = selectedLanes.find((candidate) => candidate.id === selectedLaneId);
+        const laneType = lane ? this.inferActionLaneType(lane) : ActionLaneType.other;
+        const firstAction = this.firstActionForLane(laneType);
+
+        actionCycle = await tx.actionCycle.create({
+          data: {
+            campaignId: persistedCampaignId,
+            actionLaneId: persistedLaneId,
+            cycleNumber: 1,
+            title: `First action cycle: ${lane?.title || 'Selected action lane'}`,
+            objective: `Stage and approve the first ${lane?.title || 'action'} for ${campaign?.title || 'the selected campaign'}.`,
+            actionType: firstAction.actionType,
+            status: ActionCycleStatus.surfaced,
+            priorityScore: 90,
+            surfacedAt: new Date(),
+            executionDataJson: {
+              source: 'onboarding',
+              campaign: campaign ? JSON.parse(JSON.stringify(campaign)) : null,
+              lane: lane ? JSON.parse(JSON.stringify(lane)) : null,
+              nextSteps: firstAction.steps,
+            },
+            generatedReasoningJson: {
+              rationale: `This lane was selected during onboarding as the first action cycle for ${campaign?.title || 'the campaign'}.`,
+              approvalRequired: true,
+            },
+          },
+        });
+
+        actionItem = await tx.actionItem.create({
+          data: {
+            userId,
+            campaignId: persistedCampaignId,
+            actionLaneId: persistedLaneId,
+            actionCycleId: actionCycle.id,
+            targetType: firstAction.targetType,
+            actionType: firstAction.actionType,
+            title: firstAction.title,
+            instructions: firstAction.instructions,
+            status: ActionItemStatus.suggested,
+            confirmationRequired: true,
+            priorityScore: 90,
+            externalProvider: firstAction.externalProvider,
+            metadataJson: {
+              source: 'onboarding',
+              onboardingCampaignId: selectedCampaignId,
+              onboardingLaneId: selectedLaneId,
+              nextSteps: firstAction.steps,
+            },
+          },
+        });
+      }
+
+      return {
+        campaigns: persistedCampaigns,
+        actionLanes: persistedActionLanes,
+        firstActionCycle: actionCycle,
+        firstActionItem: actionItem,
+      };
+    });
+  }
+
   // CAMPAIGN OPERATIONS
   async createCampaign(userId: string, data: CreateCampaignDto) {
     return prisma.campaign.create({
@@ -430,6 +592,36 @@ export class CampaignOrchestrationService {
     return actionItem;
   }
 
+  async getActionItemCanvas(userId: string, actionItemId: string) {
+    const actionItem = await this.getActionItem(userId, actionItemId);
+    const thread = await prisma.conversationThread.findFirst({
+      where: { userId, actionItemId },
+      include: this.conversationThreadInclude(),
+      orderBy: { updatedAt: 'desc' },
+    });
+    const panelType = this.actionCanvasPanelType(actionItem.actionType, actionItem.actionLane.laneType);
+
+    return {
+      panelType,
+      actionItem,
+      campaign: actionItem.campaign,
+      actionLane: actionItem.actionLane,
+      actionCycle: actionItem.actionCycle,
+      thread,
+      latestInsight: thread?.insights?.[0] || null,
+      context: {
+        objective: actionItem.actionCycle?.title || actionItem.title,
+        primaryInstruction: actionItem.instructions,
+        targetLabel: actionItem.targetPerson?.fullName || actionItem.targetCompany?.name || actionItem.targetType || 'Campaign audience',
+        externalProvider: actionItem.externalProvider,
+        externalUrl: actionItem.externalUrl,
+        draftContent: actionItem.draftContent,
+        finalContent: actionItem.finalContent,
+      },
+      availableCommands: this.actionCanvasCommands(panelType, actionItem.status),
+    };
+  }
+
   async listActionItems(
     userId: string,
     filters: {
@@ -536,6 +728,239 @@ export class CampaignOrchestrationService {
     return prisma.actionItem.delete({
       where: { id: actionItemId },
     });
+  }
+
+  // CONVERSATION FEEDBACK LOOP
+  async createConversationThread(userId: string, data: CreateConversationThreadDto) {
+    const context = await this.resolveConversationContext(userId, data);
+
+    return prisma.conversationThread.create({
+      data: {
+        userId,
+        campaignId: context.campaignId,
+        actionLaneId: context.actionLaneId,
+        actionCycleId: context.actionCycleId,
+        actionItemId: context.actionItemId,
+        targetPersonId: context.targetPersonId,
+        targetCompanyId: context.targetCompanyId,
+        channel: data.channel,
+        externalProvider: data.externalProvider,
+        externalThreadUrl: data.externalThreadUrl,
+        metadataJson: data.metadataJson,
+      },
+      include: this.conversationThreadInclude(),
+    });
+  }
+
+  async getConversationThread(userId: string, threadId: string) {
+    const thread = await prisma.conversationThread.findFirst({
+      where: { id: threadId, userId },
+      include: this.conversationThreadInclude(),
+    });
+
+    if (!thread) {
+      throw new NotFoundException('Conversation thread not found');
+    }
+
+    return thread;
+  }
+
+  async getOrCreateActionItemConversationThread(userId: string, actionItemId: string) {
+    const actionItem = await this.getActionItem(userId, actionItemId);
+    const existing = await prisma.conversationThread.findFirst({
+      where: { userId, actionItemId },
+      include: this.conversationThreadInclude(),
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existing) return existing;
+
+    return prisma.conversationThread.create({
+      data: {
+        userId,
+        campaignId: actionItem.campaignId,
+        actionLaneId: actionItem.actionLaneId,
+        actionCycleId: actionItem.actionCycleId,
+        actionItemId: actionItem.id,
+        targetPersonId: actionItem.targetPersonId,
+        targetCompanyId: actionItem.targetCompanyId,
+        channel: this.channelForActionItem(actionItem.actionType, actionItem.actionLane.laneType),
+        externalProvider: actionItem.externalProvider,
+        externalThreadUrl: actionItem.externalUrl,
+        status: ConversationThreadStatus.waiting_for_reply,
+        metadataJson: {
+          createdFromActionItem: true,
+          actionType: actionItem.actionType,
+        },
+      },
+      include: this.conversationThreadInclude(),
+    });
+  }
+
+  async captureConversationMessage(userId: string, threadId: string, data: CaptureConversationMessageDto) {
+    const thread = await this.getConversationThread(userId, threadId);
+    const hasText = Boolean(data.bodyText?.trim());
+    const attachmentUrls = data.attachmentUrls || [];
+
+    if (!hasText && attachmentUrls.length === 0) {
+      throw new BadRequestException('Message text or at least one attachment is required');
+    }
+
+    const direction = data.direction || ConversationMessageDirection.inbound;
+    const occurredAt = data.occurredAt || new Date();
+
+    return prisma.$transaction(async (tx) => {
+      const message = await tx.conversationThreadMessage.create({
+        data: {
+          userId,
+          threadId: thread.id,
+          direction,
+          source: data.source || (attachmentUrls.length > 0 ? ConversationMessageSource.screenshot : ConversationMessageSource.manual_paste),
+          bodyText: data.bodyText,
+          attachmentUrls,
+          attachmentMimeTypes: data.attachmentMimeTypes || [],
+          occurredAt,
+          metadataJson: data.metadataJson,
+        },
+      });
+
+      await tx.conversationThread.update({
+        where: { id: thread.id },
+        data: {
+          status: direction === ConversationMessageDirection.inbound
+            ? ConversationThreadStatus.needs_response
+            : ConversationThreadStatus.waiting_for_reply,
+          lastMessageAt: occurredAt,
+          updatedAt: new Date(),
+        },
+      });
+
+      if (direction === ConversationMessageDirection.inbound && thread.actionItemId) {
+        await tx.actionItem.update({
+          where: { id: thread.actionItemId },
+          data: {
+            status: ActionItemStatus.responded,
+            respondedAt: occurredAt,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      return message;
+    });
+  }
+
+  async synthesizeConversationThread(userId: string, threadId: string, data: SynthesizeConversationThreadDto = {}) {
+    const thread = await this.getConversationThread(userId, threadId);
+    const synthesis = await this.deriveConversationSynthesis(thread);
+
+    return prisma.$transaction(async (tx) => {
+      let suggestedActionItemId: string | undefined;
+
+      if (data.createSuggestedAction && thread.actionLaneId) {
+        const actionItem = await tx.actionItem.create({
+          data: {
+            userId,
+            campaignId: thread.campaignId || thread.actionLane!.campaignId,
+            actionLaneId: thread.actionLaneId,
+            actionCycleId: thread.actionCycleId,
+            targetPersonId: thread.targetPersonId,
+            targetCompanyId: thread.targetCompanyId,
+            targetType: thread.targetPersonId ? 'person' : thread.targetCompanyId ? 'company' : 'conversation',
+            targetId: thread.targetPersonId || thread.targetCompanyId,
+            actionType: synthesis.suggestedActionType,
+            title: synthesis.recommendedNextAction,
+            instructions: `Review the captured ${thread.channel} exchange, then respond based on the synthesized feedback.`,
+            draftContent: synthesis.draftFollowUp,
+            externalProvider: thread.externalProvider,
+            externalUrl: thread.externalThreadUrl,
+            status: ActionItemStatus.suggested,
+            confirmationRequired: true,
+            priorityScore: synthesis.priorityScore,
+            metadataJson: {
+              sourceConversationThreadId: thread.id,
+              sourceInsight: synthesis.summary,
+            },
+          },
+        });
+        suggestedActionItemId = actionItem.id;
+      }
+
+      const insight = await tx.conversationThreadInsight.create({
+        data: {
+          userId,
+          threadId: thread.id,
+          summary: synthesis.summary,
+          sentiment: synthesis.sentiment,
+          intent: synthesis.intent,
+          objections: synthesis.objections,
+          buyingSignals: synthesis.buyingSignals,
+          recommendedNextAction: synthesis.recommendedNextAction,
+          suggestedActionType: synthesis.suggestedActionType,
+          suggestedActionItemId,
+          evidenceMessageIds: synthesis.evidenceMessageIds,
+          metadataJson: {
+            imageAttachmentCount: synthesis.imageAttachmentCount,
+            synthesisMode: synthesis.synthesisMode,
+          },
+        },
+      });
+
+      await tx.conversationThread.update({
+        where: { id: thread.id },
+        data: {
+          latestSummary: synthesis.summary,
+          latestSentiment: synthesis.sentiment,
+          latestIntent: synthesis.intent,
+          nextActionSummary: synthesis.recommendedNextAction,
+          status: ConversationThreadStatus.needs_response,
+          updatedAt: new Date(),
+        },
+      });
+
+      return {
+        insight,
+        suggestedActionItemId,
+      };
+    });
+  }
+
+  async intakeConversationFeedback(userId: string, data: ConversationFeedbackIntakeDto) {
+    const hasEvidence = Boolean(data.bodyText?.trim()) || Boolean(data.attachmentUrls?.length);
+
+    if (!hasEvidence) {
+      throw new BadRequestException('Reply text or at least one attachment is required');
+    }
+
+    if (data.threadIdHint) {
+      const thread = await this.getConversationThread(userId, data.threadIdHint);
+      return this.captureAndSynthesizeAttributedFeedback(userId, thread.id, data);
+    }
+
+    if (data.actionItemIdHint) {
+      const thread = await this.getOrCreateActionItemConversationThread(userId, data.actionItemIdHint);
+      return this.captureAndSynthesizeAttributedFeedback(userId, thread.id, data);
+    }
+
+    const candidates = await this.findConversationAttributionCandidates(userId, data);
+    const topCandidate = candidates[0];
+
+    if (topCandidate && topCandidate.confidence >= 0.75 && topCandidate.threadId) {
+      return this.captureAndSynthesizeAttributedFeedback(userId, topCandidate.threadId, data, candidates);
+    }
+
+    if (topCandidate && topCandidate.confidence >= 0.75 && topCandidate.actionItemId) {
+      const thread = await this.getOrCreateActionItemConversationThread(userId, topCandidate.actionItemId);
+      return this.captureAndSynthesizeAttributedFeedback(userId, thread.id, data, candidates);
+    }
+
+    return {
+      status: candidates.length ? 'needs_clarification' : 'no_match',
+      candidates,
+      clarificationQuestion: candidates.length
+        ? 'Which conversation should I attach this response to?'
+        : 'I could not confidently match this response to an open conversation. Which campaign or action was this from?',
+    };
   }
 
   // AI DECISION SUPPORT
@@ -731,6 +1156,406 @@ export class CampaignOrchestrationService {
     };
   }
 
+  private conversationThreadInclude() {
+    return {
+      campaign: { select: { id: true, title: true, status: true, targetSegment: true } },
+      actionLane: { select: { id: true, campaignId: true, title: true, laneType: true, status: true } },
+      actionCycle: { select: { id: true, title: true, cycleNumber: true, status: true } },
+      actionItem: { select: { id: true, title: true, actionType: true, status: true } },
+      targetPerson: true,
+      targetCompany: true,
+      messages: { orderBy: { occurredAt: 'asc' as const } },
+      insights: { orderBy: { createdAt: 'desc' as const }, take: 5 },
+    };
+  }
+
+  private async captureAndSynthesizeAttributedFeedback(
+    userId: string,
+    threadId: string,
+    data: ConversationFeedbackIntakeDto,
+    candidates: any[] = [],
+  ) {
+    const message = await this.captureConversationMessage(userId, threadId, {
+      direction: ConversationMessageDirection.inbound,
+      source: data.attachmentUrls?.length ? ConversationMessageSource.screenshot : ConversationMessageSource.manual_paste,
+      bodyText: data.bodyText || data.message,
+      attachmentUrls: data.attachmentUrls || [],
+      attachmentMimeTypes: data.attachmentMimeTypes || [],
+      metadataJson: {
+        intakeMessage: data.message,
+        channelHint: data.channelHint,
+        personHint: data.personHint,
+        companyHint: data.companyHint,
+        campaignIdHint: data.campaignIdHint,
+      },
+    });
+    const synthesis = await this.synthesizeConversationThread(userId, threadId, {
+      createSuggestedAction: data.createSuggestedAction ?? true,
+    });
+    const thread = await this.getConversationThread(userId, threadId);
+
+    return {
+      status: 'captured',
+      thread,
+      message,
+      insight: synthesis.insight,
+      suggestedActionItemId: synthesis.suggestedActionItemId,
+      candidates,
+    };
+  }
+
+  private async findConversationAttributionCandidates(userId: string, data: ConversationFeedbackIntakeDto) {
+    const [threads, actionItems] = await Promise.all([
+      prisma.conversationThread.findMany({
+        where: {
+          userId,
+          status: { in: [ConversationThreadStatus.active, ConversationThreadStatus.waiting_for_reply, ConversationThreadStatus.needs_response] },
+        },
+        include: this.conversationThreadInclude(),
+        orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }],
+        take: 12,
+      }),
+      prisma.actionItem.findMany({
+        where: {
+          userId,
+          status: { in: [ActionItemStatus.suggested, ActionItemStatus.ready, ActionItemStatus.in_progress, ActionItemStatus.sent_confirmed, ActionItemStatus.published_confirmed] },
+        },
+        include: this.actionItemInclude(),
+        orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+        take: 12,
+      }),
+    ]);
+
+    const threadCandidates = threads.map((thread: any) => {
+      const scored = this.scoreAttributionCandidate(data, {
+        channel: thread.channel,
+        campaignId: thread.campaignId,
+        campaignTitle: thread.campaign?.title,
+        laneTitle: thread.actionLane?.title,
+        actionTitle: thread.actionItem?.title,
+        personName: thread.targetPerson?.fullName,
+        companyName: thread.targetCompany?.name,
+        lastMessageAt: thread.lastMessageAt || thread.createdAt,
+      });
+
+      return {
+        type: 'conversation_thread',
+        threadId: thread.id,
+        actionItemId: thread.actionItemId,
+        confidence: scored.confidence,
+        reasons: scored.reasons,
+        label: thread.actionItem?.title || thread.actionLane?.title || thread.campaign?.title || thread.channel,
+        campaign: thread.campaign,
+        actionLane: thread.actionLane,
+        actionItem: thread.actionItem,
+        targetPerson: thread.targetPerson,
+        targetCompany: thread.targetCompany,
+      };
+    });
+
+    const actionItemCandidates = actionItems.map((actionItem: any) => {
+      const scored = this.scoreAttributionCandidate(data, {
+        channel: this.channelForActionItem(actionItem.actionType, actionItem.actionLane.laneType),
+        campaignId: actionItem.campaignId,
+        campaignTitle: actionItem.campaign?.title,
+        laneTitle: actionItem.actionLane?.title,
+        actionTitle: actionItem.title,
+        personName: actionItem.targetPerson?.fullName,
+        companyName: actionItem.targetCompany?.name,
+        lastMessageAt: actionItem.completedAt || actionItem.createdAt,
+      });
+
+      return {
+        type: 'action_item',
+        threadId: undefined,
+        actionItemId: actionItem.id,
+        confidence: scored.confidence,
+        reasons: scored.reasons,
+        label: actionItem.title,
+        campaign: actionItem.campaign,
+        actionLane: actionItem.actionLane,
+        actionItem: { id: actionItem.id, title: actionItem.title, actionType: actionItem.actionType, status: actionItem.status },
+        targetPerson: actionItem.targetPerson,
+        targetCompany: actionItem.targetCompany,
+      };
+    });
+
+    return [...threadCandidates, ...actionItemCandidates]
+      .filter((candidate) => candidate.confidence > 0)
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 5);
+  }
+
+  private scoreAttributionCandidate(
+    data: ConversationFeedbackIntakeDto,
+    candidate: {
+      channel?: string;
+      campaignId?: string;
+      campaignTitle?: string;
+      laneTitle?: string;
+      actionTitle?: string;
+      personName?: string;
+      companyName?: string;
+      lastMessageAt?: Date | string;
+    },
+  ) {
+    let score = 0.15;
+    const reasons: string[] = ['Recent open campaign conversation'];
+    const evidence = `${data.message || ''} ${data.bodyText || ''} ${data.personHint || ''} ${data.companyHint || ''}`.toLowerCase();
+
+    if (data.channelHint && candidate.channel?.includes(data.channelHint)) {
+      score += 0.25;
+      reasons.push(`Channel matches ${data.channelHint}`);
+    }
+
+    if (data.campaignIdHint && candidate.campaignId === data.campaignIdHint) {
+      score += 0.3;
+      reasons.push('Campaign hint matches');
+    }
+
+    if (data.personHint && candidate.personName && this.textIncludesLoose(candidate.personName, data.personHint)) {
+      score += 0.25;
+      reasons.push(`Person matches ${candidate.personName}`);
+    }
+
+    if (data.companyHint && candidate.companyName && this.textIncludesLoose(candidate.companyName, data.companyHint)) {
+      score += 0.2;
+      reasons.push(`Company matches ${candidate.companyName}`);
+    }
+
+    for (const [label, value, weight] of [
+      ['person', candidate.personName, 0.25],
+      ['company', candidate.companyName, 0.2],
+      ['campaign', candidate.campaignTitle, 0.15],
+      ['lane', candidate.laneTitle, 0.12],
+      ['action', candidate.actionTitle, 0.12],
+    ] as Array<[string, string | undefined, number]>) {
+      if (value && this.textIncludesLoose(evidence, value)) {
+        score += weight;
+        reasons.push(`${label} text appears in feedback`);
+      }
+    }
+
+    const recencyBoost = this.recencyBoost(candidate.lastMessageAt);
+    if (recencyBoost > 0) {
+      score += recencyBoost;
+      reasons.push('Recent action/thread');
+    }
+
+    return {
+      confidence: Math.min(0.98, Number(score.toFixed(2))),
+      reasons,
+    };
+  }
+
+  private textIncludesLoose(source: string, target: string): boolean {
+    const normalizedSource = source.toLowerCase();
+    const normalizedTarget = target.toLowerCase();
+    return normalizedSource.includes(normalizedTarget)
+      || normalizedTarget.split(/\s+/).filter(Boolean).some((part) => part.length > 2 && normalizedSource.includes(part));
+  }
+
+  private recencyBoost(value?: Date | string): number {
+    if (!value) return 0;
+    const timestamp = new Date(value).getTime();
+    if (!Number.isFinite(timestamp)) return 0;
+    const ageHours = (Date.now() - timestamp) / (1000 * 60 * 60);
+    if (ageHours <= 24) return 0.18;
+    if (ageHours <= 72) return 0.12;
+    if (ageHours <= 168) return 0.06;
+    return 0;
+  }
+
+  private async resolveConversationContext(userId: string, data: CreateConversationThreadDto) {
+    const context: {
+      campaignId?: string;
+      actionLaneId?: string;
+      actionCycleId?: string;
+      actionItemId?: string;
+      targetPersonId?: string;
+      targetCompanyId?: string;
+    } = {};
+
+    if (data.actionItemId) {
+      const actionItem = await this.getActionItem(userId, data.actionItemId);
+      context.actionItemId = actionItem.id;
+      context.campaignId = actionItem.campaignId;
+      context.actionLaneId = actionItem.actionLaneId;
+      context.actionCycleId = actionItem.actionCycleId || undefined;
+      context.targetPersonId = actionItem.targetPersonId || undefined;
+      context.targetCompanyId = actionItem.targetCompanyId || undefined;
+      return context;
+    }
+
+    if (data.campaignId) {
+      const campaign = await this.findCampaign(userId, data.campaignId);
+      context.campaignId = campaign.id;
+    }
+
+    if (data.actionLaneId) {
+      const actionLane = await this.verifyActionLaneOwnership(userId, data.actionLaneId);
+      context.actionLaneId = actionLane.id;
+      context.campaignId = actionLane.campaignId;
+    }
+
+    if (data.actionCycleId) {
+      const actionCycle = await this.getActionCycle(userId, data.actionCycleId);
+      context.actionCycleId = actionCycle.id;
+      context.campaignId = actionCycle.campaignId;
+      context.actionLaneId = actionCycle.actionLaneId;
+    }
+
+    await this.verifyOptionalTargets(userId, data.targetPersonId, data.targetCompanyId);
+    context.targetPersonId = data.targetPersonId;
+    context.targetCompanyId = data.targetCompanyId;
+
+    return context;
+  }
+
+  private async deriveConversationSynthesis(thread: any) {
+    const inboundMessages = (thread.messages || []).filter((message: any) => message.direction === ConversationMessageDirection.inbound);
+    const latestInbound = inboundMessages[inboundMessages.length - 1];
+    const allText = inboundMessages.map((message: any) => message.bodyText || '').join('\n').toLowerCase();
+    const imageAttachmentCount = (thread.messages || []).reduce((count: number, message: any) => (
+      count + (message.attachmentMimeTypes || []).filter((mimeType: string) => mimeType.startsWith('image/')).length
+    ), 0);
+
+    try {
+      const aiSynthesis = await this.aiService.synthesizeConversationFeedback({
+        thread,
+        messages: thread.messages || [],
+      });
+
+      return {
+        ...aiSynthesis,
+        sentiment: aiSynthesis.sentiment as ConversationInsightSentiment,
+        evidenceMessageIds: (thread.messages || []).map((message: any) => message.id),
+        imageAttachmentCount,
+        synthesisMode: 'ai_multimodal',
+      };
+    } catch {
+      // Keep the action loop functional when AI credentials are missing or the model returns invalid JSON.
+    }
+
+    const positiveTerms = ['interested', 'thanks', 'helpful', 'sounds good', 'yes', 'open', 'happy to', 'let’s', "let's", 'useful'];
+    const negativeTerms = ['not interested', 'no thanks', 'unsubscribe', 'stop', 'irrelevant', 'busy', 'not now'];
+    const objectionTerms = ['cost', 'budget', 'timing', 'too busy', 'already', 'not now', 'priority', 'security', 'approval'];
+
+    const hasPositive = positiveTerms.some((term) => allText.includes(term));
+    const hasNegative = negativeTerms.some((term) => allText.includes(term));
+    const objections = objectionTerms.filter((term) => allText.includes(term));
+    const buyingSignals = positiveTerms.filter((term) => allText.includes(term));
+    const sentiment = hasPositive && hasNegative
+      ? ConversationInsightSentiment.mixed
+      : hasPositive
+        ? ConversationInsightSentiment.positive
+        : hasNegative
+          ? ConversationInsightSentiment.negative
+          : allText.trim() || imageAttachmentCount > 0
+            ? ConversationInsightSentiment.neutral
+            : ConversationInsightSentiment.unknown;
+
+    const intent = sentiment === ConversationInsightSentiment.positive
+      ? 'engaged'
+      : sentiment === ConversationInsightSentiment.negative
+        ? 'disqualified_or_low_priority'
+        : objections.length > 0
+          ? 'objection_handling'
+          : 'needs_follow_up';
+
+    const channelLabel = (thread.channel || 'conversation').replace(/_/g, ' ');
+    const summary = latestInbound?.bodyText
+      ? `Latest ${channelLabel} reply captured: "${this.truncate(latestInbound.bodyText, 180)}"`
+      : imageAttachmentCount > 0
+        ? `Latest ${channelLabel} feedback captured from ${imageAttachmentCount} image attachment${imageAttachmentCount === 1 ? '' : 's'}.`
+        : `Conversation feedback captured for ${channelLabel}.`;
+
+    const recommendedNextAction = sentiment === ConversationInsightSentiment.negative
+      ? 'Decide whether to close this thread or send a brief graceful exit'
+      : objections.length > 0
+        ? 'Draft an objection-handling reply'
+        : sentiment === ConversationInsightSentiment.positive
+          ? 'Draft a reply that advances to a concrete next step'
+          : 'Draft a lightweight follow-up response';
+
+    return {
+      summary,
+      sentiment,
+      intent,
+      objections,
+      buyingSignals,
+      recommendedNextAction,
+      suggestedActionType: this.followUpActionTypeForChannel(thread.channel),
+      draftFollowUp: this.draftFollowUpForSynthesis(sentiment, objections, thread),
+      priorityScore: sentiment === ConversationInsightSentiment.positive ? 85 : objections.length > 0 ? 75 : 60,
+      evidenceMessageIds: (thread.messages || []).map((message: any) => message.id),
+      imageAttachmentCount,
+      synthesisMode: 'deterministic_first_pass',
+    };
+  }
+
+  private followUpActionTypeForChannel(channel: string): string {
+    if (channel?.includes('linkedin')) return 'linkedin_reply_follow_up';
+    if (channel?.includes('email')) return 'email_reply_follow_up';
+    if (channel?.includes('youtube')) return 'youtube_comment_follow_up';
+    return 'conversation_follow_up';
+  }
+
+  private draftFollowUpForSynthesis(sentiment: ConversationInsightSentiment, objections: string[], thread: any): string {
+    const campaignTitle = thread.campaign?.title || 'this campaign';
+
+    if (sentiment === ConversationInsightSentiment.positive) {
+      return `Thanks for the thoughtful reply. It sounds like this is relevant to ${campaignTitle}. Would it be useful if I shared a concrete example or a short next step?`;
+    }
+
+    if (objections.length > 0) {
+      return `That makes sense. The point is not to add noise, but to see whether there is a practical angle worth exploring. The main issue I heard is ${objections[0]}; I can keep this focused around that.`;
+    }
+
+    if (sentiment === ConversationInsightSentiment.negative) {
+      return `Understood, thanks for letting me know. I will leave it there for now.`;
+    }
+
+    return `Thanks for the reply. The reason I reached out is that this connects directly to ${campaignTitle}. Would a short example be useful?`;
+  }
+
+  private channelForActionItem(actionType: string, laneType: string): string {
+    if (actionType.includes('linkedin') || laneType.includes('linkedin')) return actionType.includes('post') ? 'linkedin_post' : 'linkedin_dm';
+    if (actionType.includes('email') || laneType.includes('email')) return 'email';
+    if (actionType.includes('youtube') || laneType.includes('video')) return 'youtube';
+    return this.channelForLane(laneType);
+  }
+
+  private actionCanvasPanelType(actionType: string, laneType: string): string {
+    if (actionType.includes('email') || laneType.includes('email')) return 'email';
+    if (actionType.includes('linkedin') && (actionType.includes('post') || laneType.includes('content'))) return 'linkedin_post';
+    if (actionType.includes('linkedin') || laneType.includes('linkedin')) return 'linkedin_dm';
+    if (actionType.includes('youtube') || laneType.includes('video')) return 'content';
+    if (laneType.includes('content')) return 'content';
+    return 'generic';
+  }
+
+  private actionCanvasCommands(panelType: string, status: ActionItemStatus): string[] {
+    const base = ['capture_feedback', 'ask_conductor'];
+
+    if (
+      status === ActionItemStatus.suggested ||
+      status === ActionItemStatus.ready ||
+      status === ActionItemStatus.in_progress
+    ) {
+      if (panelType === 'email') return ['edit_draft', 'send_or_confirm', ...base];
+      if (panelType === 'linkedin_dm') return ['open_linkedin', 'confirm_sent', ...base];
+      if (panelType === 'linkedin_post' || panelType === 'content') return ['edit_content', 'confirm_published', ...base];
+      return ['confirm_done', ...base];
+    }
+
+    return base;
+  }
+
+  private truncate(value: string, maxLength: number): string {
+    return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
+  }
+
   private applyActionItemStatusTimestamps(updateData: any, status?: ActionItemStatus) {
     if (!status) return;
 
@@ -755,6 +1580,100 @@ export class CampaignOrchestrationService {
         updateData.respondedAt = now;
         break;
     }
+  }
+
+  private onboardingLaneCampaignIds(lane: any, selectedCampaigns: Array<{ id: string }>): string[] {
+    if (Array.isArray(lane.campaignIds) && lane.campaignIds.length > 0) {
+      return lane.campaignIds.filter((id: string) => selectedCampaigns.some((campaign) => campaign.id === id));
+    }
+
+    return selectedCampaigns.map((campaign) => campaign.id);
+  }
+
+  private onboardingSelectionPriority(data: FinalizeOnboardingPlanDto, laneId: string): number {
+    return data.activationSelection?.laneId === laneId ? 90 : 70;
+  }
+
+  private inferActionLaneType(lane: any): ActionLaneType {
+    const value = `${lane.type || ''} ${lane.title || ''} ${lane.description || ''}`.toLowerCase();
+
+    if (value.includes('linkedin') && value.includes('dm')) return ActionLaneType.linkedin_dm;
+    if (value.includes('linkedin') && (value.includes('message') || value.includes('messaging'))) return ActionLaneType.linkedin_messaging;
+    if (value.includes('linkedin') && (value.includes('post') || value.includes('content'))) return ActionLaneType.linkedin_content;
+    if (value.includes('linkedin') && value.includes('comment')) return ActionLaneType.linkedin_commenting;
+    if (value.includes('email') || value.includes('outlook') || value.includes('gmail')) return ActionLaneType.email;
+    if (value.includes('warm') || value.includes('intro') || value.includes('referral')) return ActionLaneType.warm_intro;
+    if (value.includes('research')) return ActionLaneType.account_research;
+    if (value.includes('call')) return ActionLaneType.call_outreach;
+
+    return ActionLaneType.other;
+  }
+
+  private firstActionForLane(laneType: ActionLaneType) {
+    if (laneType === ActionLaneType.linkedin_dm || laneType === ActionLaneType.linkedin_messaging) {
+      return {
+        actionType: 'linkedin_dm_select_contact',
+        targetType: 'person',
+        externalProvider: 'linkedin',
+        title: 'Select first LinkedIn DM contact',
+        instructions: 'Review suggested LinkedIn contacts for this campaign, choose the first recipient, then draft a DM for manual approval and send confirmation.',
+        steps: [
+          'Find best-fit LinkedIn contacts from imported/profile data.',
+          'Select the first recipient.',
+          'Draft a concise LinkedIn DM.',
+          'Open LinkedIn for manual send.',
+          'Confirm sent so the system can log the action.',
+        ],
+      };
+    }
+
+    if (laneType === ActionLaneType.email) {
+      return {
+        actionType: 'email_select_recipient',
+        targetType: 'person',
+        externalProvider: 'outlook',
+        title: 'Select first email outreach recipient',
+        instructions: 'Review suggested recipients for this campaign, choose the first contact, then generate an email draft for approval before sending.',
+        steps: [
+          'Find best-fit recipients for the campaign.',
+          'Select the first recipient.',
+          'Draft the email.',
+          'Ask for approval before sending.',
+          'Log send and follow-up state.',
+        ],
+      };
+    }
+
+    if (laneType === ActionLaneType.linkedin_content) {
+      return {
+        actionType: 'linkedin_post_draft',
+        targetType: 'audience',
+        externalProvider: 'linkedin',
+        title: 'Draft first LinkedIn post',
+        instructions: 'Draft a campaign-aligned LinkedIn post for review, then ask the user to publish manually and confirm.',
+        steps: [
+          'Choose the post angle.',
+          'Draft the LinkedIn post.',
+          'Ask for approval.',
+          'Open LinkedIn for manual publishing.',
+          'Confirm published and log the action.',
+        ],
+      };
+    }
+
+    return {
+      actionType: 'manual_action_prepare',
+      targetType: 'campaign',
+      externalProvider: 'manual',
+      title: 'Prepare first campaign action',
+      instructions: 'Prepare the first concrete action for this campaign lane and ask for approval before any external execution.',
+      steps: [
+        'Explain why this lane is first.',
+        'Prepare the first action.',
+        'Ask for approval.',
+        'Log completion after confirmation.',
+      ],
+    };
   }
 
   private confirmedStatusForAction(actionType: string): ActionItemStatus {

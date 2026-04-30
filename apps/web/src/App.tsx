@@ -57,6 +57,7 @@ const STORAGE_KEY = 'opportunity-os-session';
 const PENDING_ONBOARDING_COMPLETION_KEY = 'opportunity-os:pending-onboarding-completion';
 const CONTINUE_ONBOARDING_AFTER_AUTH_KEY = 'opportunity-os:continue-onboarding-after-auth';
 const GUEST_ONBOARDING_DRAFT_KEY = 'opportunity-os:onboarding-draft:guest';
+const WORKSPACE_ACTIVATION_PAYLOAD_KEY = 'opportunity-os:workspace-activation-payload';
 const userOnboardingDraftKey = (userId: string) => `opportunity-os:onboarding-draft:${userId}`;
 const TEST_PASSWORD = 'Password123!';
 
@@ -93,6 +94,48 @@ interface WorkspaceViewState {
   primaryAction: string | null;
 }
 
+interface WorkspaceActivationPayload {
+  campaign: {
+    id: string;
+    title: string;
+    description?: string;
+    targetSegment?: string;
+    goalMetric?: string;
+  };
+  lane: {
+    id: string;
+    title: string;
+    description?: string;
+    tactics?: string[];
+    requiredConnectors?: string[];
+  };
+  selectedCampaignCount: number;
+  selectedActionLaneCount: number;
+  connectorReady: boolean;
+  createdAt: string;
+  persisted?: {
+    campaignId?: string;
+    actionLaneId?: string;
+    actionCycleId?: string;
+    actionItemId?: string;
+  } | null;
+}
+
+function readWorkspaceActivationPayload(): WorkspaceActivationPayload | null {
+  try {
+    const raw = localStorage.getItem(WORKSPACE_ACTIVATION_PAYLOAD_KEY);
+    return raw ? JSON.parse(raw) as WorkspaceActivationPayload : null;
+  } catch {
+    return null;
+  }
+}
+
+function looksLikeFeedbackIntake(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return /\b(got|received|have|had)\b/.test(normalized)
+    && /\b(reply|response|responded|comment|screenshot|answer|message)\b/.test(normalized);
+}
+
 const emptyVelocity = {
   activeGoalCount: 0,
   activeCampaignCount: 0,
@@ -127,6 +170,8 @@ export function App() {
   const [pendingStrategicSessionId, setPendingStrategicSessionId] = useState<string | null>(null);
   const [strategicPreview, setStrategicPreview] = useState<StrategicPlanResult | null>(null);
   const [campaignFeedback, setCampaignFeedback] = useState<StrategicPlanResult | null>(null);
+  const [activationPayload, setActivationPayload] = useState<WorkspaceActivationPayload | null>(() => readWorkspaceActivationPayload());
+  const [actionCanvasPayload, setActionCanvasPayload] = useState<any | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [upgradePrompt, setUpgradePrompt] = useState<UpgradePromptState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -168,6 +213,14 @@ export function App() {
       setCommercialState(commercial);
       setPlans(availablePlans);
       setEmailReadiness(emailState);
+      const pendingActivation = readWorkspaceActivationPayload();
+      if (pendingActivation) setActivationPayload(pendingActivation);
+      if (pendingActivation?.persisted?.actionItemId) {
+        const canvasPayload = await api.getActionItemCanvas(pendingActivation.persisted.actionItemId).catch(() => null);
+        setActionCanvasPayload(canvasPayload);
+      } else {
+        setActionCanvasPayload(null);
+      }
       
       // Auto-open onboarding if it's the first time
       const onboardingCompleted = localStorage.getItem(`onboarding_completed_${session.user.id}`);
@@ -177,6 +230,15 @@ export function App() {
       }
       setMessages((current) => {
         if (current.length > 0) return current;
+        if (pendingActivation) {
+          return [
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              text: `We're now in the workspace. I've staged your first action cycle: ${pendingActivation.lane.title} for ${pendingActivation.campaign.title}. I’ll show you where the plan lives, then we’ll review the first proposed action before anything happens.`,
+            },
+          ];
+        }
         const summary = workspaceState.conductor.currentReasoningSummary;
         return [
           {
@@ -379,10 +441,156 @@ export function App() {
     }
   }
 
+  async function captureActionFeedback(input: {
+    actionItemId: string;
+    bodyText: string;
+    attachmentUrls?: string[];
+    attachmentMimeTypes?: string[];
+  }) {
+    if (!input.actionItemId) return null;
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const thread = await api.getOrCreateActionItemConversationThread(input.actionItemId);
+      await api.captureConversationMessage(thread.id, {
+        direction: 'inbound',
+        source: input.attachmentUrls?.length ? 'screenshot' : 'manual_paste',
+        bodyText: input.bodyText,
+        attachmentUrls: input.attachmentUrls || [],
+        attachmentMimeTypes: input.attachmentMimeTypes || [],
+      });
+      const synthesis = await api.synthesizeConversationThread(thread.id, { createSuggestedAction: true });
+      setNotice({
+        title: 'Feedback synthesized',
+        detail: 'The reply is now attached to the action cycle and a follow-up action was suggested.',
+        tone: 'success',
+      });
+      await loadWorkspace();
+      return synthesis;
+    } catch (error) {
+      setNotice({
+        title: 'Feedback capture failed',
+        detail: error instanceof Error ? error.message : 'The reply could not be captured.',
+        tone: 'error',
+      });
+      return null;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function confirmCanvasAction(input: { actionItemId: string; finalContent?: string; outcome?: string }) {
+    if (!input.actionItemId) return null;
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const result = await api.confirmActionItem(input.actionItemId, {
+        ...(input.finalContent ? { finalContent: input.finalContent } : {}),
+        outcome: input.outcome || 'confirmed_from_action_canvas',
+        confirmationSource: 'user_confirmed',
+      });
+      setNotice({
+        title: 'Action confirmed',
+        detail: 'The action was logged and the workspace state was refreshed.',
+        tone: 'success',
+      });
+      const canvasPayload = await api.getActionItemCanvas(input.actionItemId).catch(() => null);
+      setActionCanvasPayload(canvasPayload);
+      await loadWorkspace();
+      return result;
+    } catch (error) {
+      setNotice({
+        title: 'Action confirmation failed',
+        detail: error instanceof Error ? error.message : 'The action could not be confirmed.',
+        tone: 'error',
+      });
+      return null;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function saveCanvasDraft(input: { actionItemId: string; draftContent: string }) {
+    if (!input.actionItemId) return null;
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const result = await api.updateActionItem(input.actionItemId, {
+        draftContent: input.draftContent,
+      });
+      const canvasPayload = await api.getActionItemCanvas(input.actionItemId).catch(() => null);
+      setActionCanvasPayload(canvasPayload);
+      setNotice({
+        title: 'Draft saved',
+        detail: 'The action canvas draft was updated.',
+        tone: 'success',
+      });
+      return result;
+    } catch (error) {
+      setNotice({
+        title: 'Draft save failed',
+        detail: error instanceof Error ? error.message : 'The draft could not be saved.',
+        tone: 'error',
+      });
+      return null;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function intakeCanvasFeedbackFromConductor(text: string) {
+    const actionItemId = actionCanvasPayload?.actionItem?.id ?? activationPayload?.persisted?.actionItemId;
+    if (!actionItemId) return false;
+    if (!looksLikeFeedbackIntake(text)) return false;
+
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const result = await api.intakeConversationFeedback({
+        message: text,
+        bodyText: text,
+        actionItemIdHint: actionItemId,
+        channelHint: actionCanvasPayload?.panelType === 'email' ? 'email' : actionCanvasPayload?.panelType,
+        createSuggestedAction: true,
+      });
+      const canvasPayload = await api.getActionItemCanvas(actionItemId).catch(() => null);
+      setActionCanvasPayload(canvasPayload);
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: result.status === 'captured'
+            ? `I attached that response to this action, synthesized it, and created the next suggested follow-up. ${result.insight?.recommendedNextAction || ''}`.trim()
+            : result.clarificationQuestion || 'I need one more detail to attach this response to the right conversation.',
+        },
+      ]);
+      setNotice({
+        title: result.status === 'captured' ? 'Response captured' : 'Clarification needed',
+        detail: result.status === 'captured'
+          ? 'The conversation thread and next action were updated.'
+          : 'The Conductor found multiple possible matches.',
+        tone: result.status === 'captured' ? 'success' : 'info',
+      });
+      await loadWorkspace();
+      return true;
+    } catch (error) {
+      setNotice({
+        title: 'Response intake failed',
+        detail: error instanceof Error ? error.message : 'The response could not be attached.',
+        tone: 'error',
+      });
+      return true;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   async function sendMessage(text: string) {
     if (!text.trim()) return;
     const userMessage: ConversationMessage = { id: crypto.randomUUID(), role: 'user', text };
     setMessages((current) => [...current, userMessage]);
+    if (await intakeCanvasFeedbackFromConductor(text)) return;
     setIsWorking(true);
     setNotice(null);
     try {
@@ -939,6 +1147,17 @@ export function App() {
 
   const handleOnboardingComplete = useCallback(() => {
     if (!session) return;
+    const pendingActivation = readWorkspaceActivationPayload();
+    setActivationPayload(pendingActivation);
+    if (pendingActivation) {
+      setMessages([
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: `We're now in the workspace. I've staged your first action cycle: ${pendingActivation.lane.title} for ${pendingActivation.campaign.title}. First, I’ll orient you to the Canvas and Conductor, then we’ll prepare the first action for your approval.`,
+        },
+      ]);
+    }
     localStorage.setItem(`onboarding_completed_${session.user.id}`, 'true');
     setOnboardingOpen(false);
     setPodiumMode(false);
@@ -1032,8 +1251,13 @@ export function App() {
             pendingStrategicSessionId={pendingStrategicSessionId}
             strategicPreview={strategicPreview}
             campaignFeedback={campaignFeedback}
+            activationPayload={activationPayload}
+            actionCanvasPayload={actionCanvasPayload}
             isWorking={isWorking}
             onCommand={runCommand}
+            onCaptureActionFeedback={captureActionFeedback}
+            onConfirmCanvasAction={confirmCanvasAction}
+            onSaveActionDraft={saveCanvasDraft}
             onGenerateDraft={generateDraft}
             onGenerateDraftForOpportunity={generateDraftForOpportunity}
             onStartDiscoveryScan={startDiscoveryScan}

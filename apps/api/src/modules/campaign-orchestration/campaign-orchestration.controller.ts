@@ -4,14 +4,19 @@ import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { CampaignOrchestrationService } from './campaign-orchestration.service';
 import { 
+  CaptureConversationMessageDto,
   ConfirmActionItemDto,
+  ConversationFeedbackIntakeDto,
   CreateCampaignDto, 
+  CreateConversationThreadDto,
   UpdateCampaignDto,
   CreateActionLaneDto,
   UpdateActionLaneDto,
   CreateActionCycleDto,
   UpdateActionCycleDto,
   CreateActionItemDto,
+  FinalizeOnboardingPlanDto,
+  SynthesizeConversationThreadDto,
   UpdateActionItemDto,
 } from './dto/campaign.dto';
 
@@ -19,6 +24,17 @@ import {
 @Controller('campaign-orchestration')
 export class CampaignOrchestrationController {
   constructor(private readonly campaignOrchestrationService: CampaignOrchestrationService) {}
+
+  @Post('onboarding/finalize')
+  @ApiOperation({ summary: 'Persist an onboarding plan into campaigns, action lanes, and the first action cycle' })
+  @ApiResponse({ status: 201, description: 'Onboarding plan persisted successfully' })
+  async finalizeOnboardingPlan(
+    @Body() finalizeDto: FinalizeOnboardingPlanDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.finalizeOnboardingPlan(user.id, finalizeDto);
+  }
 
   // CAMPAIGN ENDPOINTS
   @Post('campaigns')
@@ -212,6 +228,14 @@ export class CampaignOrchestrationController {
     return this.campaignOrchestrationService.getActionItem(user.id, id);
   }
 
+  @Get('action-items/:id/canvas')
+  @ApiOperation({ summary: 'Get action-specific Canvas payload for an action item' })
+  @ApiResponse({ status: 200, description: 'Action Canvas payload retrieved successfully' })
+  async getActionItemCanvas(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.getActionItemCanvas(user.id, id);
+  }
+
   @Put('action-items/:id')
   @ApiOperation({ summary: 'Update action item' })
   @ApiResponse({ status: 200, description: 'Action item updated successfully' })
@@ -242,6 +266,72 @@ export class CampaignOrchestrationController {
   async deleteActionItem(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
     if (!user?.id) throw new UnauthorizedException('No authenticated user found');
     return this.campaignOrchestrationService.deleteActionItem(user.id, id);
+  }
+
+  // CONVERSATION FEEDBACK LOOP ENDPOINTS
+  @Post('conversation-threads')
+  @ApiOperation({ summary: 'Create a durable conversation or engagement feedback thread' })
+  @ApiResponse({ status: 201, description: 'Conversation thread created successfully' })
+  async createConversationThread(
+    @Body() createConversationThreadDto: CreateConversationThreadDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.createConversationThread(user.id, createConversationThreadDto);
+  }
+
+  @Get('conversation-threads/:id')
+  @ApiOperation({ summary: 'Get a conversation feedback thread with messages and insights' })
+  @ApiResponse({ status: 200, description: 'Conversation thread retrieved successfully' })
+  async getConversationThread(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.getConversationThread(user.id, id);
+  }
+
+  @Post('action-items/:id/conversation-thread')
+  @ApiOperation({ summary: 'Get or create the feedback thread attached to an action item' })
+  @ApiResponse({ status: 201, description: 'Conversation thread available' })
+  async getOrCreateActionItemConversationThread(
+    @Param('id') id: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.getOrCreateActionItemConversationThread(user.id, id);
+  }
+
+  @Post('conversation-threads/:id/messages')
+  @ApiOperation({ summary: 'Capture a pasted, uploaded, screenshot, or synced message into a feedback thread' })
+  @ApiResponse({ status: 201, description: 'Conversation message captured successfully' })
+  async captureConversationMessage(
+    @Param('id') id: string,
+    @Body() captureConversationMessageDto: CaptureConversationMessageDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.captureConversationMessage(user.id, id, captureConversationMessageDto);
+  }
+
+  @Post('conversation-threads/:id/synthesize')
+  @ApiOperation({ summary: 'Synthesize conversation feedback into sentiment, insight, and optional next action' })
+  @ApiResponse({ status: 201, description: 'Conversation synthesized successfully' })
+  async synthesizeConversationThread(
+    @Param('id') id: string,
+    @Body() synthesizeConversationThreadDto: SynthesizeConversationThreadDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.synthesizeConversationThread(user.id, id, synthesizeConversationThreadDto);
+  }
+
+  @Post('conversation-feedback/intake')
+  @ApiOperation({ summary: 'Conductor intake for pasted or screenshot conversation feedback with attribution candidates' })
+  @ApiResponse({ status: 201, description: 'Conversation feedback captured or attribution candidates returned' })
+  async intakeConversationFeedback(
+    @Body() intakeDto: ConversationFeedbackIntakeDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.campaignOrchestrationService.intakeConversationFeedback(user.id, intakeDto);
   }
 
   // AI DECISION SUPPORT ENDPOINTS

@@ -1,4 +1,4 @@
-import { IsBoolean, IsDate, IsEnum, IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsDate, IsEnum, IsNumber, IsObject, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -8,6 +8,8 @@ import {
   ActionLaneStatus,
   ActionLaneType,
   CampaignStatus,
+  ConversationMessageDirection,
+  ConversationMessageSource,
 } from '@opportunity-os/db';
 
 // CAMPAIGN DTOs
@@ -505,6 +507,105 @@ export class UpdateActionItemDto {
   metadataJson?: Record<string, any>;
 }
 
+class OnboardingCampaignInputDto {
+  @IsString()
+  id: string;
+
+  @IsString()
+  title: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  laneTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  targetSegment?: string;
+
+  @IsOptional()
+  @IsString()
+  goalMetric?: string;
+
+  @IsOptional()
+  @IsString()
+  messagingHook?: string;
+
+  @IsOptional()
+  @IsString()
+  duration?: string;
+
+  @IsOptional()
+  @IsString()
+  channel?: string;
+}
+
+class OnboardingActionLaneInputDto {
+  @IsString()
+  id: string;
+
+  @IsString()
+  title: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsArray()
+  campaignIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  tactics?: string[];
+
+  @IsOptional()
+  @IsArray()
+  requiredConnectors?: string[];
+}
+
+class OnboardingActivationSelectionDto {
+  @IsString()
+  campaignId: string;
+
+  @IsString()
+  laneId: string;
+}
+
+export class FinalizeOnboardingPlanDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OnboardingCampaignInputDto)
+  campaigns: OnboardingCampaignInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OnboardingActionLaneInputDto)
+  actionLanes: OnboardingActionLaneInputDto[];
+
+  @IsArray()
+  selectedCampaignIds: string[];
+
+  @IsArray()
+  selectedActionLaneIds: string[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OnboardingActivationSelectionDto)
+  activationSelection?: OnboardingActivationSelectionDto;
+
+  @IsOptional()
+  @IsString()
+  comprehensiveSynthesis?: string;
+}
+
 export class ConfirmActionItemDto {
   @ApiPropertyOptional({ description: 'Final content actually sent/published' })
   @IsOptional()
@@ -526,6 +627,159 @@ export class ConfirmActionItemDto {
   @IsDate()
   @Type(() => Date)
   occurredAt?: Date;
+}
+
+export class CreateConversationThreadDto {
+  @ApiPropertyOptional({ description: 'Campaign ID' })
+  @IsOptional()
+  @IsString()
+  campaignId?: string;
+
+  @ApiPropertyOptional({ description: 'Action lane ID' })
+  @IsOptional()
+  @IsString()
+  actionLaneId?: string;
+
+  @ApiPropertyOptional({ description: 'Action cycle ID' })
+  @IsOptional()
+  @IsString()
+  actionCycleId?: string;
+
+  @ApiPropertyOptional({ description: 'Action item ID' })
+  @IsOptional()
+  @IsString()
+  actionItemId?: string;
+
+  @ApiPropertyOptional({ description: 'Target person ID' })
+  @IsOptional()
+  @IsString()
+  targetPersonId?: string;
+
+  @ApiPropertyOptional({ description: 'Target company ID' })
+  @IsOptional()
+  @IsString()
+  targetCompanyId?: string;
+
+  @ApiProperty({ description: 'Conversation channel, such as linkedin_dm, linkedin_post, youtube_comment, email' })
+  @IsString()
+  channel: string;
+
+  @ApiPropertyOptional({ description: 'External provider key, such as linkedin, outlook, youtube' })
+  @IsOptional()
+  @IsString()
+  externalProvider?: string;
+
+  @ApiPropertyOptional({ description: 'External conversation URL' })
+  @IsOptional()
+  @IsString()
+  externalThreadUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Metadata as JSON' })
+  @IsOptional()
+  @IsObject()
+  metadataJson?: Record<string, any>;
+}
+
+export class CaptureConversationMessageDto {
+  @ApiPropertyOptional({ description: 'Message direction', enum: ConversationMessageDirection })
+  @IsOptional()
+  @IsEnum(ConversationMessageDirection)
+  direction?: ConversationMessageDirection;
+
+  @ApiPropertyOptional({ description: 'Capture source', enum: ConversationMessageSource })
+  @IsOptional()
+  @IsEnum(ConversationMessageSource)
+  source?: ConversationMessageSource;
+
+  @ApiPropertyOptional({ description: 'Pasted or extracted message text' })
+  @IsOptional()
+  @IsString()
+  bodyText?: string;
+
+  @ApiPropertyOptional({ description: 'Image/file URLs captured for this message' })
+  @IsOptional()
+  @IsArray()
+  attachmentUrls?: string[];
+
+  @ApiPropertyOptional({ description: 'Attachment MIME types aligned with attachmentUrls' })
+  @IsOptional()
+  @IsArray()
+  attachmentMimeTypes?: string[];
+
+  @ApiPropertyOptional({ description: 'When the message occurred' })
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  occurredAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Metadata as JSON' })
+  @IsOptional()
+  @IsObject()
+  metadataJson?: Record<string, any>;
+}
+
+export class SynthesizeConversationThreadDto {
+  @ApiPropertyOptional({ description: 'Whether to create a suggested follow-up action item' })
+  @IsOptional()
+  @IsBoolean()
+  createSuggestedAction?: boolean;
+}
+
+export class ConversationFeedbackIntakeDto {
+  @ApiPropertyOptional({ description: 'Natural language user instruction, e.g. "I got this response"' })
+  @IsOptional()
+  @IsString()
+  message?: string;
+
+  @ApiPropertyOptional({ description: 'Pasted reply/comment text' })
+  @IsOptional()
+  @IsString()
+  bodyText?: string;
+
+  @ApiPropertyOptional({ description: 'Captured screenshot/image/file URLs' })
+  @IsOptional()
+  @IsArray()
+  attachmentUrls?: string[];
+
+  @ApiPropertyOptional({ description: 'Attachment MIME types aligned with attachmentUrls' })
+  @IsOptional()
+  @IsArray()
+  attachmentMimeTypes?: string[];
+
+  @ApiPropertyOptional({ description: 'Channel hint, such as linkedin_dm, linkedin_post, email, youtube_comment' })
+  @IsOptional()
+  @IsString()
+  channelHint?: string;
+
+  @ApiPropertyOptional({ description: 'Campaign ID hint' })
+  @IsOptional()
+  @IsString()
+  campaignIdHint?: string;
+
+  @ApiPropertyOptional({ description: 'Action item ID hint' })
+  @IsOptional()
+  @IsString()
+  actionItemIdHint?: string;
+
+  @ApiPropertyOptional({ description: 'Conversation thread ID hint' })
+  @IsOptional()
+  @IsString()
+  threadIdHint?: string;
+
+  @ApiPropertyOptional({ description: 'Person/contact name hint' })
+  @IsOptional()
+  @IsString()
+  personHint?: string;
+
+  @ApiPropertyOptional({ description: 'Company/account name hint' })
+  @IsOptional()
+  @IsString()
+  companyHint?: string;
+
+  @ApiPropertyOptional({ description: 'Whether to create a suggested follow-up action item after synthesis' })
+  @IsOptional()
+  @IsBoolean()
+  createSuggestedAction?: boolean;
 }
 
 // METRICS DTOs

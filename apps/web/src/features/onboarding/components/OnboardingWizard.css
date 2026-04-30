@@ -580,6 +580,11 @@
   width: 100%;
 }
 
+.account-test-user {
+  justify-content: center;
+  width: 100%;
+}
+
 .empty-tactical-state {
   width: 100%;
   border: 1px dashed var(--os-gray-border);
@@ -1047,6 +1052,120 @@
   color: var(--os-text-muted);
   font-size: 0.84rem;
   line-height: 1.4;
+}
+
+.workspace-intro-panel {
+  width: 100%;
+  border: 1px solid rgba(0, 112, 186, 0.18);
+  border-radius: 14px;
+  background: #f8fbff;
+  padding: 20px;
+  margin-bottom: 18px;
+  text-align: left;
+}
+
+.workspace-intro-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.workspace-intro-row h3 {
+  margin: 0 0 6px;
+  color: var(--os-navy);
+}
+
+.workspace-intro-row p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.workspace-intro-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.workspace-intro-grid div {
+  border: 1px solid var(--os-gray-border);
+  border-radius: 10px;
+  background: white;
+  padding: 12px;
+  text-align: center;
+}
+
+.workspace-intro-grid strong,
+.workspace-intro-grid span {
+  display: block;
+}
+
+.workspace-intro-grid strong {
+  color: var(--os-navy);
+  font-size: 1.05rem;
+}
+
+.workspace-intro-grid span {
+  color: var(--os-text-muted);
+  font-size: 0.75rem;
+  margin-top: 3px;
+}
+
+.handoff-progress {
+  width: 100%;
+  max-width: 520px;
+  border: 1px solid var(--os-gray-border);
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 28px;
+  display: grid;
+  gap: 22px;
+  justify-items: center;
+}
+
+.handoff-orbit {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--os-blue);
+  background: #f0f7ff;
+}
+
+.handoff-orbit span {
+  position: absolute;
+  inset: -8px;
+  border: 2px solid rgba(0, 112, 186, 0.22);
+  border-top-color: var(--os-blue);
+  border-radius: 50%;
+  animation: spin 1.2s linear infinite;
+}
+
+.handoff-steps {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.handoff-steps div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #334155;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.handoff-steps svg {
+  color: #10b981;
+}
+
+.handoff-steps .spin {
+  color: var(--os-blue);
+  animation: spin 1s linear infinite;
 }
 
 @keyframes cycle-pulse {

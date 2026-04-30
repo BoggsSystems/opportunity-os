@@ -30,6 +30,7 @@ At the conceptual level, the system has 17 domain areas:
 15. Growth, Referrals, and Rewards
 16. Coaching, Momentum, and Engagement
 17. Browser Execution
+18. Conversation Feedback and Campaign Memory
 
 ---
 
@@ -1475,6 +1476,7 @@ It answers:
 * how are lanes balanced and prioritized?
 * what is the next best execution move across all lanes?
 * how do results feed back into prioritization?
+* what did the market say back, and how should the campaign learn from it?
 
 #### Main Entities
 
@@ -1499,6 +1501,7 @@ Relationships:
 * has many ActionLanes
 * has many ActionCycles as execution windows
 * has many ActionItems as concrete work units
+* has many ConversationThreads that capture replies, comments, screenshots, and content engagement
 * has CampaignMetrics and momentum tracking
 
 MVP: yes
@@ -1582,11 +1585,121 @@ Relationships:
 * may belong to one ActionCycle
 * may target one Person or Company
 * may create or link to one Activity after confirmation
+* may create or link to one ConversationThread when a reply, comment, screenshot, or engagement appears
 * may be produced by one WorkspaceCommand or provider capability execution
 * has ActionItemStatus (suggested, ready, in_progress, sent_confirmed, published_confirmed, skipped, failed, responded, converted)
 * has draft/final content, external URL, due date, and confirmation metadata
 
 MVP: yes
+
+**ConversationThread**
+
+The durable record of a specific exchange or engagement stream created by an ActionItem or campaign motion. A thread may represent a LinkedIn DM conversation, email reply chain, LinkedIn post comment thread, YouTube comment thread, or other campaign feedback channel.
+
+Represents:
+
+* replies to an outbound LinkedIn DM
+* email responses to campaign outreach
+* comments and replies on a LinkedIn post
+* YouTube comment feedback on a short or video
+* ongoing engagement around a content asset or outreach action
+
+Relationships:
+
+* belongs to one User
+* may belong to one Campaign
+* may belong to one ActionLane
+* may belong to one ActionCycle
+* may originate from one ActionItem
+* may target one Person or Company
+* has many ConversationThreadMessages
+* has many ConversationThreadInsights
+* may generate follow-up ActionItems
+
+MVP: yes
+
+**ConversationThreadMessage**
+
+A captured message, reply, comment, screenshot, upload, synced provider event, or internal note within a ConversationThread.
+
+Represents:
+
+* pasted prospect reply text
+* a screenshot of a LinkedIn DM response
+* an email reply synced from Outlook/Gmail
+* a comment captured from a LinkedIn post or YouTube video
+* a system/internal note used to preserve context
+
+Relationships:
+
+* belongs to one User
+* belongs to one ConversationThread
+* has direction (outbound, inbound, internal)
+* has source (manual paste, screenshot, upload, provider sync, system)
+* may include attachment URLs and attachment MIME types
+
+MVP: yes
+
+**ConversationThreadInsight**
+
+The AI or fallback synthesis of a conversation thread at a point in time.
+
+Represents:
+
+* sentiment
+* buyer or audience intent
+* objections
+* buying signals
+* resonance in content feedback
+* recommended next action
+* suggested follow-up action type
+* evidence message IDs used for synthesis
+
+Relationships:
+
+* belongs to one User
+* belongs to one ConversationThread
+* may point to a suggested follow-up ActionItem
+* updates campaign memory through the thread's latest summary, sentiment, intent, and next-action fields
+
+MVP: yes
+
+**ConversationFeedbackIntake**
+
+A transient Conductor/API request where the user provides conversational feedback without manually selecting the underlying thread.
+
+Represents:
+
+* "I got this response" plus pasted text
+* a dropped or uploaded screenshot of a DM reply
+* a content comment screenshot
+* optional hints such as channel, person, company, campaign, or action item
+
+Relationships:
+
+* uses active ConversationThreads and recent ActionItems as attribution candidates
+* resolves to an existing ConversationThread when confidence is high
+* returns candidate matches when confidence is low
+* writes durable state only after attribution: ConversationThreadMessage, ConversationThreadInsight, and optional follow-up ActionItem
+
+MVP: service/API contract, not a DB table
+
+**ConversationAttributionCandidate**
+
+A transient candidate match returned by the attribution layer during Conductor intake.
+
+Represents:
+
+* a possible thread/action item that the pasted reply or screenshot belongs to
+* confidence score and reasons
+* campaign, lane, action item, person, and company context for user clarification
+
+Relationships:
+
+* references existing ConversationThread and/or ActionItem records
+* may be selected by the user or accepted automatically by the Conductor when confidence is high
+
+MVP: service/API contract, not a DB table
 
 **LaneType**
 
@@ -1646,6 +1759,9 @@ Campaign (strategic objective)
 ├── ActionLane (execution stream)
 │   ├── ActionCycle (execution window)
 │   │   ├── ActionItem (concrete work)
+│   │   │   └── ConversationThread (reply / engagement memory)
+│   │   │       ├── ConversationThreadMessage
+│   │   │       └── ConversationThreadInsight -> follow-up ActionItem
 │   │   ├── ActionItem
 │   │   └── ActionItem
 │   └── ActionCycle
@@ -1659,12 +1775,23 @@ Campaign (strategic objective)
 3. Recommend next cycle from optimal lane
 4. Provide coaching on lane balance and momentum
 5. Execute cycle and update campaign metrics
+6. Capture replies, comments, and screenshots as ConversationThreadMessages
+7. Synthesize feedback into ConversationThreadInsights
+8. Generate or reprioritize follow-up ActionItems from the insight
 
 **Lane Coordination:**
 - Each lane operates independently but contributes to campaign objective
 - AI can rebalance effort between lanes based on performance
 - Cross-lane learning and optimization
 - Unified campaign momentum tracking
+- Conversation feedback is campaign memory: every reply, comment, screenshot, and content reaction should improve future targeting, messaging, content, and next-action selection
+
+**Conductor Feedback Intake:**
+- The preferred UX is conversational. A user can paste text or provide a screenshot to the Conductor and say "I got this response."
+- The Conductor should attribute the feedback to a likely ConversationThread or recent ActionItem.
+- If confidence is high, the system captures and synthesizes the feedback automatically.
+- If confidence is low, the Conductor presents candidate threads and asks the user to choose.
+- Attribution attempts are transient unless they produce durable thread messages, insights, or follow-up actions.
 
 ---
 

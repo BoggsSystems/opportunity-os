@@ -25,9 +25,10 @@ interface OnboardingWizardProps {
   onSyncEmail?: () => Promise<void>;
 }
 
-type Step = 'briefing' | 'intent' | 'relationships' | 'knowledge' | 'campaigns' | 'analysis' | 'actionLanes' | 'account' | 'connectivity' | 'channels' | 'activation' | 'welcome';
+type Step = 'briefing' | 'intent' | 'relationships' | 'knowledge' | 'campaigns' | 'analysis' | 'actionLanes' | 'account' | 'connectivity' | 'channels' | 'activation' | 'workspaceIntro' | 'workspaceHandoff' | 'welcome';
 
 const CONTINUE_ONBOARDING_AFTER_AUTH_KEY = 'opportunity-os:continue-onboarding-after-auth';
+const WORKSPACE_ACTIVATION_PAYLOAD_KEY = 'opportunity-os:workspace-activation-payload';
 const DEFAULT_SIGNUP_PASSWORD = 'Password123!';
 
 type OnboardingSnapshot = {
@@ -128,6 +129,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
   const [showDevHarness, setShowDevHarness] = useState(false);
   const [isConductorExpanded, setIsConductorExpanded] = useState(false);
   const [activationSelection, setActivationSelection] = useState<{ campaignId: string; laneId: string; source: 'guided' | 'manual' } | null>(null);
+  const [isHandingOff, setIsHandingOff] = useState(false);
   const actionLaneNarrationKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -202,10 +204,60 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
     await onAuth('signup', accountEmail, accountPassword, accountName || 'Test Operator');
   };
 
-  const completeOnboarding = () => {
+  const useGeneratedAccount = () => {
+    setAccountName('Test Operator');
+    setAccountPassword(DEFAULT_SIGNUP_PASSWORD);
+    setAccountEmail(`web-test-${Date.now()}@example.com`);
+  };
+
+  const completeOnboarding = async () => {
+    let persistedPlan: any = null;
+    if (user) {
+      try {
+        persistedPlan = await api.finalizeOnboardingPlan({
+          campaigns: proposedCampaigns,
+          actionLanes: proposedActionLanes,
+          selectedCampaignIds: selectedCampaigns,
+          selectedActionLaneIds: selectedActionLanes,
+          activationSelection,
+          comprehensiveSynthesis,
+        });
+      } catch (error) {
+        console.error('Failed to persist onboarding plan before workspace handoff:', error);
+      }
+    }
+
+    if (activationSelection) {
+      const campaign = proposedCampaigns.find(candidate => candidate.id === activationSelection.campaignId);
+      const lane = proposedActionLanes.find(candidate => candidate.id === activationSelection.laneId);
+      if (campaign && lane) {
+        localStorage.setItem(WORKSPACE_ACTIVATION_PAYLOAD_KEY, JSON.stringify({
+          campaign,
+          lane,
+          persisted: persistedPlan ? {
+            campaignId: persistedPlan.firstActionCycle?.campaignId || persistedPlan.firstActionItem?.campaignId,
+            actionLaneId: persistedPlan.firstActionCycle?.actionLaneId || persistedPlan.firstActionItem?.actionLaneId,
+            actionCycleId: persistedPlan.firstActionCycle?.id,
+            actionItemId: persistedPlan.firstActionItem?.id,
+          } : null,
+          selectedCampaignCount: selectedCampaigns.length,
+          selectedActionLaneCount: selectedActionLanes.length,
+          connectorReady: Boolean(emailReadiness?.ready),
+          createdAt: new Date().toISOString(),
+        }));
+      }
+    }
     clearOnboardingSnapshot(user?.id);
     clearOnboardingSnapshot();
     onComplete();
+  };
+
+  const handoffToWorkspace = () => {
+    setCurrentStep('workspaceHandoff');
+    setIsHandingOff(true);
+    window.setTimeout(() => {
+      void completeOnboarding();
+    }, 1400);
   };
 
   // Dynamic Step Narration Trigger
@@ -330,7 +382,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({ onCompl
       setIsConductorThinking(false);
       return;
     } else if (step === 'activation') {
-      systemPrompt = `${narrationHeader} Live Action Desk initialized. The infrastructure is ready. Explain that the system is now live, monitoring signals and ready to execute the orchestration plan. Direct them to the dashboard.`;
+      systemPrompt = `${narrationHeader} Action cycle selection is ready. Explain that the user should choose the first campaign lane or use the guided start button, and that nothing will be sent without approval.`;
+    } else if (step === 'workspaceIntro') {
+      systemPrompt = `${narrationHeader} The first action cycle has been selected. Introduce the workspace as a continuation of this wizard: the plan, first action cycle, and connector state are being carried forward. Explain what the user will see next.`;
+    } else if (step === 'workspaceHandoff') {
+      systemPrompt = `${narrationHeader} The workspace handoff is underway. Briefly explain that you are saving the strategy, preparing the first action cycle, and opening the workspace canvas.`;
     } else if (step === 'analysis') {
       systemPrompt = `${narrationHeader} Mission selected. Moving to 'Strategic Analysis'. Explain that you are now synthesizing their network leverage, their IP, and their chosen mission to build the final orchestration plan.`;
     }
@@ -1531,6 +1587,9 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
           <button className="onboarding-btn-primary account-submit" disabled={isAnyWorking || !accountEmail || !accountPassword} type="submit">
             {isAnyWorking ? 'Creating Workspace...' : 'Create Account and Continue'} <ArrowRight size={18} />
           </button>
+          <button className="onboarding-btn-secondary account-test-user" disabled={isAnyWorking} onClick={useGeneratedAccount} type="button">
+            Generate Test User
+          </button>
         </form>
       </div>
 
@@ -1661,20 +1720,92 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
         <div className="cycle-note">
           <Target size={18} />
           <div>
-            <strong>Next step after activation</strong>
-            <span>The workspace will open with the selected campaign lane ready for the first explained, approval-based action cycle.</span>
+            <strong>Next step</strong>
+            <span>After you choose a starting lane, I will introduce the workspace and carry this selected action cycle forward.</span>
           </div>
         </div>
 
         <div className="onboarding-footer">
           <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('connectivity')}>Back</button>
-          <button className="onboarding-btn-primary" onClick={completeOnboarding} disabled={campaignLaneGroups.length === 0}>
-            Initialize Workspace <Rocket size={18} />
+          <button className="onboarding-btn-primary" onClick={() => setCurrentStep('workspaceIntro')} disabled={campaignLaneGroups.length === 0 || !activationSelection}>
+            Continue to Workspace Intro <ArrowRight size={18} />
           </button>
         </div>
       </div>
     );
   };
+
+  const renderWorkspaceIntro = () => {
+    const selectedCampaign = activationSelection
+      ? proposedCampaigns.find(campaign => campaign.id === activationSelection.campaignId)
+      : null;
+    const selectedLane = activationSelection
+      ? proposedActionLanes.find(lane => lane.id === activationSelection.laneId)
+      : null;
+
+    return (
+      <div className="onboarding-content">
+        <div className="onboarding-header">
+          <div className="phase-indicator">Phase 08: Workspace Handoff</div>
+          <h1>Your workspace is about to open.</h1>
+          <p>The strategy, connector state, and selected first action cycle will continue into the workspace canvas.</p>
+        </div>
+
+        <div className="workspace-intro-panel">
+          <div className="workspace-intro-row">
+            <div className="connector-status-icon"><Target size={24} /></div>
+            <div>
+              <div className="campaign-lane-kicker">First action cycle</div>
+              <h3>{selectedCampaign?.title || 'Selected campaign'}</h3>
+              <p>{selectedLane ? `Starting through ${selectedLane.title}.` : 'The first selected lane will be staged for review.'}</p>
+            </div>
+          </div>
+          <div className="workspace-intro-grid">
+            <div><strong>{selectedCampaigns.length}</strong><span>Campaigns</span></div>
+            <div><strong>{selectedActionLanes.length}</strong><span>Action lanes</span></div>
+            <div><strong>{emailReadiness?.ready ? 'Ready' : 'Pending'}</strong><span>Outlook</span></div>
+          </div>
+        </div>
+
+        <div className="cycle-note">
+          <Zap size={18} />
+          <div>
+            <strong>What changes next</strong>
+            <span>The wizard becomes your operating workspace: canvas on top, Conductor beneath it, and the first action cycle ready for explanation and approval.</span>
+          </div>
+        </div>
+
+        <div className="onboarding-footer">
+          <button className="onboarding-btn-secondary" onClick={() => setCurrentStep('activation')}>Back</button>
+          <button className="onboarding-btn-primary" onClick={handoffToWorkspace}>
+            Open Workspace <Rocket size={18} />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderWorkspaceHandoff = () => (
+    <div className="onboarding-content">
+      <div className="onboarding-header">
+        <div className="phase-indicator">Opening Workspace</div>
+        <h1>Carrying your plan forward.</h1>
+        <p>I am saving the strategy, preparing the first action cycle, and opening the workspace canvas.</p>
+      </div>
+
+      <div className="handoff-progress">
+        <div className="handoff-orbit">
+          <span />
+          <Rocket size={38} />
+        </div>
+        <div className="handoff-steps">
+          <div><CheckCircle size={16} /> Strategy saved</div>
+          <div><CheckCircle size={16} /> Connectors attached</div>
+          <div><RefreshCw size={16} className={isHandingOff ? 'spin' : ''} /> Opening first action cycle</div>
+        </div>
+      </div>
+    </div>
+  );
 
   const renderWelcome = () => (
     <div className="onboarding-content">
@@ -1733,7 +1864,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
             </button>
             <div style={{ borderTop: '1px solid #334155', margin: '0.5rem 0' }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
-            {(['briefing', 'intent', 'relationships', 'knowledge', 'campaigns', 'analysis', 'account', 'connectivity', 'activation'] as Step[]).map(s => (
+            {(['briefing', 'intent', 'relationships', 'knowledge', 'campaigns', 'analysis', 'account', 'connectivity', 'activation', 'workspaceIntro', 'workspaceHandoff'] as Step[]).map(s => (
                 <button 
                   key={s} 
                   onClick={() => setCurrentStep(s)}
@@ -1764,7 +1895,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
       <div className="onboarding-wizard-container">
         <div className="onboarding-progress-header">
           <div className="progress-dots">
-            {['briefing', 'relationships', 'knowledge', 'intent', 'campaigns', 'actionLanes', 'account', 'connectivity', 'activation'].map((s) => (
+            {['briefing', 'relationships', 'knowledge', 'intent', 'campaigns', 'actionLanes', 'account', 'connectivity', 'activation', 'workspaceIntro', 'workspaceHandoff'].map((s) => (
               <div key={s} className={`dot ${currentStep === s ? 'active' : ''}`} />
             ))}
           </div>
@@ -1779,6 +1910,8 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
         {currentStep === 'account' && renderAccountGate()}
         {currentStep === 'connectivity' && renderConnectivity()}
         {currentStep === 'activation' && renderActivation()}
+        {currentStep === 'workspaceIntro' && renderWorkspaceIntro()}
+        {currentStep === 'workspaceHandoff' && renderWorkspaceHandoff()}
         {currentStep === 'welcome' && renderWelcome()}
 
         {currentStep !== 'welcome' && (
