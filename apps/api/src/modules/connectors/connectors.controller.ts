@@ -4,6 +4,8 @@ import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { ConnectorsService } from './connectors.service';
 import { SetupEmailConnectorDto } from './dto/setup-email-connector.dto';
+import { SetupStorageConnectorDto } from './dto/setup-storage-connector.dto';
+import { SetupCalendarConnectorDto } from './dto/setup-calendar-connector.dto';
 
 @Controller('connectors')
 export class ConnectorsController {
@@ -25,6 +27,18 @@ export class ConnectorsController {
   async setupEmail(@Body() body: SetupEmailConnectorDto, @CurrentUser() user?: AuthenticatedUser) {
     if (!user?.id) throw new UnauthorizedException('No authenticated user found');
     return this.connectorsService.setupEmailConnector(user.id, body);
+  }
+
+  @Post('storage/setup')
+  async setupStorage(@Body() body: SetupStorageConnectorDto, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.setupStorageConnector(user.id, body);
+  }
+
+  @Post('calendar/setup')
+  async setupCalendar(@Body() body: SetupCalendarConnectorDto, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.setupCalendarConnector(user.id, body);
   }
 
   @Get('email/oauth/start')
@@ -65,6 +79,18 @@ export class ConnectorsController {
   async syncEmail(@CurrentUser() user?: AuthenticatedUser) {
     if (!user?.id) throw new UnauthorizedException('No authenticated user found');
     return this.connectorsService.syncEmail(user.id);
+  }
+
+  @Post('storage/sync')
+  async syncStorage(@CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.syncStorage(user.id);
+  }
+
+  @Post('calendar/sync')
+  async syncCalendar(@CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.syncCalendar(user.id);
   }
 
   @Get('email/opportunities/:opportunityId/thread-summary')

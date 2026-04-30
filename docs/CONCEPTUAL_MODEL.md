@@ -2032,6 +2032,8 @@ It answers:
 * how are user connectors configured and managed?
 * how do actions flow from business intent to provider execution?
 * what is the audit trail for external integrations?
+* how does each connector participate in the 7-stage platform workflow?
+* what specific role (Signal, Execution, Verification, etc.) does a connector play at each stage?
 
 #### Main Entities
 
@@ -2042,11 +2044,11 @@ A functional capability the platform can perform, independent of specific provid
 Represents:
 
 * Email sending/receiving
-* Calendar management  
+* Calendar management (Availability & Outcome Scheduling)
 * Messaging/SMS communications
 * Voice calling and transcription
 * Contact synchronization
-* File storage and retrieval
+* File storage and retrieval (Automated Asset Ingestion)
 * Content discovery and ingestion
 
 Relationships:
@@ -2098,6 +2100,8 @@ Relationships:
 * has one Connector Credential
 * has one Connector Sync State
 * has many Capability Execution Logs
+* may generate many User Assets (from Storage providers)
+* may manage many Calendar Events (from Calendar providers)
 * may have enabled/disabled feature flags
 
 MVP: email and calendar connectors
@@ -2163,6 +2167,45 @@ Relationships:
 * may have retry/failure tracking
 
 MVP: email and calendar execution logs
+
+---
+
+#### Workflow Role Model
+
+This model defines how connectors are utilized across the platform's multi-stage operating rhythm.
+
+**Workflow Stage**
+
+A logical phase in the platform's lifecycle for a user or campaign.
+
+1. **Understand the User**: Context formation and onboarding.
+2. **Sense & Analyze Context**: Signal observation and leverage detection.
+3. **Generate Strategy**: Turning context into goals, lanes, and campaigns.
+4. **Produce Daily Actions**: Prioritization and action synthesis.
+5. **Execute Actions**: Active outreach and work performance.
+6. **Confirm Outcomes**: Closing the loop on results.
+7. **Maintain Momentum**: Follow-up and re-engagement loops.
+
+**Workflow Role**
+
+The functional purpose a connector serves within one or more workflow stages.
+
+* **Identity / Context Source**: Provides the "Who" and "What" (Stage 1).
+* **Signal Source**: Provides the "When" (Stage 2).
+* **Strategic Input**: Provides the "Why" and "How" (Stage 3).
+* **Daily Action Input**: Provides the "Today" (Stage 4).
+* **Execution Channel**: Performs the "Do" (Stage 5).
+* **Outcome Verifier**: Confirms the "Result" (Stage 6).
+* **Momentum Input**: Drives the "Next" (Stage 7).
+
+**Relationships:**
+
+* **Capability** supports one or more **Workflow Roles**.
+* **User Connector** enables specific **Workflow Roles** based on user permissions/consent.
+* **Campaign** assigns specific **User Connectors** to **Workflow Stages** for its execution.
+* **ActionItem** is created from **Daily Action Inputs**, performed via **Execution Channels**, and verified by **Outcome Verifiers**.
+
+---
 
 **Connector Configuration**
 

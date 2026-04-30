@@ -10,9 +10,16 @@ import {
 } from '@opportunity-os/db';
 import { createHash, randomBytes } from 'crypto';
 import { SetupEmailConnectorDto } from './dto/setup-email-connector.dto';
+import { SetupStorageConnectorDto } from './dto/setup-storage-connector.dto';
+import { SetupCalendarConnectorDto } from './dto/setup-calendar-connector.dto';
 import { EmailProvider, EmailSendInput, SyncedEmailMessage } from './email/email-provider.interface';
 import { GmailEmailProvider } from './email/gmail-email.provider';
 import { OutlookEmailProvider } from './email/outlook-email.provider';
+import { GoogleDriveProvider } from './storage/google-drive.provider';
+import { StorageProvider, SyncedFile } from './storage/storage-provider.interface';
+import { GoogleCalendarProvider } from './calendar/google-calendar.provider';
+import { OutlookCalendarProvider } from './calendar/outlook-calendar.provider';
+import { CalendarProvider } from './calendar/calendar-provider.interface';
 
 @Injectable()
 export class ConnectorsService {
@@ -20,6 +27,9 @@ export class ConnectorsService {
     private readonly configService: ConfigService,
     private readonly gmailProvider: GmailEmailProvider,
     private readonly outlookProvider: OutlookEmailProvider,
+    private readonly googleDriveProvider: GoogleDriveProvider,
+    private readonly googleCalendarProvider: GoogleCalendarProvider,
+    private readonly outlookCalendarProvider: OutlookCalendarProvider,
   ) {}
 
   async listConnectors(userId: string) {
@@ -82,6 +92,7 @@ export class ConnectorsService {
         connectorName: dto.connectorName?.trim() || provider.displayName,
         status: dto.accessToken ? ConnectorStatus.connected : ConnectorStatus.pending_setup,
         enabledFeaturesJson: this.toJson(['send', 'sync', 'reply_detection', 'thread_summary']),
+        enabledRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC', 'DAILY_ACTION', 'EXECUTION', 'VERIFICATION', 'MOMENTUM'],
         metadataJson: this.toJson({ emailAddress: dto.emailAddress }),
       },
       update: {
@@ -89,6 +100,7 @@ export class ConnectorsService {
         connectorName: dto.connectorName?.trim() || provider.displayName,
         status: dto.accessToken ? ConnectorStatus.connected : ConnectorStatus.pending_setup,
         enabledFeaturesJson: this.toJson(['send', 'sync', 'reply_detection', 'thread_summary']),
+        enabledRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC', 'DAILY_ACTION', 'EXECUTION', 'VERIFICATION', 'MOMENTUM'],
         metadataJson: this.toJson({ emailAddress: dto.emailAddress }),
         errorMessage: null,
       },
@@ -113,6 +125,108 @@ export class ConnectorsService {
     });
 
     return this.getEmailReadiness(userId);
+  }
+
+  async setupStorageConnector(userId: string, dto: SetupStorageConnectorDto) {
+    const { capability, provider } = await this.ensureStorageProvider(dto.providerName);
+    const credentials = {
+      accessToken: dto.accessToken,
+      refreshToken: dto.refreshToken,
+      expiresAt: dto.expiresAt,
+    };
+
+    const connector = await prisma.userConnector.upsert({
+      where: {
+        userId_capabilityId: {
+          userId,
+          capabilityId: capability.id,
+        },
+      },
+      create: {
+        userId,
+        capabilityId: capability.id,
+        capabilityProviderId: provider.id,
+        connectorName: 'Google Drive',
+        status: ConnectorStatus.connected,
+        enabledFeaturesJson: this.toJson(['list', 'download', 'sync']),
+        enabledRoles: ['IDENTITY', 'STRATEGIC'],
+      },
+      update: {
+        capabilityProviderId: provider.id,
+        status: ConnectorStatus.connected,
+        enabledRoles: ['IDENTITY', 'STRATEGIC'],
+        errorMessage: null,
+      },
+    });
+
+    await prisma.connectorCredential.upsert({
+      where: { userConnectorId: connector.id },
+      create: {
+        userConnectorId: connector.id,
+        credentialType: 'oauth2_token',
+        encryptedData: JSON.stringify(credentials),
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        refreshStatus: 'ready',
+      },
+      update: {
+        encryptedData: JSON.stringify(credentials),
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        refreshStatus: 'ready',
+      },
+    });
+
+    return { success: true, connector: this.toConnectorSummary(connector) };
+  }
+
+  async setupCalendarConnector(userId: string, dto: SetupCalendarConnectorDto) {
+    const { capability, provider } = await this.ensureCalendarProvider(dto.providerName);
+    const credentials = {
+      accessToken: dto.accessToken,
+      refreshToken: dto.refreshToken,
+      expiresAt: dto.expiresAt,
+    };
+
+    const connector = await prisma.userConnector.upsert({
+      where: {
+        userId_capabilityId: {
+          userId,
+          capabilityId: capability.id,
+        },
+      },
+      create: {
+        userId,
+        capabilityId: capability.id,
+        capabilityProviderId: provider.id,
+        connectorName: 'Google Calendar',
+        status: ConnectorStatus.connected,
+        enabledFeaturesJson: this.toJson(['list', 'sync']),
+        enabledRoles: ['DAILY_ACTION', 'VERIFICATION'],
+      },
+      update: {
+        capabilityProviderId: provider.id,
+        status: ConnectorStatus.connected,
+        enabledRoles: ['DAILY_ACTION', 'VERIFICATION'],
+        errorMessage: null,
+      },
+    });
+
+    await prisma.connectorCredential.upsert({
+      where: { userConnectorId: connector.id },
+      create: {
+        userConnectorId: connector.id,
+        credentialType: 'oauth2_token',
+        encryptedData: JSON.stringify(credentials),
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        refreshStatus: 'ready',
+      },
+      update: {
+        encryptedData: JSON.stringify(credentials),
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        refreshStatus: 'ready',
+      },
+    });
+
+    return { success: true, connector: this.toConnectorSummary(connector) };
   }
 
   async startEmailOAuth(userId: string, providerName: 'outlook', returnTo?: string) {
@@ -415,6 +529,119 @@ export class ConnectorsService {
     };
   }
 
+  async syncStorage(userId: string) {
+    const connector = await this.findConnectedConnector(userId, CapabilityType.storage);
+    if (!connector) {
+      throw new BadRequestException('Connect Google Drive before syncing storage.');
+    }
+    const provider = this.storageProviderFor(connector.capabilityProvider.providerName);
+    const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
+
+    const files = await provider.listFiles(credentials);
+    const created = [];
+    
+    for (const file of files) {
+      const asset = await prisma.userAsset.upsert({
+        where: {
+          userConnectorId_externalId: {
+            userConnectorId: connector.id,
+            externalId: file.externalId,
+          },
+        },
+        create: {
+          userId,
+          userConnectorId: connector.id,
+          externalProvider: connector.capabilityProvider.providerName,
+          externalId: file.externalId,
+          displayName: file.displayName,
+          fileName: file.fileName,
+          fileUrl: file.webViewLink || '',
+          mimeType: file.mimeType,
+          versionToken: file.versionToken,
+          category: 'other', // Default, logic can be smarter later
+        },
+        update: {
+          displayName: file.displayName,
+          fileName: file.fileName,
+          fileUrl: file.webViewLink || '',
+          mimeType: file.mimeType,
+          versionToken: file.versionToken,
+        },
+      });
+      created.push(asset);
+    }
+
+    await prisma.userConnector.update({
+      where: { id: connector.id },
+      data: { lastSyncAt: new Date(), lastSuccessAt: new Date(), errorMessage: null },
+    });
+
+    await this.logExecution(connector.id, 'storage.sync', CapabilityExecutionStatus.succeeded, {}, { count: files.length });
+
+    return { success: true, count: files.length, assets: created };
+  }
+
+  async syncCalendar(userId: string) {
+    const connector = await this.findConnectedConnector(userId, CapabilityType.calendar);
+    if (!connector) {
+      throw new BadRequestException('Connect Google Calendar before syncing.');
+    }
+    const provider = this.calendarProviderFor(connector.capabilityProvider.providerName);
+    const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
+
+    const events = await provider.listEvents(credentials);
+    const created = [];
+
+    for (const event of events) {
+      const dbEvent = await prisma.calendarEvent.upsert({
+        where: {
+          userConnectorId_externalId: {
+            userConnectorId: connector.id,
+            externalId: event.externalId,
+          },
+        },
+        create: {
+          userId,
+          userConnectorId: connector.id,
+          externalId: event.externalId,
+          title: event.title,
+          description: event.description,
+          startAt: event.startAt,
+          endAt: event.endAt,
+          timezone: event.timezone,
+          location: event.location,
+          meetingUrl: event.meetingUrl,
+          status: event.status,
+          isAllDay: event.isAllDay,
+          attendeesJson: this.toJson(event.attendees),
+          syncMetadataJson: this.toJson({ providerName: connector.capabilityProvider.providerName }),
+        },
+        update: {
+          title: event.title,
+          description: event.description,
+          startAt: event.startAt,
+          endAt: event.endAt,
+          timezone: event.timezone,
+          location: event.location,
+          meetingUrl: event.meetingUrl,
+          status: event.status,
+          isAllDay: event.isAllDay,
+          attendeesJson: this.toJson(event.attendees),
+        },
+      });
+      created.push(dbEvent);
+    }
+
+    await prisma.userConnector.update({
+      where: { id: connector.id },
+      data: { lastSyncAt: new Date(), lastSuccessAt: new Date(), errorMessage: null },
+    });
+
+    await this.logExecution(connector.id, 'calendar.sync', CapabilityExecutionStatus.succeeded, {}, { count: events.length });
+
+    return { success: true, count: events.length, events: created };
+  }
+
   async summarizeThread(userId: string, opportunityId: string) {
     const opportunity = await prisma.opportunity.findFirst({
       where: { id: opportunityId, userId },
@@ -515,8 +742,11 @@ export class ConnectorsService {
         name: 'Email',
         description: 'Send and sync email through connected providers.',
         supportedFeaturesJson: this.toJson(['send', 'sync', 'reply_detection', 'thread_summary']),
+        workflowRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC', 'DAILY_ACTION', 'EXECUTION', 'VERIFICATION', 'MOMENTUM'],
       },
-      update: {},
+      update: {
+        workflowRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC', 'DAILY_ACTION', 'EXECUTION', 'VERIFICATION', 'MOMENTUM'],
+      },
     });
     const provider = await prisma.capabilityProvider.upsert({
       where: {
@@ -534,6 +764,76 @@ export class ConnectorsService {
         requiredScopesJson: this.toJson(providerName === 'gmail'
           ? ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly']
           : ['https://graph.microsoft.com/Mail.Send', 'https://graph.microsoft.com/Mail.Read']),
+      },
+      update: { isActive: true },
+    });
+    return { capability, provider };
+  }
+
+  private async ensureStorageProvider(providerName: 'google_drive') {
+    const capability = await prisma.capability.upsert({
+      where: { capabilityType: CapabilityType.storage },
+      create: {
+        capabilityType: CapabilityType.storage,
+        name: 'Storage',
+        description: 'Ingest strategic assets from cloud storage.',
+        supportedFeaturesJson: this.toJson(['list', 'download', 'sync']),
+        workflowRoles: ['IDENTITY', 'STRATEGIC'],
+      },
+      update: {
+        workflowRoles: ['IDENTITY', 'STRATEGIC'],
+      },
+    });
+    const provider = await prisma.capabilityProvider.upsert({
+      where: {
+        capabilityId_providerName: {
+          capabilityId: capability.id,
+          providerName,
+        },
+      },
+      create: {
+        capabilityId: capability.id,
+        providerName,
+        displayName: 'Google Drive',
+        description: 'Google Drive storage integration',
+        authType: 'oauth2',
+        requiredScopesJson: this.toJson(['https://www.googleapis.com/auth/drive.readonly']),
+      },
+      update: { isActive: true },
+    });
+    return { capability, provider };
+  }
+
+  private async ensureCalendarProvider(providerName: 'google_calendar' | 'outlook') {
+    const capability = await prisma.capability.upsert({
+      where: { capabilityType: CapabilityType.calendar },
+      create: {
+        capabilityType: CapabilityType.calendar,
+        name: 'Calendar',
+        description: 'Sync meetings and availability.',
+        supportedFeaturesJson: this.toJson(['list', 'sync']),
+        workflowRoles: ['DAILY_ACTION', 'VERIFICATION'],
+      },
+      update: {
+        workflowRoles: ['DAILY_ACTION', 'VERIFICATION'],
+      },
+    });
+    const provider = await prisma.capabilityProvider.upsert({
+      where: {
+        capabilityId_providerName: {
+          capabilityId: capability.id,
+          providerName,
+        },
+      },
+      create: {
+        capabilityId: capability.id,
+        providerName,
+        displayName: providerName === 'google_calendar' ? 'Google Calendar' : 'Outlook Calendar',
+        description: providerName === 'google_calendar' ? 'Google Calendar integration' : 'Microsoft Outlook Calendar integration',
+        authType: 'oauth2',
+        requiredScopesJson: this.toJson(providerName === 'google_calendar'
+          ? ['https://www.googleapis.com/auth/calendar.readonly']
+          : ['https://graph.microsoft.com/Calendars.Read']),
       },
       update: { isActive: true },
     });
@@ -563,6 +863,25 @@ export class ConnectorsService {
     if (providerName === 'gmail') return this.gmailProvider;
     if (providerName === 'outlook') return this.outlookProvider;
     throw new BadRequestException(`Unsupported email provider: ${providerName}`);
+  }
+
+  private storageProviderFor(providerName: string): StorageProvider {
+    if (providerName === 'google_drive') return this.googleDriveProvider;
+    throw new BadRequestException(`Unsupported storage provider: ${providerName}`);
+  }
+
+  private calendarProviderFor(providerName: string): CalendarProvider {
+    if (providerName === 'google_calendar') return this.googleCalendarProvider;
+    if (providerName === 'outlook') return this.outlookCalendarProvider;
+    throw new BadRequestException(`Unsupported calendar provider: ${providerName}`);
+  }
+
+  private async findConnectedConnector(userId: string, capabilityType: CapabilityType) {
+    return prisma.userConnector.findFirst({
+      where: { userId, capability: { capabilityType }, status: ConnectorStatus.connected },
+      include: { capability: true, capabilityProvider: true, connectorCredentials: true },
+      orderBy: { updatedAt: 'desc' },
+    });
   }
 
   private parseCredentials(raw?: string | null) {
@@ -722,6 +1041,8 @@ export class ConnectorsService {
       providerDisplayName: connector.capabilityProvider?.displayName,
       status: connector.status,
       enabledFeatures: connector.enabledFeaturesJson ?? [],
+      enabledRoles: connector.enabledRoles ?? [],
+      supportedRoles: connector.capability?.workflowRoles ?? [],
       lastSyncAt: connector.lastSyncAt,
       lastSuccessAt: connector.lastSuccessAt,
       errorMessage: connector.errorMessage,

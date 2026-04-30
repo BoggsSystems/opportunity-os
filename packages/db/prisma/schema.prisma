@@ -644,6 +644,7 @@ model User {
   conversationInsights         ConversationThreadInsight[]
   strategicTheses              StrategicThesis[]
   userPosture                  UserPosture?
+  calendarEvents               CalendarEvent[]
 
   @@map("users")
 }
@@ -894,6 +895,7 @@ model Person {
   assetInteractions    AssetInteraction[]
   discoveryTargets     DiscoveryTarget[]
   connectionRecords    ConnectionRecord[]
+  calendarEvents       CalendarEvent[]
 
   @@index([userId])
   @@index([companyId])
@@ -941,6 +943,7 @@ model Opportunity {
   opportunityCycles OpportunityCycle[]
   discoveryTargets  DiscoveryTarget[]
   browserSessions   BrowserSession[]
+  calendarEvents    CalendarEvent[]
 
   @@index([userId])
   @@index([companyId])
@@ -999,6 +1002,39 @@ model Activity {
   @@index([activityType])
   @@index([userId, occurredAt])
   @@map("activities")
+}
+
+model CalendarEvent {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @db.Uuid
+  opportunityId   String?       @db.Uuid
+  personId        String?       @db.Uuid
+  userConnectorId String?       @db.Uuid
+  externalId      String?
+  title           String
+  description     String?
+  startAt         DateTime
+  endAt           DateTime
+  timezone        String?
+  location        String?
+  meetingUrl      String?
+  status          String        @default("confirmed")
+  isAllDay        Boolean       @default(false)
+  attendeesJson   Json?
+  syncMetadataJson Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity?   @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  person        Person?        @relation(fields: [personId], references: [id], onDelete: SetNull)
+  userConnector UserConnector? @relation(fields: [userConnectorId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([opportunityId])
+  @@index([startAt])
+  @@unique([userConnectorId, externalId])
+  @@map("calendar_events")
 }
 
 model Task {
@@ -1786,10 +1822,17 @@ model UserAsset {
   mimeType    String?
   category    AssetCategory @default(other)
   isDefault   Boolean       @default(false)
+  
+  externalProvider String?
+  externalId       String?
+  userConnectorId  String?       @db.Uuid
+  versionToken     String?
+
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userConnector UserConnector? @relation(fields: [userConnectorId], references: [id], onDelete: SetNull)
   narrative    AssetNarrative?
   rules        AssetDeploymentRule[]
   interactions AssetInteraction[]
@@ -1854,6 +1897,26 @@ enum GoalStatus {
   ACTIVE
   COMPLETED
   ARCHIVED
+}
+
+enum WorkflowRole {
+  IDENTITY
+  SIGNAL
+  STRATEGIC
+  DAILY_ACTION
+  EXECUTION
+  VERIFICATION
+  MOMENTUM
+}
+
+enum WorkflowStage {
+  UNDERSTAND_USER
+  SENSE_CONTEXT
+  GENERATE_STRATEGY
+  PRODUCE_ACTIONS
+  EXECUTE_ACTIONS
+  CONFIRM_OUTCOMES
+  MAINTAIN_MOMENTUM
 }
 
 model Goal {
@@ -2020,6 +2083,7 @@ model Capability {
   description           String?
   isActive              Boolean        @default(true)
   supportedFeaturesJson Json?
+  workflowRoles         WorkflowRole[]
   defaultConfigJson     Json?
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
@@ -2062,6 +2126,7 @@ model UserConnector {
   connectorName        String?
   status               ConnectorStatus @default(pending_setup)
   enabledFeaturesJson  Json?
+  enabledRoles         WorkflowRole[]
   lastSyncAt           DateTime?
   lastSuccessAt        DateTime?
   errorMessage         String?
@@ -2075,6 +2140,9 @@ model UserConnector {
   connectorCredentials    ConnectorCredential?
   connectorSyncStates     ConnectorSyncState[]
   capabilityExecutionLogs CapabilityExecutionLog[]
+  assets                  UserAsset[]
+  calendarEvents          CalendarEvent[]
+  campaignConnectors      CampaignConnector[]
 
   @@unique([userId, capabilityId])
   @@index([userId])
@@ -2082,6 +2150,24 @@ model UserConnector {
   @@index([status])
   @@index([userId, status])
   @@map("user_connectors")
+}
+
+model CampaignConnector {
+  id              String        @id @default(uuid()) @db.Uuid
+  campaignId      String        @db.Uuid
+  userConnectorId String        @db.Uuid
+  workflowStage   WorkflowStage
+  isPrimary       Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  campaign      Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userConnector UserConnector @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, workflowStage, userConnectorId])
+  @@index([campaignId])
+  @@index([userConnectorId])
+  @@map("campaign_connectors")
 }
 
 model ConnectorCredential {
@@ -2424,6 +2510,7 @@ model Campaign {
   actionItems       ActionItem[]
   conversationThreads ConversationThread[]
   campaignMetrics   CampaignMetric[]
+  campaignConnectors CampaignConnector[]
 
   @@index([userId])
   @@index([guestSessionId])
