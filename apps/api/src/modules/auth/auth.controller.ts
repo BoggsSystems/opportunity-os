@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
+import { AuthGuard as PassportAuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import { Public } from './public.decorator';
@@ -18,6 +20,26 @@ export class AuthController {
   @Post('signup')
   async signUp(@Body() dto: SignUpDto) {
     return this.authService.signUp(dto);
+  }
+
+  @Public()
+  @Get('google')
+  @UseGuards(PassportAuthGuard('google'))
+  async googleAuth(@Req() req: any) {
+    // Guards handles redirect
+  }
+
+  @Public()
+  @Get('google/callback')
+  @UseGuards(PassportAuthGuard('google'))
+  async googleAuthRedirect(@Req() req: any, @Res() res: Response) {
+    const result = await this.authService.validateGoogleUser(req.user);
+    
+    // Redirect to frontend with tokens in query (simple for now) or cookie
+    const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:5174';
+    const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}`;
+    
+    return res.redirect(redirectUrl);
   }
 
   @Public()

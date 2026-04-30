@@ -221,6 +221,66 @@ export function App() {
     }).catch(() => { /* silent – referral tracking is best-effort */ });
   }, [api]);
 
+  // ── OAuth Callback Handling ─────────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('accessToken');
+    const refreshToken = params.get('refreshToken');
+
+    if (accessToken && refreshToken) {
+      console.log('🔐 OAUTH CALLBACK: Tokens detected');
+      
+      // We don't have the full user object yet, so we'll fetch it or the backend could pass it
+      // For now, let's just trigger a login-like flow
+      // A better way is to have the backend pass the user JSON as well
+      
+      // Temporary: fetch user if missing, or just refresh session
+      // For simplicity in this PR, I'll assume the backend might pass user details in query too
+      // OR I can use the accessToken to fetch /me
+      
+      const fetchUserAndCommit = async () => {
+        setIsWorking(true);
+        try {
+          const tempApi = new ApiClient(accessToken);
+          const { user, subscription, entitlements } = await tempApi.getCurrentUser();
+          
+          const auth: AuthResponse = {
+            accessToken,
+            refreshToken,
+            user,
+            session: { id: 'oauth-session' }, // SID will be in token anyway
+            subscription,
+            entitlements
+          };
+          
+          commitSession(auth);
+          
+          // Clean URL
+          params.delete('accessToken');
+          params.delete('refreshToken');
+          const nextQuery = params.toString();
+          window.history.replaceState(null, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`);
+          
+          setNotice({
+            title: 'Logged in with Google',
+            detail: `Welcome back, ${user.fullName || user.email}.`,
+            tone: 'success'
+          });
+        } catch (error) {
+          setNotice({
+            title: 'Google Login failed',
+            detail: 'Could not retrieve user profile after Google authentication.',
+            tone: 'error'
+          });
+        } finally {
+          setIsWorking(false);
+        }
+      };
+      
+      void fetchUserAndCommit();
+    }
+  }, []); // Only run on mount
+
   const loadWorkspace = useCallback(async () => {
     if (!session) return;
     setIsBooting(true);

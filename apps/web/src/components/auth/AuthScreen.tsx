@@ -82,7 +82,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = (props) => {
           <div className="auth-actions">
             <button className="primary-button" disabled={props.isWorking || !email || !password} type="submit">
               {props.isWorking ? <Loader2 className="spin" size={16} /> : <ArrowRight size={16} />}
-              Enter workspace
+              {mode === 'signup' ? 'Create account' : 'Enter workspace'}
+            </button>
+            <div className="auth-divider">
+              <span>or</span>
+            </div>
+            <button 
+              className="google-button" 
+              type="button"
+              onClick={() => {
+                const url = new URL(`${props.apiBaseUrl}/auth/google`);
+                // If we have a guest session, pass it so the backend can link it
+                const guestId = localStorage.getItem('guestSessionId');
+                if (guestId) url.searchParams.append('guestSessionId', guestId);
+                window.location.href = url.toString();
+              }}
+            >
+              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" />
+              Continue with Google
             </button>
             <button className="secondary-button" disabled={props.isWorking} onClick={useGeneratedUser} type="button">
               Create test user
