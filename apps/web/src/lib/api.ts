@@ -57,7 +57,17 @@ export class ApiClient {
     return API_URL;
   }
 
-  async signup(input: { email: string; password: string; fullName?: string; timezone?: string; initialStrategy?: any }) {
+  async signup(input: {
+    email: string;
+    password: string;
+    fullName?: string | undefined;
+    timezone?: string | undefined;
+    initialStrategy?: any;
+    guestSessionId?: string | undefined;
+    referralCode?: string | undefined;
+    referralVisitId?: string | undefined;
+    referralVisitorId?: string | undefined;
+  }) {
     return this.request<AuthResponse>('/auth/signup', {
       method: 'POST',
       body: input,
@@ -384,6 +394,25 @@ export class ApiClient {
     });
   }
 
+  async recordReferralVisit(input: {
+    referralCode: string;
+    visitorId?: string | undefined;
+    guestSessionId?: string | undefined;
+    landingPath?: string | undefined;
+    landingUrl?: string | undefined;
+    referrerUrl?: string | undefined;
+  }) {
+    return this.request<{ id: string; referralCode: string }>('/me/referrals/visits', {
+      method: 'POST',
+      body: input,
+      authenticated: false,
+    });
+  }
+
+  async getBillingState() {
+    return this.request<any>('/billing/me');
+  }
+
   async getEmailReadiness() {
     return this.request<EmailReadiness>('/connectors/email/readiness');
   }
@@ -409,7 +438,7 @@ export class ApiClient {
     });
   }
 
-  async startEmailOAuth(providerName: 'outlook', returnTo?: string) {
+  async startEmailOAuth(providerName: 'outlook' | 'gmail', returnTo?: string) {
     const query = new URLSearchParams({ provider: providerName });
     if (returnTo) query.set('returnTo', returnTo);
     return this.request<OAuthStartResult>(`/connectors/email/oauth/start?${query.toString()}`);

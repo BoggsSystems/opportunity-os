@@ -2036,3 +2036,154 @@ input:focus {
 .conductor-chat-container .user .message-content {
   color: #ffffff !important;
 }
+
+/* ── Billing & Usage ────────────────────────────────── */
+.plan-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.plan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.status-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.status-badge.status-active,
+.status-badge.status-trialing {
+  border-color: #b7ebd1;
+  background: #effdf6;
+  color: #166534;
+}
+
+.status-badge.status-past_due,
+.status-badge.status-unpaid {
+  border-color: #fcd9b6;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.status-badge.status-canceled {
+  border-color: #e5e7eb;
+  background: #f9fafb;
+  color: #6b7280;
+}
+
+.billing-interval,
+.period-end {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-sm {
+  padding: 7px 14px;
+  font-size: 0.82rem;
+}
+
+.btn-primary {
+  border: 1px solid var(--blue);
+  background: var(--blue);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: var(--blue-strong);
+}
+
+/* Usage bars */
+.usage-bar {
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: #e5eaf2;
+  overflow: hidden;
+}
+
+.usage-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--blue);
+  transition: width 0.4s ease;
+}
+
+.usage-bar-fill.usage-bar-warn {
+  background: var(--amber);
+}
+
+.usage-warning {
+  color: #b45309 !important;
+  font-weight: 700;
+}
+
+/* Growth credits */
+.credits-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.credit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 8px 12px;
+}
+
+.credit-feature {
+  flex: 1;
+  color: var(--ink);
+  font-size: 0.88rem;
+  text-transform: capitalize;
+}
+
+.credit-qty {
+  color: var(--green);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.credit-expires {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* Referral */
+.referral-code {
+  margin-top: 6px;
+  font-size: 0.92rem;
+}
+
+.referral-code strong {
+  color: var(--blue);
+  letter-spacing: 0.5px;
+}
+
+.referral-hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}

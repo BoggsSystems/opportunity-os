@@ -55,7 +55,7 @@ export class ConnectorsController {
 
   @Get('email/oauth/start')
   async startEmailOAuth(
-    @Query('provider') provider: 'outlook',
+    @Query('provider') provider: 'outlook' | 'gmail',
     @Query('returnTo') returnTo: string | undefined,
     @CurrentUser() user?: AuthenticatedUser,
   ) {

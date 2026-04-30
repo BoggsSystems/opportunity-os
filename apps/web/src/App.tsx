@@ -79,7 +79,7 @@ interface UpgradePromptState {
   hint?: string | undefined;
 }
 
-type SettingsSection = 'profile' | 'connectors' | 'connections' | 'usage' | 'notifications';
+type SettingsSection = 'profile' | 'connectors' | 'connections' | 'usage' | 'billing' | 'notifications';
 
 type OutreachExecutionState = 'idle' | 'blocked' | 'sent';
 
@@ -188,6 +188,38 @@ export function App() {
   
   // UI store for conductor expanded state
   const { conductorExpanded, toggleConductor, podiumMode, setPodiumMode } = useUIStore();
+  const [billingState, setBillingState] = useState<any>(null);
+
+  // ── Referral capture ──────────────────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const refCode = params.get('ref');
+    if (!refCode) return;
+
+    // Persist referral code for signup
+    localStorage.setItem('opportunity-os-referral-code', refCode);
+
+    // Clean URL
+    params.delete('ref');
+    const nextQuery = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`);
+
+    // Record visit on backend (fire-and-forget)
+    const visitorId = localStorage.getItem('opportunity-os-visitor-id') || crypto.randomUUID();
+    localStorage.setItem('opportunity-os-visitor-id', visitorId);
+
+    api.recordReferralVisit({
+      referralCode: refCode,
+      visitorId,
+      landingPath: window.location.pathname,
+      landingUrl: window.location.href,
+      referrerUrl: document.referrer || undefined,
+    }).then((result) => {
+      if (result?.id) {
+        localStorage.setItem('opportunity-os-referral-visit-id', result.id);
+      }
+    }).catch(() => { /* silent – referral tracking is best-effort */ });
+  }, [api]);
 
   const loadWorkspace = useCallback(async () => {
     if (!session) return;
@@ -213,6 +245,8 @@ export function App() {
       setCommercialState(commercial);
       setPlans(availablePlans);
       setEmailReadiness(emailState);
+      const billing = await api.getBillingState().catch(() => null);
+      setBillingState(billing);
       const pendingActivation = readWorkspaceActivationPayload();
       if (pendingActivation) setActivationPayload(pendingActivation);
       if (pendingActivation?.persisted?.actionItemId) {
@@ -348,6 +382,11 @@ export function App() {
     setIsWorking(true);
     setNotice(null);
     try {
+      // Gather referral context from localStorage (captured on landing)
+      const referralCode = localStorage.getItem('opportunity-os-referral-code') || undefined;
+      const referralVisitId = localStorage.getItem('opportunity-os-referral-visit-id') || undefined;
+      const referralVisitorId = localStorage.getItem('opportunity-os-visitor-id') || undefined;
+
       const auth =
         mode === 'login'
           ? await api.login({ email, password })
@@ -356,8 +395,17 @@ export function App() {
               password,
               fullName: fullName || 'Test Operator',
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              initialStrategy
+              initialStrategy,
+              referralCode,
+              referralVisitId,
+              referralVisitorId,
             });
+
+      // Clear referral context after successful signup
+      if (mode === 'signup') {
+        localStorage.removeItem('opportunity-os-referral-code');
+        localStorage.removeItem('opportunity-os-referral-visit-id');
+      }
       
       const continueOnboardingAfterAuth =
         localStorage.getItem(CONTINUE_ONBOARDING_AFTER_AUTH_KEY) === 'true';
@@ -994,7 +1042,7 @@ export function App() {
         function cleanup() {
           window.clearTimeout(timeout);
           window.removeEventListener('message', onMessage);
-          popup.close();
+          popup?.close();
         }
 
         function onMessage(event: MessageEvent) {
@@ -1059,7 +1107,7 @@ export function App() {
         function cleanup() {
           window.clearTimeout(timeout);
           window.removeEventListener('message', onMessage);
-          popup.close();
+          popup?.close();
         }
 
         function onMessage(event: MessageEvent) {
@@ -1351,6 +1399,7 @@ export function App() {
           usage={usage}
           commercialState={commercialState}
           emailReadiness={emailReadiness}
+          billingState={billingState}
           activeSection={settingsSection}
           isWorking={isWorking}
           onClose={() => setSettingsOpen(false)}
@@ -1384,6 +1433,7 @@ function SettingsModal(props: {
   usage: UsageSummary | null;
   commercialState: CommercialState | null;
   emailReadiness: EmailReadiness | null;
+  billingState?: any;
   activeSection: SettingsSection;
   isWorking: boolean;
   onClose: () => void;
@@ -1466,6 +1516,7 @@ function SettingsModal(props: {
                 subscription={props.subscription}
                 commercialState={props.commercialState}
                 usage={props.usage}
+                billingState={props.billingState}
               />
             ) : null}
 

@@ -548,12 +548,18 @@ export class ConnectorsService {
 
   async startEmailOAuth(
     userId: string,
-    providerName: "outlook",
+    providerName: "outlook" | "gmail",
     returnTo?: string,
   ) {
-    if (providerName !== "outlook") {
+    if (providerName !== "outlook" && providerName !== "gmail") {
       throw new BadRequestException(
-        "OAuth flow is currently implemented for Outlook only.",
+        "OAuth flow is currently implemented for Outlook and Gmail only.",
+      );
+    }
+
+    if (providerName === "gmail") {
+      throw new BadRequestException(
+        "Gmail OAuth flow is pending configuration. Use Outlook for now.",
       );
     }
 
