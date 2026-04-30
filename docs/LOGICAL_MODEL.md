@@ -34,11 +34,13 @@ These should exist conceptually as relational enums or constrained strings.
 
 Values:
 
+* `incomplete`
 * `trialing`
 * `active`
 * `past_due`
 * `canceled`
 * `expired`
+* `unpaid`
 
 ### `feature_access_level`
 
@@ -48,6 +50,30 @@ Values:
 * `enabled`
 * `limited`
 * `premium`
+
+### `billing_customer_status`
+
+Values:
+
+* `active`
+* `archived`
+
+### `billing_event_status`
+
+Values:
+
+* `received`
+* `processed`
+* `failed`
+* `ignored`
+
+### `entitlement_override_status`
+
+Values:
+
+* `active`
+* `expired`
+* `revoked`
 
 ### `authentication_credential_type`
 
@@ -889,7 +915,11 @@ Purpose: pricing tiers.
 * `monthly_price_cents` INTEGER NOT NULL DEFAULT 0
 * `annual_price_cents` INTEGER NOT NULL DEFAULT 0
 * `currency` VARCHAR NOT NULL DEFAULT 'USD'
+* `stripe_product_id` VARCHAR NULL
+* `stripe_monthly_price_id` VARCHAR NULL
+* `stripe_annual_price_id` VARCHAR NULL
 * `is_active` BOOLEAN NOT NULL DEFAULT true
+* `metadata_json` JSONB NULL
 * `created_at` TIMESTAMP NOT NULL
 * `updated_at` TIMESTAMP NOT NULL
 
@@ -901,6 +931,37 @@ Purpose: pricing tiers.
 
 * Examples: `free_explorer`, `builder`, `operator`, `studio`, `team`
 * A plan defines durable commercial posture; plan feature rows define concrete capability access and quotas.
+* Stripe product and price ids are mapping data for checkout/portal flows. Product logic should continue to use internal plan codes.
+
+---
+
+### `billing_customers`
+
+Purpose: internal link from a user to a Stripe customer.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `provider` VARCHAR NOT NULL DEFAULT 'stripe'
+* `provider_customer_id` VARCHAR NOT NULL
+* `email` VARCHAR NOT NULL
+* `status` `billing_customer_status` NOT NULL DEFAULT 'active'
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique composite index on (`provider`, `provider_customer_id`)
+* index on `user_id`
+* index on `provider_customer_id`
+* index on `status`
+
+#### Notes
+
+* This record is created or reused before Stripe checkout and billing portal launch.
+* Stripe customer state should not replace the internal User model.
 
 ---
 
@@ -948,9 +1009,11 @@ Purpose: current or historical commercial subscription state.
 * `id` UUID PK
 * `user_id` UUID NOT NULL FK -> `users.id`
 * `plan_id` UUID NOT NULL FK -> `plans.id`
+* `billing_customer_id` UUID NULL FK -> `billing_customers.id`
 * `provider` VARCHAR NULL
 * `provider_customer_id` VARCHAR NULL
 * `provider_subscription_id` VARCHAR NULL
+* `provider_price_id` VARCHAR NULL
 * `status` `subscription_status` NOT NULL
 * `billing_interval` VARCHAR NULL
 * `started_at` TIMESTAMP NOT NULL
@@ -958,6 +1021,8 @@ Purpose: current or historical commercial subscription state.
 * `current_period_end` TIMESTAMP NULL
 * `cancel_at_period_end` BOOLEAN NOT NULL DEFAULT false
 * `trial_ends_at` TIMESTAMP NULL
+* `ended_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
 * `created_at` TIMESTAMP NOT NULL
 * `updated_at` TIMESTAMP NOT NULL
 
@@ -965,6 +1030,9 @@ Purpose: current or historical commercial subscription state.
 
 * index on `user_id`
 * index on `plan_id`
+* index on `billing_customer_id`
+* index on `provider_customer_id`
+* index on `provider_price_id`
 * index on `status`
 * optional unique index on `provider_subscription_id` where not null
 
@@ -972,6 +1040,41 @@ Purpose: current or historical commercial subscription state.
 
 * User may have many subscriptions historically
 * App logic should define active subscription resolution
+* Stripe webhook sync updates this table, but `PlanFeature`, `UsageCounter`, `UsageRecord`, `EntitlementOverride`, and `CapabilityGateService` decide access.
+
+---
+
+### `billing_events`
+
+Purpose: provider webhook idempotency and billing audit log.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NULL FK -> `users.id`
+* `provider` VARCHAR NOT NULL DEFAULT 'stripe'
+* `provider_event_id` VARCHAR NOT NULL
+* `event_type` VARCHAR NOT NULL
+* `status` `billing_event_status` NOT NULL DEFAULT 'received'
+* `payload_json` JSONB NOT NULL
+* `error_message` TEXT NULL
+* `processed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique composite index on (`provider`, `provider_event_id`)
+* index on `user_id`
+* index on `event_type`
+* index on `status`
+* index on `processed_at`
+
+#### Notes
+
+* Every Stripe webhook should be stored before or during processing.
+* Processing must be idempotent by `provider_event_id`.
+* Billing events synchronize internal subscription state; they do not directly grant access.
 
 ---
 
@@ -1002,6 +1105,76 @@ Purpose: current metered usage by feature and period.
 * This is a fast lookup table for entitlement enforcement
 * Growth credits can extend the effective allowance for a feature without mutating the base plan feature.
 * Usage increments should occur in the same application flow as the gated capability execution or through an idempotent usage event pattern.
+
+---
+
+### `usage_records`
+
+Purpose: durable usage events that can roll up into usage counters.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `feature_key` VARCHAR NOT NULL
+* `metric_code` VARCHAR NOT NULL
+* `quantity` INTEGER NOT NULL DEFAULT 1
+* `idempotency_key` VARCHAR NULL
+* `source_type` VARCHAR NULL
+* `source_id` UUID NULL
+* `occurred_at` TIMESTAMP NOT NULL
+* `window_start` DATE NOT NULL
+* `window_end` DATE NOT NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on `idempotency_key` where not null
+* index on `user_id`
+* index on `feature_key`
+* index on `metric_code`
+* index on (`source_type`, `source_id`)
+* index on `occurred_at`
+* composite index on (`user_id`, `feature_key`, `window_start`, `window_end`)
+
+#### Notes
+
+* Usage records preserve the why/how of usage; usage counters preserve the fast current total.
+* This supports retry-safe metering and future analytics without turning Stripe into the usage source of truth.
+
+---
+
+### `entitlement_overrides`
+
+Purpose: user-specific access modifiers layered on top of plan/subscription state.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `feature_key` VARCHAR NOT NULL
+* `access_level` `feature_access_level` NULL
+* `config_json` JSONB NULL
+* `reason` TEXT NULL
+* `status` `entitlement_override_status` NOT NULL DEFAULT 'active'
+* `starts_at` TIMESTAMP NOT NULL
+* `expires_at` TIMESTAMP NULL
+* `revoked_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `feature_key`
+* index on `status`
+* index on `expires_at`
+
+#### Notes
+
+* Overrides support founder access, temporary trials, referral rewards, and manual support adjustments.
+* They should be consumed by `CapabilityGateService`, not interpreted directly by frontend code.
 
 ---
 
@@ -3492,9 +3665,14 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `plans` -> many `subscriptions`
 * `plans` -> many `model_access_policies`
 * `users` -> many `subscriptions`
+* `users` -> many `billing_customers`
+* `users` -> many `billing_events`
+* `users` -> many `entitlement_overrides`
 * `users` -> many `usage_counters`
+* `users` -> many `usage_records`
 * `users` -> many `growth_credits`
-* `CapabilityGateService` evaluates active subscription, plan features, usage counters, growth credits, connector state, and feature flags
+* `billing_customers` -> many `subscriptions`
+* `CapabilityGateService` evaluates active subscription, plan features, entitlement overrides, usage counters, usage records, growth credits, connector state, and feature flags
 * `CapabilityCheckResult` is an API/service result, not a required persisted table
 * `UpgradeReason` is represented by stable reason codes, not a required persisted table
 
@@ -3881,9 +4059,19 @@ These are the most important ones to include early.
 
 ### Commercial Lookups
 
+* `billing_customers(user_id)`
+* `billing_customers(provider, provider_customer_id)`
+* `billing_events(provider, provider_event_id)`
+* `billing_events(status, processed_at)`
 * `subscriptions(user_id, status)`
+* `subscriptions(billing_customer_id)`
+* `subscriptions(provider_customer_id)`
+* `subscriptions(provider_price_id)`
 * `plan_features(plan_id, feature_key)`
 * `usage_counters(user_id, feature_key, usage_period_start, usage_period_end)`
+* `usage_records(user_id, feature_key, window_start, window_end)`
+* `usage_records(idempotency_key)`
+* `entitlement_overrides(user_id, feature_key, status)`
 * `growth_credits(user_id, feature_key, status)`
 
 ### Authentication Lookups
@@ -3993,6 +4181,10 @@ These are important even if some are enforced at application level instead of DB
 
 * a user may have many subscriptions historically
 * app should determine one active subscription at a time
+* Stripe is the payment-event source of truth; Opportunity OS subscription rows are the product-facing synchronized state
+* webhook processing must be idempotent by provider event id
+* raw billing events should be stored before or during processing for audit and retries
+* product code should use internal plan codes and entitlements, not Stripe price ids, to decide access
 
 ### Authentication
 
@@ -4016,6 +4208,7 @@ These are important even if some are enforced at application level instead of DB
 * one row per user + feature + time window
 * usage increments should be idempotent when capability execution retries are possible
 * effective allowance is base plan entitlement plus eligible growth credits
+* usage records should preserve individual metering events when the source action matters for audit, analytics, or future usage-based pricing
 
 ### Capability Gating
 
@@ -4023,6 +4216,7 @@ These are important even if some are enforced at application level instead of DB
 * the gate should return allow/block, current usage, remaining allowance, and upgrade reason metadata
 * `CapabilityGateService`, `CapabilityCheckResult`, and `WorkspaceState` are service/API concepts, not required persisted tables
 * AI, discovery, outreach, connector, workspace, and communication services should all use the same gating path
+* entitlement overrides may grant temporary or manual access without changing the user's Stripe subscription
 
 ### Discovered Opportunity Promotion
 
@@ -4090,9 +4284,13 @@ These are the tables I recommend for the first real schema pass:
 * `authentication_sessions`
 * `verification_tokens`
 * `plans`
+* `billing_customers`
 * `plan_features`
 * `subscriptions`
+* `billing_events`
 * `usage_counters`
+* `usage_records`
+* `entitlement_overrides`
 * `model_access_policies`
 * `companies`
 * `people`

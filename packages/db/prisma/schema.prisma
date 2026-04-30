@@ -8,11 +8,13 @@ datasource db {
 }
 
 enum SubscriptionStatus {
+  incomplete
   trialing
   active
   past_due
   canceled
   expired
+  unpaid
 }
 
 enum FeatureAccessLevel {
@@ -20,6 +22,24 @@ enum FeatureAccessLevel {
   enabled
   limited
   premium
+}
+
+enum BillingCustomerStatus {
+  active
+  archived
+}
+
+enum BillingEventStatus {
+  received
+  processed
+  failed
+  ignored
+}
+
+enum EntitlementOverrideStatus {
+  active
+  expired
+  revoked
 }
 
 enum AuthenticationCredentialType {
@@ -600,11 +620,15 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  subscriptions      Subscription[]
-  usageCounters      UsageCounter[]
-  identities         AuthenticationIdentity[]
-  sessions           AuthenticationSession[]
-  verificationTokens VerificationToken[]
+  subscriptions        Subscription[]
+  billingCustomers     BillingCustomer[]
+  billingEvents        BillingEvent[]
+  entitlementOverrides EntitlementOverride[]
+  usageCounters        UsageCounter[]
+  usageRecords         UsageRecord[]
+  identities           AuthenticationIdentity[]
+  sessions             AuthenticationSession[]
+  verificationTokens   VerificationToken[]
 
   companies                    Company[]
   people                       Person[]
@@ -633,8 +657,8 @@ model User {
   workspaceCommands            WorkspaceCommand[]
   userConnectors               UserConnector[]
   referralLinks                ReferralLink[]
-  referralAttributionsGiven    ReferralAttribution[]   @relation("ReferralReferrer")
-  referralAttributionsReceived ReferralAttribution[]   @relation("ReferralReferred")
+  referralAttributionsGiven    ReferralAttribution[]       @relation("ReferralReferrer")
+  referralAttributionsReceived ReferralAttribution[]       @relation("ReferralReferred")
   referralRewards              ReferralReward[]
   growthCredits                GrowthCredit[]
   goalProgress                 GoalProgress[]
@@ -741,22 +765,47 @@ model VerificationToken {
 }
 
 model Plan {
-  id                String   @id @default(uuid()) @db.Uuid
-  code              String   @unique
-  name              String
-  description       String?
-  monthlyPriceCents Int      @default(0)
-  annualPriceCents  Int      @default(0)
-  currency          String   @default("USD")
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                   String   @id @default(uuid()) @db.Uuid
+  code                 String   @unique
+  name                 String
+  description          String?
+  monthlyPriceCents    Int      @default(0)
+  annualPriceCents     Int      @default(0)
+  currency             String   @default("USD")
+  stripeProductId      String?
+  stripeMonthlyPriceId String?
+  stripeAnnualPriceId  String?
+  isActive             Boolean  @default(true)
+  metadataJson         Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   planFeatures        PlanFeature[]
   subscriptions       Subscription[]
   modelAccessPolicies ModelAccessPolicy[]
 
   @@map("plans")
+}
+
+model BillingCustomer {
+  id                 String                @id @default(uuid()) @db.Uuid
+  userId             String                @db.Uuid
+  provider           String                @default("stripe")
+  providerCustomerId String
+  email              String
+  status             BillingCustomerStatus @default(active)
+  metadataJson       Json?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@unique([provider, providerCustomerId])
+  @@index([userId])
+  @@index([providerCustomerId])
+  @@index([status])
+  @@map("billing_customers")
 }
 
 model PlanFeature {
@@ -778,9 +827,11 @@ model Subscription {
   id                     String             @id @default(uuid()) @db.Uuid
   userId                 String             @db.Uuid
   planId                 String             @db.Uuid
+  billingCustomerId      String?            @db.Uuid
   provider               String?
   providerCustomerId     String?
   providerSubscriptionId String?
+  providerPriceId        String?
   status                 SubscriptionStatus
   billingInterval        String?
   startedAt              DateTime
@@ -788,17 +839,46 @@ model Subscription {
   currentPeriodEnd       DateTime?
   cancelAtPeriodEnd      Boolean            @default(false)
   trialEndsAt            DateTime?
+  endedAt                DateTime?
+  metadataJson           Json?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan Plan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan            Plan             @relation(fields: [planId], references: [id], onDelete: Restrict)
+  billingCustomer BillingCustomer? @relation(fields: [billingCustomerId], references: [id], onDelete: SetNull)
 
   @@unique([providerSubscriptionId])
   @@index([userId])
   @@index([planId])
+  @@index([billingCustomerId])
+  @@index([providerCustomerId])
+  @@index([providerPriceId])
   @@index([status])
   @@map("subscriptions")
+}
+
+model BillingEvent {
+  id              String             @id @default(uuid()) @db.Uuid
+  userId          String?            @db.Uuid
+  provider        String             @default("stripe")
+  providerEventId String
+  eventType       String
+  status          BillingEventStatus @default(received)
+  payloadJson     Json
+  errorMessage    String?
+  processedAt     DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, providerEventId])
+  @@index([userId])
+  @@index([eventType])
+  @@index([status])
+  @@index([processedAt])
+  @@map("billing_events")
 }
 
 model UsageCounter {
@@ -818,6 +898,56 @@ model UsageCounter {
   @@index([userId])
   @@index([featureKey])
   @@map("usage_counters")
+}
+
+model UsageRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @db.Uuid
+  featureKey     String
+  metricCode     String
+  quantity       Int      @default(1)
+  idempotencyKey String?
+  sourceType     String?
+  sourceId       String?  @db.Uuid
+  occurredAt     DateTime @default(now())
+  windowStart    DateTime @db.Date
+  windowEnd      DateTime @db.Date
+  metadataJson   Json?
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([idempotencyKey])
+  @@index([userId])
+  @@index([featureKey])
+  @@index([metricCode])
+  @@index([sourceType, sourceId])
+  @@index([occurredAt])
+  @@index([userId, featureKey, windowStart, windowEnd])
+  @@map("usage_records")
+}
+
+model EntitlementOverride {
+  id          String                    @id @default(uuid()) @db.Uuid
+  userId      String                    @db.Uuid
+  featureKey  String
+  accessLevel FeatureAccessLevel?
+  configJson  Json?
+  reason      String?
+  status      EntitlementOverrideStatus @default(active)
+  startsAt    DateTime                  @default(now())
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([featureKey])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("entitlement_overrides")
 }
 
 model ModelAccessPolicy {
@@ -889,12 +1019,12 @@ model Person {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company              Company?            @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  primaryOpportunities Opportunity[]       @relation("PrimaryPersonOpportunities")
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company              Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  primaryOpportunities Opportunity[]        @relation("PrimaryPersonOpportunities")
   opportunityLinks     OpportunityPerson[]
   activities           Activity[]
-  actionItems          ActionItem[]        @relation("PersonActionItems")
+  actionItems          ActionItem[]         @relation("PersonActionItems")
   conversationThreads  ConversationThread[] @relation("PersonConversationThreads")
   tasks                Task[]
   assetInteractions    AssetInteraction[]
@@ -1010,35 +1140,35 @@ model Activity {
 }
 
 model CalendarEvent {
-  id              String        @id @default(uuid()) @db.Uuid
-  userId          String        @db.Uuid
-  opportunityId   String?       @db.Uuid
-  personId        String?       @db.Uuid
-  userConnectorId String?       @db.Uuid
-  externalId      String?
-  title           String
-  description     String?
-  startAt         DateTime
-  endAt           DateTime
-  timezone        String?
-  location        String?
-  meetingUrl      String?
-  status          String        @default("confirmed")
-  isAllDay        Boolean       @default(false)
-  attendeesJson   Json?
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  opportunityId    String?  @db.Uuid
+  personId         String?  @db.Uuid
+  userConnectorId  String?  @db.Uuid
+  externalId       String?
+  title            String
+  description      String?
+  startAt          DateTime
+  endAt            DateTime
+  timezone         String?
+  location         String?
+  meetingUrl       String?
+  status           String   @default("confirmed")
+  isAllDay         Boolean  @default(false)
+  attendeesJson    Json?
   syncMetadataJson Json?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   opportunity   Opportunity?   @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   person        Person?        @relation(fields: [personId], references: [id], onDelete: SetNull)
   userConnector UserConnector? @relation(fields: [userConnectorId], references: [id], onDelete: SetNull)
 
+  @@unique([userConnectorId, externalId])
   @@index([userId])
   @@index([opportunityId])
   @@index([startAt])
-  @@unique([userConnectorId, externalId])
   @@map("calendar_events")
 }
 
@@ -1829,21 +1959,21 @@ model UserAsset {
   mimeType    String?
   category    AssetCategory @default(other)
   isDefault   Boolean       @default(false)
-  
+
   externalProvider String?
   externalId       String?
-  userConnectorId  String?       @db.Uuid
+  userConnectorId  String? @db.Uuid
   versionToken     String?
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userConnector UserConnector? @relation(fields: [userConnectorId], references: [id], onDelete: SetNull)
-  narrative    AssetNarrative?
-  rules        AssetDeploymentRule[]
-  interactions AssetInteraction[]
-  campaigns    CampaignAsset[]
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userConnector UserConnector?        @relation(fields: [userConnectorId], references: [id], onDelete: SetNull)
+  narrative     AssetNarrative?
+  rules         AssetDeploymentRule[]
+  interactions  AssetInteraction[]
+  campaigns     CampaignAsset[]
 
   @@index([userId])
   @@index([category])
@@ -2503,21 +2633,21 @@ model Campaign {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  offering          Offering?          @relation(fields: [offeringId], references: [id], onDelete: SetNull)
-  goal              Goal?              @relation(fields: [goalId], references: [id], onDelete: SetNull)
-  opportunities     Opportunity[]
-  assets            CampaignAsset[]
-  discoveryScans    DiscoveryScan[]
-  interactions      AssetInteraction[]
-  opportunityCycles OpportunityCycle[]
-  momentumStates    MomentumState[]
-  actionLanes       ActionLane[]
-  actionCycles      ActionCycle[]
-  actionItems       ActionItem[]
+  user                User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering            Offering?            @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  goal                Goal?                @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  opportunities       Opportunity[]
+  assets              CampaignAsset[]
+  discoveryScans      DiscoveryScan[]
+  interactions        AssetInteraction[]
+  opportunityCycles   OpportunityCycle[]
+  momentumStates      MomentumState[]
+  actionLanes         ActionLane[]
+  actionCycles        ActionCycle[]
+  actionItems         ActionItem[]
   conversationThreads ConversationThread[]
-  campaignMetrics   CampaignMetric[]
-  campaignConnectors CampaignConnector[]
+  campaignMetrics     CampaignMetric[]
+  campaignConnectors  CampaignConnector[]
 
   @@index([userId])
   @@index([guestSessionId])
@@ -2546,11 +2676,11 @@ model ActionLane {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
-  campaign        Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  actionCycles    ActionCycle[]
-  actionItems     ActionItem[]
+  campaign            Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actionCycles        ActionCycle[]
+  actionItems         ActionItem[]
   conversationThreads ConversationThread[]
-  campaignMetrics CampaignMetric[]
+  campaignMetrics     CampaignMetric[]
 
   @@index([campaignId])
   @@index([laneType])
@@ -2585,9 +2715,9 @@ model ActionCycle {
   createdAt              DateTime          @default(now())
   updatedAt              DateTime          @updatedAt
 
-  campaign    Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  actionLane  ActionLane   @relation(fields: [actionLaneId], references: [id], onDelete: Cascade)
-  actionItems ActionItem[]
+  campaign            Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actionLane          ActionLane           @relation(fields: [actionLaneId], references: [id], onDelete: Cascade)
+  actionItems         ActionItem[]
   conversationThreads ConversationThread[]
 
   @@index([campaignId])
@@ -2637,14 +2767,14 @@ model ActionItem {
   createdAt            DateTime                      @default(now())
   updatedAt            DateTime                      @updatedAt
 
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  actionLane       ActionLane        @relation(fields: [actionLaneId], references: [id], onDelete: Cascade)
-  actionCycle      ActionCycle?      @relation(fields: [actionCycleId], references: [id], onDelete: SetNull)
-  activity         Activity?         @relation(fields: [activityId], references: [id], onDelete: SetNull)
-  workspaceCommand WorkspaceCommand? @relation(fields: [workspaceCommandId], references: [id], onDelete: SetNull)
-  targetPerson     Person?           @relation("PersonActionItems", fields: [targetPersonId], references: [id], onDelete: SetNull)
-  targetCompany    Company?          @relation("CompanyActionItems", fields: [targetCompanyId], references: [id], onDelete: SetNull)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign            Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actionLane          ActionLane           @relation(fields: [actionLaneId], references: [id], onDelete: Cascade)
+  actionCycle         ActionCycle?         @relation(fields: [actionCycleId], references: [id], onDelete: SetNull)
+  activity            Activity?            @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  workspaceCommand    WorkspaceCommand?    @relation(fields: [workspaceCommandId], references: [id], onDelete: SetNull)
+  targetPerson        Person?              @relation("PersonActionItems", fields: [targetPersonId], references: [id], onDelete: SetNull)
+  targetCompany       Company?             @relation("CompanyActionItems", fields: [targetCompanyId], references: [id], onDelete: SetNull)
   conversationThreads ConversationThread[]
 
   @@index([userId])
@@ -2666,34 +2796,34 @@ model ActionItem {
 }
 
 model ConversationThread {
-  id                   String                   @id @default(uuid()) @db.Uuid
-  userId               String                   @db.Uuid
-  campaignId           String?                  @db.Uuid
-  actionLaneId         String?                  @db.Uuid
-  actionCycleId        String?                  @db.Uuid
-  actionItemId         String?                  @db.Uuid
-  targetPersonId       String?                  @db.Uuid
-  targetCompanyId      String?                  @db.Uuid
-  channel              String
-  externalProvider     String?
-  externalThreadUrl    String?
-  status               ConversationThreadStatus @default(active)
-  latestSummary        String?
-  latestSentiment      ConversationInsightSentiment @default(unknown)
-  latestIntent         String?
-  nextActionSummary    String?
-  lastMessageAt        DateTime?
-  metadataJson         Json?
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
+  id                String                       @id @default(uuid()) @db.Uuid
+  userId            String                       @db.Uuid
+  campaignId        String?                      @db.Uuid
+  actionLaneId      String?                      @db.Uuid
+  actionCycleId     String?                      @db.Uuid
+  actionItemId      String?                      @db.Uuid
+  targetPersonId    String?                      @db.Uuid
+  targetCompanyId   String?                      @db.Uuid
+  channel           String
+  externalProvider  String?
+  externalThreadUrl String?
+  status            ConversationThreadStatus     @default(active)
+  latestSummary     String?
+  latestSentiment   ConversationInsightSentiment @default(unknown)
+  latestIntent      String?
+  nextActionSummary String?
+  lastMessageAt     DateTime?
+  metadataJson      Json?
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
 
-  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  campaign      Campaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  actionLane    ActionLane?  @relation(fields: [actionLaneId], references: [id], onDelete: SetNull)
-  actionCycle   ActionCycle? @relation(fields: [actionCycleId], references: [id], onDelete: SetNull)
-  actionItem    ActionItem?  @relation(fields: [actionItemId], references: [id], onDelete: SetNull)
-  targetPerson  Person?      @relation("PersonConversationThreads", fields: [targetPersonId], references: [id], onDelete: SetNull)
-  targetCompany Company?     @relation("CompanyConversationThreads", fields: [targetCompanyId], references: [id], onDelete: SetNull)
+  user          User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign      Campaign?                   @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  actionLane    ActionLane?                 @relation(fields: [actionLaneId], references: [id], onDelete: SetNull)
+  actionCycle   ActionCycle?                @relation(fields: [actionCycleId], references: [id], onDelete: SetNull)
+  actionItem    ActionItem?                 @relation(fields: [actionItemId], references: [id], onDelete: SetNull)
+  targetPerson  Person?                     @relation("PersonConversationThreads", fields: [targetPersonId], references: [id], onDelete: SetNull)
+  targetCompany Company?                    @relation("CompanyConversationThreads", fields: [targetCompanyId], references: [id], onDelete: SetNull)
   messages      ConversationThreadMessage[]
   insights      ConversationThreadInsight[]
 
@@ -2711,18 +2841,18 @@ model ConversationThread {
 }
 
 model ConversationThreadMessage {
-  id              String                       @id @default(uuid()) @db.Uuid
-  userId          String                       @db.Uuid
-  threadId        String                       @db.Uuid
-  direction       ConversationMessageDirection
-  source          ConversationMessageSource    @default(manual_paste)
-  bodyText        String?
-  attachmentUrls  String[]
+  id                  String                       @id @default(uuid()) @db.Uuid
+  userId              String                       @db.Uuid
+  threadId            String                       @db.Uuid
+  direction           ConversationMessageDirection
+  source              ConversationMessageSource    @default(manual_paste)
+  bodyText            String?
+  attachmentUrls      String[]
   attachmentMimeTypes String[]
-  occurredAt      DateTime                     @default(now())
-  metadataJson    Json?
-  createdAt       DateTime                     @default(now())
-  updatedAt       DateTime                     @updatedAt
+  occurredAt          DateTime                     @default(now())
+  metadataJson        Json?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
 
   user   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   thread ConversationThread @relation(fields: [threadId], references: [id], onDelete: Cascade)

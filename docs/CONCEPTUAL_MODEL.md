@@ -11,10 +11,10 @@ The platform is an **AI-powered opportunity operating system** for:
 * tracking applications
 * enforcing plan/usage rules
 
-At the conceptual level, the system has 17 domain areas:
+At the conceptual level, the system has 18 domain areas:
 
 1. Identity and ownership
-2. Commercial access
+2. Commercial access and billing
 3. CRM core
 4. Discovery
 5. Outreach
@@ -142,7 +142,7 @@ MVP: yes
 
 ---
 
-### B. Commercial Access
+### B. Commercial Access and Billing
 
 This domain answers:
 
@@ -153,6 +153,7 @@ This domain answers:
 * is this capability request allowed right now?
 * what usage remains in the current window?
 * what upgrade reason should be returned if blocked?
+* how does Stripe billing state map into internal product access?
 
 #### Main Entities
 
@@ -165,12 +166,33 @@ Represents:
 * the product package being sold
 * commercial feature bundle
 * default quota and capability posture
+* internal plan code used by the product instead of raw Stripe product or price ids
+* optional Stripe price mappings for checkout and billing portal flows
 
 Relationships:
 
 * a Plan has many Plan Features
 * a Plan has many Subscriptions
 * a Plan has many Model Access Policies
+* a Plan may map to one Stripe product and one or more Stripe prices
+
+MVP: yes
+
+**Billing Customer**
+
+The internal link between a User and a Stripe customer.
+
+Represents:
+
+* the Stripe customer id associated with a user account
+* the billing email used for checkout and portal sessions
+* provider-specific customer metadata without making Stripe the user system of record
+
+Relationships:
+
+* belongs to one User
+* may have many Subscriptions over time
+* is created or reused before checkout or billing portal launch
 
 MVP: yes
 
@@ -215,11 +237,34 @@ Represents:
 * billing status
 * trialing/cancelled/past-due state
 * founder/internal/dev bypass status for dogfooding
+* synchronized Stripe subscription state when provider is Stripe
+* the internal plan selected by a provider subscription
 
 Relationships:
 
 * belongs to one User
 * belongs to one Plan
+* may belong to one Billing Customer
+* may reference one provider subscription id and provider price id
+
+MVP: yes
+
+**Billing Event**
+
+A stored payment-provider event used for webhook idempotency and auditability.
+
+Represents:
+
+* raw Stripe webhook event payload
+* processing status
+* retry/error state
+* durable proof of subscription/payment changes received from Stripe
+
+Relationships:
+
+* may be associated with one User after customer/subscription resolution
+* updates Billing Customer and Subscription state through webhook processing
+* does not directly grant product access; it only feeds internal billing state
 
 MVP: yes
 
@@ -250,6 +295,44 @@ Relationships:
 
 MVP: yes
 
+**Usage Record**
+
+A durable event showing that a metered capability was consumed.
+
+Represents:
+
+* an idempotent usage increment
+* the source entity/action that caused usage
+* a metric that can later support usage analytics, free-tier limits, or usage-based pricing
+
+Relationships:
+
+* belongs to one User
+* contributes to Usage Counters
+* may reference a source action, campaign, connector, or workflow through source metadata
+
+MVP: yes, lightweight
+
+**Entitlement Override**
+
+A user-specific modifier to normal plan access.
+
+Represents:
+
+* founder/admin access
+* temporary trial unlock
+* referral reward unlock
+* manual support adjustment
+* feature-specific exception without changing the user's plan
+
+Relationships:
+
+* belongs to one User
+* modifies Capability Gate decisions
+* may expire or be revoked independently of Stripe subscription state
+
+MVP: yes, simple
+
 **Capability Gate**
 
 The policy decision point used before executing cost-bearing or premium operations.
@@ -264,6 +347,7 @@ Represents:
 Relationships:
 
 * evaluates User Plan, Entitlements, Usage Counters, Feature Flags, and Growth Credits
+* evaluates Entitlement Overrides and Usage Records/Counters
 * is called by AI, Discovery, Outreach, Connector, Workspace, and Communication services before execution
 * returns a Capability Check Result
 
