@@ -1,6 +1,6 @@
 import { IsIn, IsISO8601, IsOptional, IsString } from 'class-validator';
 
-export const STORAGE_PROVIDER_NAMES = ['google_drive'] as const;
+export const STORAGE_PROVIDER_NAMES = ['google_drive', 'onedrive', 'dropbox'] as const;
 
 export class SetupStorageConnectorDto {
   @IsIn(STORAGE_PROVIDER_NAMES)

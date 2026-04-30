@@ -16,6 +16,8 @@ import { EmailProvider, EmailSendInput, SyncedEmailMessage } from './email/email
 import { GmailEmailProvider } from './email/gmail-email.provider';
 import { OutlookEmailProvider } from './email/outlook-email.provider';
 import { GoogleDriveProvider } from './storage/google-drive.provider';
+import { OneDriveProvider } from './storage/onedrive.provider';
+import { DropboxProvider } from './storage/dropbox.provider';
 import { StorageProvider, SyncedFile } from './storage/storage-provider.interface';
 import { GoogleCalendarProvider } from './calendar/google-calendar.provider';
 import { OutlookCalendarProvider } from './calendar/outlook-calendar.provider';
@@ -28,6 +30,8 @@ export class ConnectorsService {
     private readonly gmailProvider: GmailEmailProvider,
     private readonly outlookProvider: OutlookEmailProvider,
     private readonly googleDriveProvider: GoogleDriveProvider,
+    private readonly oneDriveProvider: OneDriveProvider,
+    private readonly dropboxProvider: DropboxProvider,
     private readonly googleCalendarProvider: GoogleCalendarProvider,
     private readonly outlookCalendarProvider: OutlookCalendarProvider,
   ) {}
@@ -146,7 +150,9 @@ export class ConnectorsService {
         userId,
         capabilityId: capability.id,
         capabilityProviderId: provider.id,
-        connectorName: 'Google Drive',
+        connectorName: 
+          dto.providerName === 'google_drive' ? 'Google Drive' : 
+          dto.providerName === 'onedrive' ? 'OneDrive' : 'Dropbox',
         status: ConnectorStatus.connected,
         enabledFeaturesJson: this.toJson(['list', 'download', 'sync']),
         enabledRoles: ['IDENTITY', 'STRATEGIC'],
@@ -770,7 +776,7 @@ export class ConnectorsService {
     return { capability, provider };
   }
 
-  private async ensureStorageProvider(providerName: 'google_drive') {
+  private async ensureStorageProvider(providerName: 'google_drive' | 'onedrive' | 'dropbox') {
     const capability = await prisma.capability.upsert({
       where: { capabilityType: CapabilityType.storage },
       create: {
@@ -794,10 +800,17 @@ export class ConnectorsService {
       create: {
         capabilityId: capability.id,
         providerName,
-        displayName: 'Google Drive',
-        description: 'Google Drive storage integration',
+        displayName: 
+          providerName === 'google_drive' ? 'Google Drive' : 
+          providerName === 'onedrive' ? 'OneDrive' : 'Dropbox',
+        description: 
+          providerName === 'google_drive' ? 'Google Drive storage integration' : 
+          providerName === 'onedrive' ? 'Microsoft OneDrive storage integration' : 'Dropbox storage integration',
         authType: 'oauth2',
-        requiredScopesJson: this.toJson(['https://www.googleapis.com/auth/drive.readonly']),
+        requiredScopesJson: this.toJson(
+          providerName === 'google_drive' ? ['https://www.googleapis.com/auth/drive.readonly'] :
+          providerName === 'onedrive' ? ['https://graph.microsoft.com/Files.Read'] : []
+        ),
       },
       update: { isActive: true },
     });
@@ -867,6 +880,8 @@ export class ConnectorsService {
 
   private storageProviderFor(providerName: string): StorageProvider {
     if (providerName === 'google_drive') return this.googleDriveProvider;
+    if (providerName === 'onedrive') return this.oneDriveProvider;
+    if (providerName === 'dropbox') return this.dropboxProvider;
     throw new BadRequestException(`Unsupported storage provider: ${providerName}`);
   }
 
