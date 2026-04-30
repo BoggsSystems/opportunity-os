@@ -2166,7 +2166,79 @@ Relationships:
 * stores execution outcome and provider response
 * may have retry/failure tracking
 
-MVP: email and calendar execution logs
+# 1. Understand the user
+
+This is onboarding and context formation.
+
+## Connectors that help here
+
+* LinkedIn archive import
+* GitHub (Repositories, Contributions, Stars)
+* **Shopify / Commerce (Customers, Orders, Products)**
+* CRM (Salesforce/HubSpot)
+* contacts
+* Google Drive / Dropbox / OneDrive / iCloud Drive
+* resume / portfolio uploads
+* website URL scanning
+* job application export
+* email identity
+* Google / Microsoft sign-in
+
+## What they contribute
+
+* who the user is
+* what they are looking for
+* who they know
+* what they know
+* technical depth and focus (languages, expertise)
+* **customer base and purchase patterns**
+* **product / service catalog**
+* their "voice" and style
+* their strategic advantages
+
+---
+
+# 2. Sense and analyze context
+
+This is the daily or continuous monitoring.
+
+## Connectors that help here
+
+* **Shopify (New orders, Dormant customers, Large purchases)**
+* GitHub (Star signals, Issue engagement, PR activity)
+* Gmail / Outlook (inbox sensing)
+* LinkedIn (feed sensing)
+* Google Search / News (brand monitoring)
+* Firecrawl (website changes)
+
+## What they contribute
+
+* reasons to reach out
+* intent signals
+* news / triggers
+* **purchase triggers (repeat buying, abandonment)**
+* context for personalization
+* competitive intelligence
+
+---
+
+# 7. Maintain Momentum
+
+This is follow-up and re-engagement.
+
+## Connectors that help here
+
+* **Shopify (Dormant customer detection)**
+* CRM (Deal follow-ups)
+* Email / Messaging (Nurture loops)
+
+## What they contribute
+
+* reactivation timing
+* upsell opportunities
+* referral requests
+
+---
 
 ---
 

@@ -101,6 +101,8 @@ Values:
 * `follow_up`
 * `note_event`
 * `other`
+* `purchase`
+* `abandoned_cart`
 
 ### `task_status`
 
@@ -562,6 +564,7 @@ Values:
 * `storage`
 * `discovery`
 * `social`
+* `commerce`
 
 ### `connector_status`
 

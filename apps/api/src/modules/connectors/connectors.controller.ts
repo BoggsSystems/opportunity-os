@@ -47,6 +47,12 @@ export class ConnectorsController {
     return this.connectorsService.setupSocialConnector(user.id, body);
   }
 
+  @Post('commerce/setup')
+  async setupCommerce(@Body() body: any, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.setupCommerceConnector(user.id, body);
+  }
+
   @Get('email/oauth/start')
   async startEmailOAuth(
     @Query('provider') provider: 'outlook',

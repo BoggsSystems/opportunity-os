@@ -10,6 +10,7 @@ import { GoogleCalendarProvider } from './calendar/google-calendar.provider';
 import { OutlookCalendarProvider } from './calendar/outlook-calendar.provider';
 import { ICloudCalendarProvider } from './calendar/icloud-calendar.provider';
 import { GithubProvider } from './social/github.provider';
+import { ShopifyCommerceProvider } from './commerce/shopify-commerce.provider';
 
 @Module({
   controllers: [ConnectorsController],
@@ -24,6 +25,7 @@ import { GithubProvider } from './social/github.provider';
     OutlookCalendarProvider,
     ICloudCalendarProvider,
     GithubProvider,
+    ShopifyCommerceProvider,
   ],
   exports: [ConnectorsService],
 })

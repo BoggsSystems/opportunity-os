@@ -24,8 +24,11 @@ import { OutlookCalendarProvider } from './calendar/outlook-calendar.provider';
 import { ICloudCalendarProvider } from './calendar/icloud-calendar.provider';
 import { CalendarProvider } from './calendar/calendar-provider.interface';
 import { SetupSocialConnectorDto } from './dto/setup-social-connector.dto';
+import { SetupCommerceConnectorDto } from './dto/setup-commerce-connector.dto';
 import { GithubProvider } from './social/github.provider';
 import { SocialProvider, TechnicalProfileData } from './social-provider.interface';
+import { ShopifyCommerceProvider } from './commerce/shopify-commerce.provider';
+import { CommerceProvider } from './commerce/commerce-provider.interface';
 
 @Injectable()
 export class ConnectorsService {
@@ -40,6 +43,7 @@ export class ConnectorsService {
     private readonly outlookCalendarProvider: OutlookCalendarProvider,
     private readonly icloudCalendarProvider: ICloudCalendarProvider,
     private readonly githubProvider: GithubProvider,
+    private readonly shopifyProvider: ShopifyCommerceProvider,
   ) {}
 
   async listConnectors(userId: string) {
@@ -287,6 +291,126 @@ export class ConnectorsService {
     await this.syncTechnicalProfile(userId, connector.id, dto.providerName);
 
     return { success: true, connector: this.toConnectorSummary(connector) };
+  }
+
+  async setupCommerceConnector(userId: string, dto: SetupCommerceConnectorDto) {
+    const { capability, provider } = await this.ensureCommerceProvider(dto.providerName);
+    const credentials = { accessToken: dto.accessToken, storeName: dto.storeName };
+    const testResult = await this.commerceProviderFor(dto.providerName).test(credentials);
+    if (!testResult.ok) throw new BadRequestException('Failed to verify commerce credentials');
+
+    const connector = await prisma.userConnector.upsert({
+      where: { userId_capabilityId: { userId, capabilityId: capability.id } },
+      create: {
+        userId,
+        capabilityId: capability.id,
+        capabilityProviderId: provider.id,
+        connectorName: dto.connectorName || (dto.providerName === 'shopify' ? 'Shopify' : 'Commerce'),
+        status: ConnectorStatus.connected,
+        enabledFeaturesJson: this.toJson(['customer_sync', 'order_sync', 'product_sync']),
+        enabledRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC', 'MOMENTUM'],
+      },
+      update: {
+        capabilityProviderId: provider.id,
+        status: ConnectorStatus.connected,
+        enabledRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC', 'MOMENTUM'],
+        errorMessage: null,
+      },
+    });
+
+    await prisma.connectorCredential.upsert({
+      where: { userConnectorId: connector.id },
+      create: {
+        userConnectorId: connector.id,
+        credentialType: 'api_key',
+        encryptedData: JSON.stringify(credentials),
+        refreshStatus: 'ready',
+      },
+      update: {
+        encryptedData: JSON.stringify(credentials),
+        refreshStatus: 'ready',
+      },
+    });
+
+    // Immediate sync
+    await this.syncCommerceData(userId, connector.id, dto.providerName);
+
+    return { success: true, connector: this.toConnectorSummary(connector) };
+  }
+
+  private async syncCommerceData(userId: string, userConnectorId: string, providerName: string) {
+    const connector = await prisma.userConnector.findUnique({
+      where: { id: userConnectorId },
+      include: { connectorCredentials: true },
+    });
+    if (!connector) return;
+
+    const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
+    const provider = this.commerceProviderFor(providerName);
+
+    // 1. Sync Products -> Offerings
+    const products = await provider.listProducts(credentials);
+    for (const prod of products) {
+      await prisma.offering.upsert({
+        where: { id: prod.externalId }, // We assume Shopify IDs are unique strings
+        create: {
+          id: prod.externalId,
+          userId,
+          title: prod.title,
+          description: prod.description,
+          offeringType: 'product',
+          status: 'active',
+          externalId: prod.externalId,
+          source: providerName,
+        },
+        update: {
+          title: prod.title,
+          description: prod.description,
+        },
+      });
+    }
+
+    // 2. Sync Customers -> People
+    const customers = await provider.listCustomers(credentials);
+    for (const cust of customers) {
+      await prisma.person.upsert({
+        where: { id: cust.externalId },
+        create: {
+          id: cust.externalId,
+          userId,
+          fullName: `${cust.firstName || ''} ${cust.lastName || ''}`.trim() || 'Shopify Customer',
+          firstName: cust.firstName,
+          lastName: cust.lastName,
+          email: cust.email,
+          contactSource: providerName,
+        },
+        update: {
+          email: cust.email,
+        },
+      });
+    }
+
+    // 3. Sync Orders -> Activities
+    const orders = await provider.listOrders(credentials);
+    for (const order of orders) {
+      await prisma.activity.upsert({
+        where: { id: order.externalId },
+        create: {
+          id: order.externalId,
+          userId,
+          personId: order.customerExternalId, // Links to the Person created above
+          activityType: ActivityType.purchase,
+          title: `Shopify Order ${order.orderNumber}`,
+          description: `Total: ${order.totalPrice}`,
+          performedAt: order.createdAt,
+          metadataJson: this.toJson(order.metadata),
+        },
+        update: {
+          description: `Total: ${order.totalPrice}`,
+          performedAt: order.createdAt,
+        },
+      });
+    }
   }
 
   private async syncTechnicalProfile(userId: string, userConnectorId: string, providerName: string) {
@@ -981,6 +1105,41 @@ export class ConnectorsService {
     return { capability, provider };
   }
 
+  private async ensureCommerceProvider(providerName: 'shopify') {
+    const capability = await prisma.capability.upsert({
+      where: { capabilityType: CapabilityType.commerce },
+      create: {
+        capabilityType: CapabilityType.commerce,
+        name: 'Commerce & Customer Operations',
+        description: 'Ingest orders, customers, and products to drive repeat revenue.',
+        supportedFeaturesJson: this.toJson(['customer_sync', 'order_sync', 'product_sync']),
+        workflowRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC', 'MOMENTUM'],
+      },
+      update: {
+        workflowRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC', 'MOMENTUM'],
+      },
+    });
+    const provider = await prisma.capabilityProvider.upsert({
+      where: {
+        capabilityId_providerName: {
+          capabilityId: capability.id,
+          providerName,
+        },
+      },
+      create: {
+        capabilityId: capability.id,
+        providerName,
+        displayName: providerName === 'shopify' ? 'Shopify' : 'Commerce Provider',
+        description: providerName === 'shopify' ? 'Shopify GraphQL Admin integration' : 'Commerce integration',
+        authType: 'api_key',
+        requiredScopesJson: this.toJson(providerName === 'shopify' ? ['read_customers', 'read_orders', 'read_products'] : []),
+      },
+      update: { isActive: true },
+    });
+    return { capability, provider };
+  }
+
+
 
   private async findConnectedEmailConnector(userId: string) {
     return prisma.userConnector.findFirst({
@@ -1024,6 +1183,11 @@ export class ConnectorsService {
   private socialProviderFor(providerName: string): SocialProvider {
     if (providerName === 'github') return this.githubProvider;
     throw new BadRequestException(`Unsupported social provider: ${providerName}`);
+  }
+
+  private commerceProviderFor(providerName: string): CommerceProvider {
+    if (providerName === 'shopify') return this.shopifyProvider;
+    throw new BadRequestException(`Unsupported commerce provider: ${providerName}`);
   }
 
   private async findConnectedConnector(userId: string, capabilityType: CapabilityType) {

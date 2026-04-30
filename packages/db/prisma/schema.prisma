@@ -63,6 +63,8 @@ enum ActivityType {
   follow_up
   note_event
   other
+  purchase
+  abandoned_cart
 }
 
 enum TaskStatus {
@@ -506,6 +508,7 @@ enum CapabilityType {
   storage
   discovery
   social
+  commerce
 }
 
 enum ConnectorStatus {
@@ -1569,6 +1572,8 @@ model Offering {
   description  String?
   offeringType OfferingType
   status       OfferingStatus @default(draft)
+  externalId   String?        @db.VarChar(255)
+  source       String?        @db.VarChar(50)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
