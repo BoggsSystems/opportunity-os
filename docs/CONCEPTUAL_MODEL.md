@@ -2198,6 +2198,25 @@ The functional purpose a connector serves within one or more workflow stages.
 * **Outcome Verifier**: Confirms the "Result" (Stage 6).
 * **Momentum Input**: Drives the "Next" (Stage 7).
 
+**Technical Profile**
+
+A specialized identity snapshot derived from developer networks (GitHub, GitLab, etc.).
+
+Represents:
+
+* Primary programming languages and expertise
+* Contribution density and frequency
+* Starred repositories (interest signals)
+* Repository portfolio summaries
+* Developer bio and public metadata
+
+Relationships:
+
+* belongs to one User
+* populated by GitHub/Social connectors
+* used by AI to craft technical outreach strategies
+* may influence "Expertise" scoring in discovery
+
 **Relationships:**
 
 * **Capability** supports one or more **Workflow Roles**.

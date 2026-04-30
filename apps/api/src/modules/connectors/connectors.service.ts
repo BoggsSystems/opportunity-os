@@ -23,6 +23,9 @@ import { GoogleCalendarProvider } from './calendar/google-calendar.provider';
 import { OutlookCalendarProvider } from './calendar/outlook-calendar.provider';
 import { ICloudCalendarProvider } from './calendar/icloud-calendar.provider';
 import { CalendarProvider } from './calendar/calendar-provider.interface';
+import { SetupSocialConnectorDto } from './dto/setup-social-connector.dto';
+import { GithubProvider } from './social/github.provider';
+import { SocialProvider, TechnicalProfileData } from './social-provider.interface';
 
 @Injectable()
 export class ConnectorsService {
@@ -36,6 +39,7 @@ export class ConnectorsService {
     private readonly googleCalendarProvider: GoogleCalendarProvider,
     private readonly outlookCalendarProvider: OutlookCalendarProvider,
     private readonly icloudCalendarProvider: ICloudCalendarProvider,
+    private readonly githubProvider: GithubProvider,
   ) {}
 
   async listConnectors(userId: string) {
@@ -239,6 +243,86 @@ export class ConnectorsService {
 
     return { success: true, connector: this.toConnectorSummary(connector) };
   }
+
+  async setupSocialConnector(userId: string, dto: SetupSocialConnectorDto) {
+    const { capability, provider } = await this.ensureSocialProvider(dto.providerName);
+    const credentials = { accessToken: dto.accessToken };
+    const testResult = await this.socialProviderFor(dto.providerName).test(credentials);
+    if (!testResult.ok) throw new BadRequestException('Failed to verify social credentials');
+
+    const connector = await prisma.userConnector.upsert({
+      where: { userId_capabilityId: { userId, capabilityId: capability.id } },
+      create: {
+        userId,
+        capabilityId: capability.id,
+        capabilityProviderId: provider.id,
+        connectorName: dto.providerName === 'github' ? 'GitHub' : 'Social Connector',
+        status: ConnectorStatus.connected,
+        enabledFeaturesJson: this.toJson(['profile_sync', 'signal_sensing']),
+        enabledRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC'],
+      },
+      update: {
+        capabilityProviderId: provider.id,
+        status: ConnectorStatus.connected,
+        enabledRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC'],
+        errorMessage: null,
+      },
+    });
+
+    await prisma.connectorCredential.upsert({
+      where: { userConnectorId: connector.id },
+      create: {
+        userConnectorId: connector.id,
+        credentialType: 'oauth2_token',
+        encryptedData: JSON.stringify(credentials),
+        refreshStatus: 'ready',
+      },
+      update: {
+        encryptedData: JSON.stringify(credentials),
+        refreshStatus: 'ready',
+      },
+    });
+
+    // Immediate sync
+    await this.syncTechnicalProfile(userId, connector.id, dto.providerName);
+
+    return { success: true, connector: this.toConnectorSummary(connector) };
+  }
+
+  private async syncTechnicalProfile(userId: string, userConnectorId: string, providerName: string) {
+    const connector = await prisma.userConnector.findUnique({
+      where: { id: userConnectorId },
+      include: { connectorCredentials: true },
+    });
+    if (!connector) return;
+
+    const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
+    const profileData = await this.socialProviderFor(providerName).getProfile(credentials);
+
+    await prisma.technicalProfile.upsert({
+      where: { userId_providerName: { userId, providerName } },
+      create: {
+        userId,
+        providerName,
+        externalId: profileData.externalId,
+        username: profileData.username,
+        bio: profileData.bio,
+        languagesJson: this.toJson(profileData.languages),
+        totalStars: profileData.totalStars,
+        totalRepos: profileData.totalRepos,
+        metadataJson: this.toJson(profileData.metadata),
+      },
+      update: {
+        username: profileData.username,
+        bio: profileData.bio,
+        languagesJson: this.toJson(profileData.languages),
+        totalStars: profileData.totalStars,
+        totalRepos: profileData.totalRepos,
+        metadataJson: this.toJson(profileData.metadata),
+      },
+    });
+  }
+
 
   async startEmailOAuth(userId: string, providerName: 'outlook', returnTo?: string) {
     if (providerName !== 'outlook') {
@@ -863,6 +947,41 @@ export class ConnectorsService {
     return { capability, provider };
   }
 
+  private async ensureSocialProvider(providerName: 'github') {
+    const capability = await prisma.capability.upsert({
+      where: { capabilityType: CapabilityType.social },
+      create: {
+        capabilityType: CapabilityType.social,
+        name: 'Social & Developer Networks',
+        description: 'Ingest technical identity and engagement signals.',
+        supportedFeaturesJson: this.toJson(['profile_sync', 'signal_sensing']),
+        workflowRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC'],
+      },
+      update: {
+        workflowRoles: ['IDENTITY', 'SIGNAL', 'STRATEGIC'],
+      },
+    });
+    const provider = await prisma.capabilityProvider.upsert({
+      where: {
+        capabilityId_providerName: {
+          capabilityId: capability.id,
+          providerName,
+        },
+      },
+      create: {
+        capabilityId: capability.id,
+        providerName,
+        displayName: providerName === 'github' ? 'GitHub' : 'Social Provider',
+        description: providerName === 'github' ? 'GitHub developer network integration' : 'Social integration',
+        authType: 'oauth2',
+        requiredScopesJson: this.toJson(providerName === 'github' ? ['read:user', 'repo'] : []),
+      },
+      update: { isActive: true },
+    });
+    return { capability, provider };
+  }
+
+
   private async findConnectedEmailConnector(userId: string) {
     return prisma.userConnector.findFirst({
       where: { userId, capability: { capabilityType: CapabilityType.email }, status: ConnectorStatus.connected },
@@ -900,6 +1019,11 @@ export class ConnectorsService {
     if (providerName === 'outlook') return this.outlookCalendarProvider;
     if (providerName === 'icloud') return this.icloudCalendarProvider;
     throw new BadRequestException(`Unsupported calendar provider: ${providerName}`);
+  }
+
+  private socialProviderFor(providerName: string): SocialProvider {
+    if (providerName === 'github') return this.githubProvider;
+    throw new BadRequestException(`Unsupported social provider: ${providerName}`);
   }
 
   private async findConnectedConnector(userId: string, capabilityType: CapabilityType) {

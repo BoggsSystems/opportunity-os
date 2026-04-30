@@ -561,6 +561,7 @@ Values:
 * `contacts`
 * `storage`
 * `discovery`
+* `social`
 
 ### `connector_status`
 
@@ -719,6 +720,34 @@ Purpose: account owner and root owner of data.
 #### Notes
 
 * All user-owned tables reference `users.id`
+
+---
+
+### `technical_profiles`
+
+Purpose: stores developer-specific context and technical identity data.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `provider_name` VARCHAR NOT NULL (e.g., `github`)
+* `external_id` VARCHAR NOT NULL
+* `username` VARCHAR NULL
+* `bio` TEXT NULL
+* `languages` JSONB NULL (list of languages and focus)
+* `contribution_density` DECIMAL NULL
+* `total_stars` INTEGER NULL
+* `total_repos` INTEGER NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* unique index on (`user_id`, `provider_name`)
+* index on `external_id`
 
 ---
 

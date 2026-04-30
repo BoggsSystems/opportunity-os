@@ -41,6 +41,12 @@ export class ConnectorsController {
     return this.connectorsService.setupCalendarConnector(user.id, body);
   }
 
+  @Post('social/setup')
+  async setupSocial(@Body() body: any, @CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.setupSocialConnector(user.id, body);
+  }
+
   @Get('email/oauth/start')
   async startEmailOAuth(
     @Query('provider') provider: 'outlook',

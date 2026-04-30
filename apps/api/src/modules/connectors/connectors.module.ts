@@ -9,6 +9,7 @@ import { DropboxProvider } from './storage/dropbox.provider';
 import { GoogleCalendarProvider } from './calendar/google-calendar.provider';
 import { OutlookCalendarProvider } from './calendar/outlook-calendar.provider';
 import { ICloudCalendarProvider } from './calendar/icloud-calendar.provider';
+import { GithubProvider } from './social/github.provider';
 
 @Module({
   controllers: [ConnectorsController],
@@ -22,6 +23,7 @@ import { ICloudCalendarProvider } from './calendar/icloud-calendar.provider';
     GoogleCalendarProvider,
     OutlookCalendarProvider,
     ICloudCalendarProvider,
+    GithubProvider,
   ],
   exports: [ConnectorsService],
 })
