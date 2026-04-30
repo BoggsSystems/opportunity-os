@@ -1,6 +1,6 @@
 import { IsIn, IsISO8601, IsOptional, IsString } from 'class-validator';
 
-export const CALENDAR_PROVIDER_NAMES = ['google_calendar', 'outlook'] as const;
+export const CALENDAR_PROVIDER_NAMES = ['google_calendar', 'outlook', 'icloud'] as const;
 
 export class SetupCalendarConnectorDto {
   @IsIn(CALENDAR_PROVIDER_NAMES)
@@ -9,6 +9,10 @@ export class SetupCalendarConnectorDto {
   @IsOptional()
   @IsString()
   connectorName?: string;
+
+  @IsOptional()
+  @IsString()
+  emailAddress?: string;
 
   @IsOptional()
   @IsString()

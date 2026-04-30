@@ -21,6 +21,7 @@ import { DropboxProvider } from './storage/dropbox.provider';
 import { StorageProvider, SyncedFile } from './storage/storage-provider.interface';
 import { GoogleCalendarProvider } from './calendar/google-calendar.provider';
 import { OutlookCalendarProvider } from './calendar/outlook-calendar.provider';
+import { ICloudCalendarProvider } from './calendar/icloud-calendar.provider';
 import { CalendarProvider } from './calendar/calendar-provider.interface';
 
 @Injectable()
@@ -34,6 +35,7 @@ export class ConnectorsService {
     private readonly dropboxProvider: DropboxProvider,
     private readonly googleCalendarProvider: GoogleCalendarProvider,
     private readonly outlookCalendarProvider: OutlookCalendarProvider,
+    private readonly icloudCalendarProvider: ICloudCalendarProvider,
   ) {}
 
   async listConnectors(userId: string) {
@@ -190,6 +192,7 @@ export class ConnectorsService {
       accessToken: dto.accessToken,
       refreshToken: dto.refreshToken,
       expiresAt: dto.expiresAt,
+      emailAddress: dto.emailAddress,
     };
 
     const connector = await prisma.userConnector.upsert({
@@ -203,7 +206,9 @@ export class ConnectorsService {
         userId,
         capabilityId: capability.id,
         capabilityProviderId: provider.id,
-        connectorName: 'Google Calendar',
+        connectorName: 
+          dto.providerName === 'google_calendar' ? 'Google Calendar' : 
+          dto.providerName === 'outlook' ? 'Outlook Calendar' : 'iCloud Calendar',
         status: ConnectorStatus.connected,
         enabledFeaturesJson: this.toJson(['list', 'sync']),
         enabledRoles: ['DAILY_ACTION', 'VERIFICATION'],
@@ -817,7 +822,7 @@ export class ConnectorsService {
     return { capability, provider };
   }
 
-  private async ensureCalendarProvider(providerName: 'google_calendar' | 'outlook') {
+  private async ensureCalendarProvider(providerName: 'google_calendar' | 'outlook' | 'icloud') {
     const capability = await prisma.capability.upsert({
       where: { capabilityType: CapabilityType.calendar },
       create: {
@@ -841,12 +846,17 @@ export class ConnectorsService {
       create: {
         capabilityId: capability.id,
         providerName,
-        displayName: providerName === 'google_calendar' ? 'Google Calendar' : 'Outlook Calendar',
-        description: providerName === 'google_calendar' ? 'Google Calendar integration' : 'Microsoft Outlook Calendar integration',
-        authType: 'oauth2',
-        requiredScopesJson: this.toJson(providerName === 'google_calendar'
-          ? ['https://www.googleapis.com/auth/calendar.readonly']
-          : ['https://graph.microsoft.com/Calendars.Read']),
+        displayName: 
+          providerName === 'google_calendar' ? 'Google Calendar' : 
+          providerName === 'outlook' ? 'Outlook Calendar' : 'iCloud Calendar',
+        description: 
+          providerName === 'google_calendar' ? 'Google Calendar integration' : 
+          providerName === 'outlook' ? 'Microsoft Outlook Calendar integration' : 'Apple iCloud Calendar integration',
+        authType: providerName === 'icloud' ? 'basic' : 'oauth2',
+        requiredScopesJson: this.toJson(
+          providerName === 'google_calendar' ? ['https://www.googleapis.com/auth/calendar.readonly'] :
+          providerName === 'outlook' ? ['https://graph.microsoft.com/Calendars.Read'] : []
+        ),
       },
       update: { isActive: true },
     });
@@ -888,6 +898,7 @@ export class ConnectorsService {
   private calendarProviderFor(providerName: string): CalendarProvider {
     if (providerName === 'google_calendar') return this.googleCalendarProvider;
     if (providerName === 'outlook') return this.outlookCalendarProvider;
+    if (providerName === 'icloud') return this.icloudCalendarProvider;
     throw new BadRequestException(`Unsupported calendar provider: ${providerName}`);
   }
 
