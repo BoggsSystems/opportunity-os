@@ -2210,6 +2210,33 @@ input:focus {
   background-color: #f9fafb;
 }
 
+.linkedin-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  background: #0077b5;
+  border: 1px solid #0077b5;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.linkedin-button:hover {
+  opacity: 0.9;
+}
+
+.linkedin-button img {
+  width: 18px;
+  height: 18px;
+  filter: brightness(0) invert(1);
+}
+
 .google-button img {
   width: 18px;
   height: 18px;

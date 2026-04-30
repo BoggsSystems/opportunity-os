@@ -212,6 +212,168 @@ export class AuthService {
     );
   }
 
+  async validateLinkedInUser(profile: {
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    providerId: string;
+    guestSessionId?: string;
+  }) {
+    const email = this.normalizeEmail(profile.email);
+
+    // 1. Check for existing LinkedIn credential
+    let credential = await prisma.credential.findUnique({
+      where: {
+        providerName_providerAccountId: {
+          providerName: "linkedin",
+          providerAccountId: profile.providerId,
+        },
+      },
+      include: {
+        authenticationIdentity: {
+          include: { user: true },
+        },
+      },
+    });
+
+    if (credential) {
+      const refreshToken = this.tokenService.generateOpaqueToken();
+      const refreshTokenHash = this.tokenService.hashOpaqueToken(refreshToken);
+      const sessionExpiresAt = this.addDays(REFRESH_TOKEN_TTL_DAYS);
+
+      const session = await prisma.authenticationSession.create({
+        data: {
+          userId: credential.authenticationIdentity.userId,
+          authenticationIdentityId: credential.authenticationIdentityId,
+          clientType: "api",
+          refreshTokenHash,
+          expiresAt: sessionExpiresAt,
+          lastUsedAt: new Date(),
+        },
+      });
+
+      return this.buildAuthResponse(
+        credential.authenticationIdentity.user,
+        credential.authenticationIdentityId,
+        session.id,
+        refreshToken,
+      );
+    }
+
+    // 2. Check if identity exists by email
+    let identity = await prisma.authenticationIdentity.findUnique({
+      where: { emailNormalized: email },
+      include: { user: true },
+    });
+
+    if (!identity) {
+      const result = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email,
+            fullName:
+              `${profile.firstName || ""} ${profile.lastName || ""}`.trim() ||
+              null,
+            emailVerifiedAt: new Date(),
+          },
+        });
+
+        const newIdentity = await tx.authenticationIdentity.create({
+          data: {
+            userId: user.id,
+            email,
+            emailNormalized: email,
+            isVerified: true,
+            verifiedAt: new Date(),
+          },
+        });
+
+        await tx.credential.create({
+          data: {
+            authenticationIdentityId: newIdentity.id,
+            credentialType: "linkedin_oauth" as AuthenticationCredentialType,
+            providerName: "linkedin",
+            providerAccountId: profile.providerId,
+          },
+        });
+
+        const freePlan = await tx.plan.findUnique({
+          where: { code: "free_explorer" },
+          include: { planFeatures: true },
+        });
+
+        if (freePlan) {
+          const now = new Date();
+          await tx.subscription.create({
+            data: {
+              userId: user.id,
+              planId: freePlan.id,
+              status: "active",
+              startedAt: now,
+              currentPeriodStart: new Date(
+                Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+              ),
+              currentPeriodEnd: new Date(
+                Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+              ),
+            },
+          });
+        }
+
+        if (profile.guestSessionId) {
+          await tx.goal.updateMany({
+            where: { guestSessionId: profile.guestSessionId, userId: null },
+            data: { userId: user.id },
+          });
+          await tx.campaign.updateMany({
+            where: { guestSessionId: profile.guestSessionId, userId: null },
+            data: { userId: user.id },
+          });
+          await tx.aIConversation.updateMany({
+            where: { guestSessionId: profile.guestSessionId, userId: null },
+            data: { userId: user.id },
+          });
+        }
+
+        return { user, identity: newIdentity };
+      });
+
+      identity = result.identity;
+      identity.user = result.user;
+    } else {
+      await prisma.credential.create({
+        data: {
+          authenticationIdentityId: identity.id,
+          credentialType: "linkedin_oauth" as AuthenticationCredentialType,
+          providerName: "linkedin",
+          providerAccountId: profile.providerId,
+        },
+      });
+    }
+
+    const refreshToken = this.tokenService.generateOpaqueToken();
+    const refreshTokenHash = this.tokenService.hashOpaqueToken(refreshToken);
+    const sessionExpiresAt = this.addDays(REFRESH_TOKEN_TTL_DAYS);
+
+    const session = await prisma.authenticationSession.create({
+      data: {
+        userId: identity.userId,
+        authenticationIdentityId: identity.id,
+        clientType: "api",
+        refreshTokenHash,
+        expiresAt: sessionExpiresAt,
+        lastUsedAt: new Date(),
+      },
+    });
+
+    return this.buildAuthResponse(
+      identity.user,
+      identity.id,
+      session.id,
+      refreshToken,
+    );
+  }
+
   async signUp(dto: SignUpDto) {
     const email = this.normalizeEmail(dto.email);
 

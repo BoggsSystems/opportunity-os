@@ -7,6 +7,7 @@ import { AuthService } from "./auth.service";
 import { PasswordService } from "./password.service";
 import { TokenService } from "./token.service";
 import { GoogleStrategy } from "./google.strategy";
+import { LinkedInStrategy } from "./linkedin.strategy";
 import { CommercialModule } from "../commercial/commercial.module";
 
 @Module({
@@ -17,6 +18,7 @@ import { CommercialModule } from "../commercial/commercial.module";
     PasswordService,
     TokenService,
     GoogleStrategy,
+    LinkedInStrategy,
     {
       provide: APP_GUARD,
       useClass: AuthGuard,

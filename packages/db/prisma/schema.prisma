@@ -45,6 +45,8 @@ enum EntitlementOverrideStatus {
 enum AuthenticationCredentialType {
   password
   google_oauth
+  linkedin_oauth
+  microsoft_oauth
   apple_sign_in
   passkey
 }

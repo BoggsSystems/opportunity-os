@@ -261,8 +261,9 @@ export function App() {
           const nextQuery = params.toString();
           window.history.replaceState(null, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`);
           
+          const providerName = params.get('provider') || 'social';
           setNotice({
-            title: 'Logged in with Google',
+            title: `Logged in with ${providerName.charAt(0).toUpperCase() + providerName.slice(1)}`,
             detail: `Welcome back, ${user.fullName || user.email}.`,
             tone: 'success'
           });

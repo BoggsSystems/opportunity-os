@@ -37,7 +37,26 @@ export class AuthController {
     
     // Redirect to frontend with tokens in query (simple for now) or cookie
     const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:5174';
-    const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}`;
+    const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&provider=google`;
+    
+    return res.redirect(redirectUrl);
+  }
+
+  @Public()
+  @Get('linkedin')
+  @UseGuards(PassportAuthGuard('linkedin'))
+  async linkedinAuth(@Req() req: any) {
+    // Guards handles redirect
+  }
+
+  @Public()
+  @Get('linkedin/callback')
+  @UseGuards(PassportAuthGuard('linkedin'))
+  async linkedinAuthRedirect(@Req() req: any, @Res() res: Response) {
+    const result = await this.authService.validateLinkedInUser(req.user);
+    
+    const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:5174';
+    const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&provider=linkedin`;
     
     return res.redirect(redirectUrl);
   }
