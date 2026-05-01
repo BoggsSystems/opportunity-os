@@ -7,15 +7,25 @@ import { SearchService } from './search.service';
 import { AiProviderFactory } from './ai-provider.factory';
 import { OpenAiProvider } from './providers/openai.provider';
 import { OpenRouterAiProvider } from './providers/openrouter.provider';
+import { MockAiProvider } from './providers/mock.provider';
 import { CapabilityIntegrationService } from './capability-integration.service';
 import { CommercialModule } from '../commercial/commercial.module';
-
 import { AssistantGateway } from './assistant.gateway';
 
 @Module({
   imports: [ConfigModule, CommercialModule],
   controllers: [AiController],
-  providers: [AiService, TtsService, SearchService, AiProviderFactory, OpenAiProvider, OpenRouterAiProvider, AssistantGateway, CapabilityIntegrationService],
+  providers: [
+    AiService,
+    TtsService,
+    SearchService,
+    AiProviderFactory,
+    OpenAiProvider,
+    OpenRouterAiProvider,
+    MockAiProvider,
+    AssistantGateway,
+    CapabilityIntegrationService
+  ],
   exports: [AiService, SearchService],
 })
 export class AiModule {}

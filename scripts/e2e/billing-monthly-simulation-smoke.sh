@@ -5,8 +5,32 @@ API_URL="${API_URL:-http://localhost:3002}"
 DATABASE_URL="${DATABASE_URL:-postgresql://postgres:password@localhost:5432/opportunity_os}"
 RUN_ID="${RUN_ID:-$(date +%Y%m%d%H%M%S)}"
 PASSWORD="${PASSWORD:-Password123!}"
-BILLING_MONTHS="${BILLING_MONTHS:-6}"
-USERS_PER_MONTH="${USERS_PER_MONTH:-50}"
+PROFILE="${PROFILE:-smoke}"
+
+# Define profiles
+case "$PROFILE" in
+  smoke)
+    BILLING_MONTHS=1
+    USERS_PER_MONTH=10
+    ;;
+  standard)
+    BILLING_MONTHS=6
+    USERS_PER_MONTH=50
+    ;;
+  heavy)
+    BILLING_MONTHS=12
+    USERS_PER_MONTH=500
+    ;;
+  *)
+    echo "Unknown profile: $PROFILE. Using environment variables."
+    BILLING_MONTHS="${BILLING_MONTHS:-6}"
+    USERS_PER_MONTH="${USERS_PER_MONTH:-50}"
+    ;;
+esac
+
+# Force Mock AI for simulation
+export MOCK_AI=true
+
 TMP_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -177,42 +201,22 @@ WITH settings AS (
     numbered_users."createdAt"
   FROM numbered_users
   CROSS JOIN free_plan
-), inserted_lifecycle AS (
-  INSERT INTO user_lifecycle_snapshots (
-    id,
-    "userId",
-    "currentStage",
-    "furthestStage",
-    "activatedAt",
-    "lastActivityAt",
-    "metadataJson",
-    "createdAt",
-    "updatedAt"
+), visits AS (
+  INSERT INTO referral_visits (
+    id, "referralLinkId", "referrerUserId", "visitorId", "guestSessionId", "landingPath", "createdAt"
   )
   SELECT
     gen_random_uuid(),
-    numbered_users.id,
-    CASE WHEN numbered_users.global_number % 10 <= 6 THEN 'activated'::"UserLifecycleStage" ELSE 'account_created'::"UserLifecycleStage" END,
-    CASE WHEN numbered_users.global_number % 10 <= 6 THEN 'activated'::"UserLifecycleStage" ELSE 'account_created'::"UserLifecycleStage" END,
-    CASE WHEN numbered_users.global_number % 10 <= 6 THEN numbered_users."createdAt" + interval '5 days' ELSE null END,
-    numbered_users."createdAt",
-    jsonb_build_object('runId', settings.run_id, 'source', 'billing_simulation'),
-    numbered_users."createdAt",
-    numbered_users."createdAt"
-  FROM numbered_users
-  CROSS JOIN settings
-), referral_link AS (
-  INSERT INTO referral_links (id, "userId", code, label, "campaignSource", "createdAt", "updatedAt")
-  SELECT
-    gen_random_uuid(),
-    settings.admin_user_id,
-    'billing-sim-' || settings.run_id,
-    'Billing simulation ' || settings.run_id,
-    'billing_simulation',
-    now(),
-    now()
+    referral_links.id,
+    referral_links."userId",
+    'visitor-' || settings.run_id || '-' || months.month_index || '-' || visit_number,
+    'gs-' || settings.run_id || '-' || months.month_index || '-' || visit_number,
+    '/',
+    months.month_start + ((visit_number % 28) || ' days')::interval
   FROM settings
-  RETURNING id, "userId"
+  JOIN months ON true
+  CROSS JOIN referral_links
+  CROSS JOIN generate_series(1, (SELECT (users_per_month * 3) FROM settings)) AS visit_number
 ), referred_users AS (
   SELECT numbered_users.*
   FROM numbered_users
@@ -230,35 +234,72 @@ WITH settings AS (
   )
   SELECT
     gen_random_uuid(),
-    referral_link.id,
-    referral_link."userId",
+    referral_links.id,
+    referral_links."userId",
     referred_users.id,
     'billing_simulation',
     referred_users."createdAt",
     referred_users."createdAt",
     referred_users."createdAt"
   FROM referred_users
-  CROSS JOIN referral_link
+  CROSS JOIN referral_links
   RETURNING id, "referredUserId", "attributedAt"
+), inserted_milestones AS (
+  INSERT INTO referral_milestones (
+    id,
+    "referralAttributionId",
+    "milestoneType",
+    "occurredAt",
+    "sourceEntityType",
+    "metadataJson",
+    "createdAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    attributions.id,
+    'signup',
+    attributions."attributedAt",
+    'billing_simulation',
+    jsonb_build_object('runId', (SELECT run_id FROM settings)),
+    attributions."attributedAt"
+  FROM attributions
+), inserted_lifecycle AS (
+  INSERT INTO user_lifecycle_snapshots (
+    id,
+    "userId",
+    "currentStage",
+    "furthestStage",
+    "activatedAt",
+    "lastActivityAt",
+    "metadataJson",
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    numbered_users.id,
+    CASE 
+      WHEN numbered_users.global_number % 10 <= 2 THEN 'activated'::"UserLifecycleStage"
+      WHEN numbered_users.global_number % 10 <= 5 THEN 'first_action_completed'::"UserLifecycleStage"
+      WHEN numbered_users.global_number % 10 <= 7 THEN 'action_lanes_selected'::"UserLifecycleStage"
+      ELSE 'account_created'::"UserLifecycleStage"
+    END,
+    CASE 
+      WHEN numbered_users.global_number % 10 <= 2 THEN 'activated'::"UserLifecycleStage"
+      WHEN numbered_users.global_number % 10 <= 5 THEN 'first_action_completed'::"UserLifecycleStage"
+      WHEN numbered_users.global_number % 10 <= 7 THEN 'action_lanes_selected'::"UserLifecycleStage"
+      ELSE 'account_created'::"UserLifecycleStage"
+    END,
+    CASE WHEN numbered_users.global_number % 10 <= 2 THEN numbered_users."createdAt" + interval '5 days' ELSE null END,
+    numbered_users."createdAt",
+    jsonb_build_object('runId', settings.run_id, 'source', 'billing_simulation'),
+    numbered_users."createdAt",
+    numbered_users."createdAt"
+  FROM numbered_users
+  CROSS JOIN settings
 )
-INSERT INTO referral_milestones (
-  id,
-  "referralAttributionId",
-  "milestoneType",
-  "occurredAt",
-  "sourceEntityType",
-  "metadataJson",
-  "createdAt"
-)
-SELECT
-  gen_random_uuid(),
-  attributions.id,
-  'signup',
-  attributions."attributedAt",
-  'billing_simulation',
-  jsonb_build_object('runId', (SELECT run_id FROM settings)),
-  attributions."attributedAt"
-FROM attributions;
+SELECT 1;
+
 SQL
 
 echo "Seeded synthetic users, lifecycle snapshots, free subscriptions, and referral signups"
@@ -479,20 +520,22 @@ WITH period AS (
     gen_random_uuid(),
     inserted_campaigns.id,
     CASE
-      WHEN (inserted_campaigns."metadataJson"->>'usageRank')::int % 3 = 0 THEN 'linkedin_dm'::"ActionLaneType"
-      WHEN (inserted_campaigns."metadataJson"->>'usageRank')::int % 3 = 1 THEN 'email'::"ActionLaneType"
-      ELSE 'linkedin_content'::"ActionLaneType"
+      WHEN (inserted_campaigns."metadataJson"->>'usageRank')::int % 5 = 0 THEN 'linkedin_dm'::"ActionLaneType"
+      WHEN (inserted_campaigns."metadataJson"->>'usageRank')::int % 5 = 1 THEN 'email'::"ActionLaneType"
+      WHEN (inserted_campaigns."metadataJson"->>'usageRank')::int % 5 = 2 THEN 'linkedin_content'::"ActionLaneType"
+      WHEN (inserted_campaigns."metadataJson"->>'usageRank')::int % 5 = 3 THEN 'warm_intro'::"ActionLaneType"
+      ELSE 'linkedin_commenting'::"ActionLaneType"
     END,
-    'Monthly action lane ' || :'month',
-    'Synthetic lane for campaign/action analytics.',
-    'Execute targeted outreach and record responses.',
+    'Simulation lane ' || :'month',
+    'Synthetic lane for campaign analytics.',
+    'Execute targeted outreach.',
     'ACTIVE'::"ActionLaneStatus",
     60,
     inserted_campaigns."metadataJson",
     inserted_campaigns."createdAt",
     inserted_campaigns."createdAt"
   FROM inserted_campaigns
-  RETURNING id, "campaignId", "createdAt", "metadataJson"
+  RETURNING id, "campaignId", "laneType", "createdAt", "metadataJson"
 ), inserted_cycles AS (
   INSERT INTO action_cycles (
     id,
@@ -518,26 +561,27 @@ WITH period AS (
     inserted_lanes.id,
     1,
     'Monthly cycle ' || :'month',
-    'Complete a synthetic outreach action cycle.',
+    'Simulation action cycle.',
     CASE
-      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 3 = 0 THEN 'linkedin_dm'
-      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 3 = 1 THEN 'email'
-      ELSE 'linkedin_post'
+      WHEN inserted_lanes."laneType" = 'linkedin_dm' THEN 'linkedin_dm'
+      WHEN inserted_lanes."laneType" = 'email' THEN 'email'
+      WHEN inserted_lanes."laneType" = 'linkedin_content' THEN 'linkedin_post'
+      ELSE 'other'
     END,
     CASE
-      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 5 = 0 THEN 'active'::"ActionCycleStatus"
-      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 4 = 0 THEN 'executed'::"ActionCycleStatus"
+      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 7 = 0 THEN 'active'::"ActionCycleStatus"
+      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 6 = 0 THEN 'executed'::"ActionCycleStatus"
       ELSE 'completed'::"ActionCycleStatus"
     END,
     70,
     inserted_lanes."createdAt",
     inserted_lanes."createdAt" + interval '7 days',
     CASE
-      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 5 = 0 THEN null
+      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 7 = 0 THEN null
       ELSE inserted_lanes."createdAt" + interval '2 days'
     END,
     CASE
-      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 5 = 0 THEN null
+      WHEN (inserted_lanes."metadataJson"->>'usageRank')::int % 7 = 0 THEN null
       ELSE inserted_lanes."createdAt" + interval '3 days'
     END,
     inserted_lanes."metadataJson",
@@ -555,12 +599,9 @@ WITH period AS (
     "actionType",
     title,
     instructions,
-    "draftContent",
     status,
-    "confirmationRequired",
     "priorityScore",
     "dueAt",
-    "preparedAt",
     "completedAt",
     "respondedAt",
     "metadataJson",
@@ -574,48 +615,76 @@ WITH period AS (
     inserted_cycles."actionLaneId",
     inserted_cycles.id,
     inserted_cycles."actionType",
-    'Synthetic action ' || action_template.item_number || ' for ' || :'month',
-    'Simulated usage action for admin metrics.',
-    'Draft outreach content for simulated action volume.',
+    'Sim Action ' || action_template.item_number,
+    'Simulated action.',
     CASE
-      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 13 = 0 THEN 'converted'::"ActionItemStatus"
-      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 7 = 0 THEN 'responded'::"ActionItemStatus"
-      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 3 != 0 THEN 'sent_confirmed'::"ActionItemStatus"
+      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 15 = 0 THEN 'converted'::"ActionItemStatus"
+      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 8 = 0 THEN 'responded'::"ActionItemStatus"
+      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 4 != 0 THEN 'sent_confirmed'::"ActionItemStatus"
       ELSE 'suggested'::"ActionItemStatus"
     END,
-    true,
     60 + action_template.item_number,
     inserted_cycles."createdAt" + (action_template.item_number || ' days')::interval,
-    inserted_cycles."createdAt",
     CASE
-      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 13 = 0
-        OR ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 3 != 0
+      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 15 = 0
+        OR ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 4 != 0
       THEN inserted_cycles."createdAt" + (action_template.item_number || ' days')::interval
       ELSE null
     END,
     CASE
-      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 7 = 0
+      WHEN ((inserted_cycles."metadataJson"->>'usageRank')::int + action_template.item_number) % 8 = 0
       THEN inserted_cycles."createdAt" + ((action_template.item_number + 2) || ' days')::interval
       ELSE null
     END,
-    jsonb_build_object(
-      'runId', :'run_id',
-      'month', :'month',
-      'usageRank', inserted_cycles."metadataJson"->>'usageRank',
-      'itemNumber', action_template.item_number
-    ),
+    jsonb_build_object('runId', :'run_id', 'month', :'month'),
     inserted_cycles."createdAt",
     inserted_cycles."createdAt" + (action_template.item_number || ' days')::interval
   FROM inserted_cycles
   JOIN inserted_campaigns ON inserted_campaigns.id = inserted_cycles."campaignId"
   CROSS JOIN (VALUES (1), (2), (3)) AS action_template(item_number)
-  RETURNING id
+  RETURNING id, "userId", "campaignId", "actionLaneId", "completedAt", "respondedAt"
+), inserted_threads AS (
+  INSERT INTO conversation_threads (
+    id, "userId", "campaignId", "actionLaneId", "actionItemId", "channel", "status", "lastMessageAt", "createdAt", "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    inserted_items."userId",
+    inserted_items."campaignId",
+    inserted_items."actionLaneId",
+    inserted_items.id,
+    'linkedin',
+    'active',
+    inserted_items."respondedAt",
+    COALESCE(inserted_items."respondedAt", now()),
+    COALESCE(inserted_items."respondedAt", now())
+  FROM inserted_items
+  WHERE inserted_items."respondedAt" IS NOT NULL
+  RETURNING id, "userId", "lastMessageAt"
+), inserted_messages AS (
+  INSERT INTO conversation_thread_messages (
+    id, "userId", "threadId", "direction", "source", "bodyText", "attachmentUrls", "attachmentMimeTypes", "occurredAt", "createdAt", "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    inserted_threads."userId",
+    inserted_threads.id,
+    'inbound'::"ConversationMessageDirection",
+    'manual_paste'::"ConversationMessageSource",
+    'I am interested in your offering. Can we hop on a call?',
+    '{}'::text[],
+    '{}'::text[],
+    inserted_threads."lastMessageAt",
+    inserted_threads."lastMessageAt",
+    inserted_threads."lastMessageAt"
+  FROM inserted_threads
 )
 SELECT
   (SELECT count(*) FROM inserted_paid_milestones) AS paid_milestones,
   (SELECT count(*) FROM inserted_campaigns) AS campaigns,
   (SELECT count(*) FROM inserted_cycles) AS cycles,
-  (SELECT count(*) FROM inserted_items) AS actions;
+  (SELECT count(*) FROM inserted_items) AS actions,
+  (SELECT count(*) FROM inserted_threads) AS threads;
 SQL
 
   payload="$TMP_DIR/snapshot-$month.json"

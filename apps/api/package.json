@@ -16,7 +16,10 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e:billing-simulation": "BILLING_MONTHS=6 USERS_PER_MONTH=50 ../../scripts/e2e/billing-monthly-simulation-smoke.sh",
+    "test:e2e:heavy-simulation": "PROFILE=heavy ../../scripts/e2e/billing-monthly-simulation-smoke.sh",
+    "test:e2e:validator": "jest --config ./test/jest-e2e.json test/e2e/digital-twin-validator.e2e-spec.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",

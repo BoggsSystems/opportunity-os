@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { AiProvider } from './interfaces/ai-provider.interface';
 import { OpenAiProvider } from './providers/openai.provider';
 import { OpenRouterAiProvider } from './providers/openrouter.provider';
+import { MockAiProvider } from './providers/mock.provider';
 
 @Injectable()
 export class AiProviderFactory {
@@ -13,13 +14,19 @@ export class AiProviderFactory {
     private configService: ConfigService,
     openAiProvider: OpenAiProvider,
     openRouterProvider: OpenRouterAiProvider,
+    mockProvider: MockAiProvider,
   ) {
     this.providers.set('openai', openAiProvider);
     this.providers.set('openrouter', openRouterProvider);
+    this.providers.set('mock', mockProvider);
   }
 
   getProvider(): AiProvider {
-    const providerName = this.configService.get<string>('AI_PROVIDER', 'openrouter');
+    const isMockForced = this.configService.get<string | boolean>('MOCK_AI') === 'true' || 
+                         this.configService.get<string | boolean>('MOCK_AI') === true;
+    
+    const defaultProvider = isMockForced ? 'mock' : 'openrouter';
+    const providerName = this.configService.get<string>('AI_PROVIDER', defaultProvider);
     
     const provider = this.providers.get(providerName);
     if (!provider) {
