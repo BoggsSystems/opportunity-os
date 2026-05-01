@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
+import { SystemDateService } from "../../common/system-date.service";
 import { RewardsService } from "../rewards/rewards.service";
 import {
   ActionItemStatus,
@@ -94,7 +95,10 @@ const QUEUE_INCLUDE = {
 @Injectable()
 export class CommandQueueService {
   private readonly logger = new Logger(CommandQueueService.name);
-  constructor(private readonly rewardsService: RewardsService) {}
+  constructor(
+    private readonly rewardsService: RewardsService,
+    private readonly systemDateService: SystemDateService,
+  ) {}
 
   async getToday(userId: string, input: QueueInput = {}) {
     const queueDate = this.resolveQueueDate(input.date);
@@ -126,7 +130,7 @@ export class CommandQueueService {
     }
 
     const status = this.resolveItemStatus(data.status);
-    const now = new Date();
+    const now = this.systemDateService.now();
     const updateData: Prisma.CommandQueueItemUpdateInput = {};
 
     if (status) {
@@ -416,7 +420,7 @@ export class CommandQueueService {
 
   private resolveQueueDate(date?: string) {
     if (!date) {
-      const now = new Date();
+      const now = this.systemDateService.now();
       return new Date(
         Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()),
       );

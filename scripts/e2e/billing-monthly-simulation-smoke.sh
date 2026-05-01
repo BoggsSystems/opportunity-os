@@ -1253,6 +1253,89 @@ WITH settings AS (
   CROSS JOIN jeff_user
   CROSS JOIN settings
   ON CONFLICT ("commandQueueId", position) DO NOTHING
+), jeff_momentum AS (
+  -- 1. Generate Daily Velocity Pulses
+  INSERT INTO momentum_states (id, "userId", "stateType", score, reason, "computedAt", "createdAt", "updatedAt")
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    'velocity_pulse'::"MomentumStateType",
+    settings.actions_per_day,
+    'Daily execution pulse',
+    day_slots.action_day,
+    day_slots.action_day,
+    day_slots.action_day
+  FROM day_slots
+  CROSS JOIN jeff_user
+  CROSS JOIN settings
+), jeff_streaks AS (
+  -- 2. Generate Streak State
+  INSERT INTO momentum_states (id, "userId", "stateType", score, reason, "computedAt", "createdAt", "updatedAt")
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    'streak'::"MomentumStateType",
+    ((day_slots.action_day::date - settings.period_start::date) + 1),
+    'Active execution streak',
+    day_slots.action_day,
+    day_slots.action_day,
+    day_slots.action_day
+  FROM day_slots
+  CROSS JOIN jeff_user
+  CROSS JOIN settings
+), daily_rewards AS (
+  -- 3. Grant Daily Quota Rewards (5 actions/day rule)
+  INSERT INTO engagement_rewards (id, "userId", "triggerType", "rewardType", quantity, status, "grantedAt", "createdAt", "updatedAt")
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    'DAILY_QUOTA_MET'::"EngagementRewardTrigger",
+    'ai_usage_credit'::"RewardType",
+    50,
+    'granted',
+    day_slots.action_day,
+    day_slots.action_day,
+    day_slots.action_day
+  FROM day_slots
+  CROSS JOIN jeff_user
+  RETURNING id, "userId", "grantedAt"
+), streak_milestone_rewards AS (
+  -- 4. Grant Streak Rewards (7-day milestones)
+  INSERT INTO engagement_rewards (id, "userId", "triggerType", "rewardType", quantity, status, "grantedAt", "createdAt", "updatedAt")
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    'STREAK_HIT'::"EngagementRewardTrigger",
+    'ai_usage_credit'::"RewardType",
+    250,
+    'granted',
+    day_slots.action_day,
+    day_slots.action_day,
+    day_slots.action_day
+  FROM day_slots
+  CROSS JOIN jeff_user
+  CROSS JOIN settings
+  WHERE ((day_slots.action_day::date - settings.period_start::date) + 1) % 7 = 0
+  RETURNING id, "userId", "grantedAt"
+), reward_credits AS (
+  -- 5. Link Rewards to Growth Credits
+  INSERT INTO growth_credits (id, "userId", "engagementRewardId", "featureKey", "creditType", "quantityGranted", "status", "grantedAt", "createdAt", "updatedAt")
+  SELECT
+    gen_random_uuid(),
+    res."userId",
+    res.id,
+    'ai_requests',
+    'ai_usage_credit'::"RewardType",
+    CASE WHEN res.id IN (SELECT id FROM streak_milestone_rewards) THEN 250 ELSE 50 END,
+    'available',
+    res."grantedAt",
+    res."grantedAt",
+    res."grantedAt"
+  FROM (
+    SELECT id, "userId", "grantedAt" FROM daily_rewards
+    UNION ALL
+    SELECT id, "userId", "grantedAt" FROM streak_milestone_rewards
+  ) res
 ), inserted_threads AS (
   INSERT INTO conversation_threads (
     id,

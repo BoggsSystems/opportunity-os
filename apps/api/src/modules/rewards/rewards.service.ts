@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { prisma, EngagementRewardTrigger, RewardType, RewardRuleType } from '@opportunity-os/db';
+import { SystemDateService } from '../../common/system-date.service';
 
 @Injectable()
 export class RewardsService {
   private readonly logger = new Logger(RewardsService.name);
+  constructor(private readonly systemDateService: SystemDateService) {}
 
   /**
    * Evaluates if an action completion triggers any rewards.
@@ -25,8 +27,7 @@ export class RewardsService {
    * Increments the user's velocity pulse and updates streak state.
    */
   private async updateMomentumForAction(userId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = this.systemDateService.today();
 
     // Find or create today's momentum state
     const existing = await prisma.momentumState.findFirst({
@@ -42,7 +43,7 @@ export class RewardsService {
         where: { id: existing.id },
         data: {
           score: (existing.score || 0) + 1,
-          computedAt: new Date(),
+          computedAt: this.systemDateService.now(),
         },
       });
     } else {
@@ -61,8 +62,7 @@ export class RewardsService {
    * Checks if the user has met a daily action threshold for a reward.
    */
   private async checkDailyQuotaReward(userId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = this.systemDateService.today();
 
     // Count completed actions today
     const count = await prisma.commandQueueItem.count({
@@ -96,8 +96,7 @@ export class RewardsService {
    * Evaluates the current active streak and grants rewards for milestones.
    */
   async evaluateStreak(userId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = this.systemDateService.today();
 
     // Get recent activity days
     const activities = await prisma.momentumState.findMany({
@@ -146,7 +145,7 @@ export class RewardsService {
       },
       update: {
         score: streak,
-        computedAt: new Date(),
+        computedAt: this.systemDateService.now(),
         reason: `${streak} day execution streak`,
       },
     });
@@ -177,8 +176,7 @@ export class RewardsService {
    */
   private async grantReward(userId: string, ruleId: string, triggerType: EngagementRewardTrigger) {
     // Prevent duplicate rewards for the same rule/trigger on the same day
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = this.systemDateService.today();
 
     const existing = await prisma.engagementReward.findFirst({
       where: {
