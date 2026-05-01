@@ -1,20 +1,28 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaClient, Activity } from '@opportunity-os/db';
+import { Activity, prisma } from '@opportunity-os/db';
 import { CreateActivityDto } from './dto/create-activity.dto';
 import { UpdateActivityDto } from './dto/update-activity.dto';
-
-const prisma = new PrismaClient();
+import { CrmOrchestrator } from '../crm/services/crm-orchestrator.service';
 
 @Injectable()
 export class ActivitiesService {
+  constructor(private readonly crmOrchestrator: CrmOrchestrator) {}
+
   async create(createActivityDto: CreateActivityDto, userId: string): Promise<Activity> {
-    return prisma.activity.create({
+    const activity = await prisma.activity.create({
       data: {
         ...createActivityDto,
         userId,
         occurredAt: new Date(createActivityDto.occurredAt),
       },
     });
+
+    // Async sync to CRM
+    this.crmOrchestrator.syncActivity(userId, activity).catch((err) => {
+      console.error('CRM Sync Error (Activity):', err);
+    });
+
+    return activity;
   }
 
   async findAll(userId: string): Promise<Activity[]> {

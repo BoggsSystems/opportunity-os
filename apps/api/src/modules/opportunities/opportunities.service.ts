@@ -1,19 +1,27 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaClient, Opportunity } from '@opportunity-os/db';
+import { Opportunity, prisma } from '@opportunity-os/db';
 import { CreateOpportunityDto } from './dto/create-opportunity.dto';
 import { UpdateOpportunityDto } from './dto/update-opportunity.dto';
-
-const prisma = new PrismaClient();
+import { CrmOrchestrator } from '../crm/services/crm-orchestrator.service';
 
 @Injectable()
 export class OpportunitiesService {
+  constructor(private readonly crmOrchestrator: CrmOrchestrator) {}
+
   async create(createOpportunityDto: CreateOpportunityDto, userId: string): Promise<Opportunity> {
-    return prisma.opportunity.create({
+    const opportunity = await prisma.opportunity.create({
       data: {
         ...createOpportunityDto,
         userId,
       },
     });
+
+    // Async sync to CRM
+    this.crmOrchestrator.syncOpportunity(userId, opportunity).catch((err) => {
+      console.error('CRM Sync Error (Opportunity):', err);
+    });
+
+    return opportunity;
   }
 
   async findAll(userId: string): Promise<Opportunity[]> {
@@ -66,10 +74,16 @@ export class OpportunitiesService {
   async update(id: string, updateOpportunityDto: UpdateOpportunityDto, userId: string): Promise<Opportunity> {
     await this.findOne(id, userId);
 
-    return prisma.opportunity.update({
+    const updatedOpportunity = await prisma.opportunity.update({
       where: { id },
       data: updateOpportunityDto,
     });
+
+    this.crmOrchestrator.syncOpportunity(userId, updatedOpportunity).catch((err) => {
+      console.error('CRM Sync Error (Opportunity Update):', err);
+    });
+
+    return updatedOpportunity;
   }
 
   async remove(id: string, userId: string): Promise<void> {

@@ -32,6 +32,7 @@ import { BrowserModule } from "./modules/browser/browser.module";
 import { ConnectionsModule } from "./modules/connections/connections.module";
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { AdminModule } from "./modules/admin/admin.module";
+import { CrmModule } from "./modules/crm/crm.module";
 import { WebSocketModule } from "./websocket/websocket.module";
 import { DevContextInterceptor } from "./common/dev-context.interceptor";
 
@@ -71,6 +72,7 @@ import { DevContextInterceptor } from "./common/dev-context.interceptor";
     ConnectionsModule,
     OnboardingModule,
     AdminModule,
+    CrmModule,
     WebSocketModule,
   ],
   controllers: [TestValidationController],
