@@ -83,6 +83,10 @@ export class ApiClient {
     });
   }
 
+  async getCurrentUser() {
+    return this.request<Pick<AuthResponse, 'user' | 'subscription' | 'entitlements'>>('/auth/me');
+  }
+
   async getWorkspace() {
     return this.request<WorkspaceState>('/workspace');
   }

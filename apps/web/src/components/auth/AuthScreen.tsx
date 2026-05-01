@@ -114,6 +114,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = (props) => {
               <img src="https://cdn-icons-png.flaticon.com/512/174/174857.png" alt="" />
               Continue with LinkedIn
             </button>
+            <button
+              className="microsoft-button"
+              type="button"
+              onClick={() => {
+                const url = new URL(`${props.apiBaseUrl}/auth/microsoft`);
+                const guestId = localStorage.getItem('guestSessionId');
+                if (guestId) url.searchParams.append('guestSessionId', guestId);
+                window.location.href = url.toString();
+              }}
+            >
+              <span aria-hidden="true" className="microsoft-mark">
+                <span />
+                <span />
+                <span />
+                <span />
+              </span>
+              Continue with Microsoft
+            </button>
             <button className="secondary-button" disabled={props.isWorking} onClick={useGeneratedUser} type="button">
               Create test user
             </button>

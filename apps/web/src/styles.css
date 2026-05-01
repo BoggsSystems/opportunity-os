@@ -2210,7 +2210,8 @@ input:focus {
   background-color: #f9fafb;
 }
 
-.linkedin-button {
+.linkedin-button,
+.microsoft-button {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2229,6 +2230,41 @@ input:focus {
 
 .linkedin-button:hover {
   opacity: 0.9;
+}
+
+.microsoft-button {
+  background: #2f2f2f;
+  border: 1px solid #2f2f2f;
+  border-radius: 8px;
+  color: #ffffff;
+  transition: opacity 0.2s;
+}
+
+.microsoft-button:hover {
+  opacity: 0.9;
+}
+
+.microsoft-mark {
+  display: grid;
+  grid-template-columns: repeat(2, 8px);
+  grid-template-rows: repeat(2, 8px);
+  gap: 2px;
+}
+
+.microsoft-mark span:nth-child(1) {
+  background: #f25022;
+}
+
+.microsoft-mark span:nth-child(2) {
+  background: #7fba00;
+}
+
+.microsoft-mark span:nth-child(3) {
+  background: #00a4ef;
+}
+
+.microsoft-mark span:nth-child(4) {
+  background: #ffb900;
 }
 
 .linkedin-button img {

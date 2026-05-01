@@ -25,7 +25,7 @@ export class AuthController {
   @Public()
   @Get('google')
   @UseGuards(PassportAuthGuard('google'))
-  async googleAuth(@Req() req: any) {
+  async googleAuth() {
     // Guards handles redirect
   }
 
@@ -45,7 +45,7 @@ export class AuthController {
   @Public()
   @Get('linkedin')
   @UseGuards(PassportAuthGuard('linkedin'))
-  async linkedinAuth(@Req() req: any) {
+  async linkedinAuth() {
     // Guards handles redirect
   }
 
@@ -58,6 +58,32 @@ export class AuthController {
     const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:5174';
     const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&provider=linkedin`;
     
+    return res.redirect(redirectUrl);
+  }
+
+  @Public()
+  @Get('microsoft')
+  async microsoftAuth(@Req() req: any, @Res() res: Response) {
+    const authUrl = this.authService.getMicrosoftAuthorizationUrl(
+      typeof req.query?.guestSessionId === 'string'
+        ? req.query.guestSessionId
+        : undefined,
+    );
+
+    return res.redirect(authUrl);
+  }
+
+  @Public()
+  @Get('microsoft/callback')
+  async microsoftAuthRedirect(@Req() req: any, @Res() res: Response) {
+    const result = await this.authService.validateMicrosoftAuthorizationCode({
+      code: typeof req.query?.code === 'string' ? req.query.code : undefined,
+      state: typeof req.query?.state === 'string' ? req.query.state : undefined,
+    });
+
+    const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:5174';
+    const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}&provider=microsoft`;
+
     return res.redirect(redirectUrl);
   }
 

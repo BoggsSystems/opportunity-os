@@ -174,8 +174,7 @@ export class AuthService {
         return { user, identity: newIdentity };
       });
 
-      identity = result.identity;
-      identity.user = result.user;
+      identity = { ...result.identity, user: result.user };
     } else {
       // 4. Identity exists by email but no Google credential yet - link it
       await prisma.credential.create({
@@ -338,14 +337,213 @@ export class AuthService {
         return { user, identity: newIdentity };
       });
 
-      identity = result.identity;
-      identity.user = result.user;
+      identity = { ...result.identity, user: result.user };
     } else {
       await prisma.credential.create({
         data: {
           authenticationIdentityId: identity.id,
           credentialType: "linkedin_oauth" as AuthenticationCredentialType,
           providerName: "linkedin",
+          providerAccountId: profile.providerId,
+        },
+      });
+    }
+
+    const refreshToken = this.tokenService.generateOpaqueToken();
+    const refreshTokenHash = this.tokenService.hashOpaqueToken(refreshToken);
+    const sessionExpiresAt = this.addDays(REFRESH_TOKEN_TTL_DAYS);
+
+    const session = await prisma.authenticationSession.create({
+      data: {
+        userId: identity.userId,
+        authenticationIdentityId: identity.id,
+        clientType: "api",
+        refreshTokenHash,
+        expiresAt: sessionExpiresAt,
+        lastUsedAt: new Date(),
+      },
+    });
+
+    return this.buildAuthResponse(
+      identity.user,
+      identity.id,
+      session.id,
+      refreshToken,
+    );
+  }
+
+  getMicrosoftAuthorizationUrl(guestSessionId?: string): string {
+    if (!this.config.MICROSOFT_CLIENT_ID) {
+      throw new BadRequestException(
+        "Microsoft login is not configured. Set MICROSOFT_CLIENT_ID first.",
+      );
+    }
+
+    const tenantId = this.config.MICROSOFT_TENANT_ID || "common";
+    const authUrl = new URL(
+      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`,
+    );
+
+    authUrl.searchParams.set("client_id", this.config.MICROSOFT_CLIENT_ID);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("redirect_uri", this.getMicrosoftCallbackUrl());
+    authUrl.searchParams.set("response_mode", "query");
+    authUrl.searchParams.set("scope", "openid profile email User.Read");
+
+    if (guestSessionId) {
+      authUrl.searchParams.set("state", guestSessionId);
+    }
+
+    return authUrl.toString();
+  }
+
+  async validateMicrosoftAuthorizationCode(input: {
+    code?: string;
+    state?: string;
+  }) {
+    if (!input.code) {
+      throw new BadRequestException("Microsoft authorization code is required");
+    }
+
+    const profile = await this.exchangeMicrosoftCodeForProfile(
+      input.code,
+      input.state,
+    );
+
+    return this.validateMicrosoftUser(profile);
+  }
+
+  async validateMicrosoftUser(profile: {
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    providerId: string;
+    guestSessionId?: string;
+  }) {
+    const email = this.normalizeEmail(profile.email);
+
+    let credential = await prisma.credential.findUnique({
+      where: {
+        providerName_providerAccountId: {
+          providerName: "microsoft",
+          providerAccountId: profile.providerId,
+        },
+      },
+      include: {
+        authenticationIdentity: {
+          include: { user: true },
+        },
+      },
+    });
+
+    if (credential) {
+      const refreshToken = this.tokenService.generateOpaqueToken();
+      const refreshTokenHash = this.tokenService.hashOpaqueToken(refreshToken);
+      const sessionExpiresAt = this.addDays(REFRESH_TOKEN_TTL_DAYS);
+
+      const session = await prisma.authenticationSession.create({
+        data: {
+          userId: credential.authenticationIdentity.userId,
+          authenticationIdentityId: credential.authenticationIdentityId,
+          clientType: "api",
+          refreshTokenHash,
+          expiresAt: sessionExpiresAt,
+          lastUsedAt: new Date(),
+        },
+      });
+
+      return this.buildAuthResponse(
+        credential.authenticationIdentity.user,
+        credential.authenticationIdentityId,
+        session.id,
+        refreshToken,
+      );
+    }
+
+    let identity = await prisma.authenticationIdentity.findUnique({
+      where: { emailNormalized: email },
+      include: { user: true },
+    });
+
+    if (!identity) {
+      const result = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email,
+            fullName:
+              `${profile.firstName || ""} ${profile.lastName || ""}`.trim() ||
+              null,
+            emailVerifiedAt: new Date(),
+          },
+        });
+
+        const newIdentity = await tx.authenticationIdentity.create({
+          data: {
+            userId: user.id,
+            email,
+            emailNormalized: email,
+            isVerified: true,
+            verifiedAt: new Date(),
+          },
+        });
+
+        await tx.credential.create({
+          data: {
+            authenticationIdentityId: newIdentity.id,
+            credentialType: "microsoft_oauth" as AuthenticationCredentialType,
+            providerName: "microsoft",
+            providerAccountId: profile.providerId,
+          },
+        });
+
+        const freePlan = await tx.plan.findUnique({
+          where: { code: "free_explorer" },
+          include: { planFeatures: true },
+        });
+
+        if (freePlan) {
+          const now = new Date();
+          await tx.subscription.create({
+            data: {
+              userId: user.id,
+              planId: freePlan.id,
+              status: "active",
+              startedAt: now,
+              currentPeriodStart: new Date(
+                Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+              ),
+              currentPeriodEnd: new Date(
+                Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+              ),
+            },
+          });
+        }
+
+        if (profile.guestSessionId) {
+          await tx.goal.updateMany({
+            where: { guestSessionId: profile.guestSessionId, userId: null },
+            data: { userId: user.id },
+          });
+          await tx.campaign.updateMany({
+            where: { guestSessionId: profile.guestSessionId, userId: null },
+            data: { userId: user.id },
+          });
+          await tx.aIConversation.updateMany({
+            where: { guestSessionId: profile.guestSessionId, userId: null },
+            data: { userId: user.id },
+          });
+        }
+
+        return { user, identity: newIdentity };
+      });
+
+      identity = { ...result.identity, user: result.user };
+    } else {
+      await prisma.credential.create({
+        data: {
+          authenticationIdentityId: identity.id,
+          credentialType: "microsoft_oauth" as AuthenticationCredentialType,
+          providerName: "microsoft",
           providerAccountId: profile.providerId,
         },
       });
@@ -1120,6 +1318,93 @@ export class AuthService {
 
   private addHours(hours: number): Date {
     return new Date(Date.now() + hours * 60 * 60 * 1000);
+  }
+
+  private getMicrosoftCallbackUrl(): string {
+    if (this.config.MICROSOFT_CALLBACK_URL) {
+      return this.config.MICROSOFT_CALLBACK_URL;
+    }
+
+    const apiPublicUrl =
+      this.config.API_PUBLIC_URL?.replace(/\/$/, "") || "http://localhost:3002";
+
+    return `${apiPublicUrl}/auth/microsoft/callback`;
+  }
+
+  private async exchangeMicrosoftCodeForProfile(
+    code: string,
+    guestSessionId?: string,
+  ) {
+    if (!this.config.MICROSOFT_CLIENT_ID || !this.config.MICROSOFT_CLIENT_SECRET) {
+      throw new BadRequestException(
+        "Microsoft login is not configured. Set MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET first.",
+      );
+    }
+
+    const tenantId = this.config.MICROSOFT_TENANT_ID || "common";
+    const tokenResponse = await fetch(
+      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          client_id: this.config.MICROSOFT_CLIENT_ID,
+          client_secret: this.config.MICROSOFT_CLIENT_SECRET,
+          code,
+          grant_type: "authorization_code",
+          redirect_uri: this.getMicrosoftCallbackUrl(),
+        }),
+      },
+    );
+
+    if (!tokenResponse.ok) {
+      throw new BadRequestException("Microsoft token exchange failed");
+    }
+
+    const tokenPayload = (await tokenResponse.json()) as {
+      access_token?: string;
+    };
+
+    if (!tokenPayload.access_token) {
+      throw new BadRequestException("Microsoft token response was missing an access token");
+    }
+
+    const profileResponse = await fetch(
+      "https://graph.microsoft.com/v1.0/me?$select=id,mail,userPrincipalName,givenName,surname,displayName",
+      {
+        headers: {
+          authorization: `Bearer ${tokenPayload.access_token}`,
+        },
+      },
+    );
+
+    if (!profileResponse.ok) {
+      throw new BadRequestException("Microsoft profile lookup failed");
+    }
+
+    const profile = (await profileResponse.json()) as {
+      id?: string;
+      mail?: string | null;
+      userPrincipalName?: string | null;
+      givenName?: string | null;
+      surname?: string | null;
+      displayName?: string | null;
+    };
+
+    const email = profile.mail || profile.userPrincipalName;
+    if (!profile.id || !email) {
+      throw new BadRequestException("Microsoft profile was missing required identity fields");
+    }
+
+    return {
+      email,
+      firstName: profile.givenName || profile.displayName || undefined,
+      lastName: profile.surname || undefined,
+      providerId: profile.id,
+      guestSessionId,
+    };
   }
 
   private isNonProduction(): boolean {

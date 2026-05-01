@@ -2,24 +2,22 @@ import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-linkedin-oauth2';
 import { getConfig } from '@opportunity-os/config';
-import { AuthService } from './auth.service';
 
 @Injectable()
 export class LinkedInStrategy extends PassportStrategy(Strategy, 'linkedin') {
-  constructor(private readonly authService: AuthService) {
+  constructor() {
     const config = getConfig();
     super({
       clientID: config.LINKEDIN_CLIENT_ID,
       clientSecret: config.LINKEDIN_CLIENT_SECRET,
-      callbackURL: config.LINKEDIN_CALLBACK_URL || 'http://localhost:3001/auth/linkedin/callback',
+      callbackURL: config.LINKEDIN_CALLBACK_URL || 'http://localhost:3002/auth/linkedin/callback',
       scope: ['r_emailaddress', 'r_liteprofile'],
-      state: true,
     });
   }
 
   async validate(
     accessToken: string,
-    refreshToken: string,
+    _refreshToken: string,
     profile: any,
     done: any,
   ): Promise<any> {

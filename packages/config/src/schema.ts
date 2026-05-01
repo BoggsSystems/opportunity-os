@@ -24,9 +24,16 @@ const envSchema = z.object({
   PERPLEXITY_MODEL: z.string().default('sonar-reasoning'),
   PERPLEXITY_DISCOVERY_MODE: z.enum(['agent', 'search']).default('agent'),
   APOLLO_API_KEY: z.string().optional(),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_CALLBACK_URL: z.string().url().optional(),
+  LINKEDIN_CLIENT_ID: z.string().optional(),
+  LINKEDIN_CLIENT_SECRET: z.string().optional(),
+  LINKEDIN_CALLBACK_URL: z.string().url().optional(),
   MICROSOFT_CLIENT_ID: z.string().optional(),
   MICROSOFT_CLIENT_SECRET: z.string().optional(),
   MICROSOFT_TENANT_ID: z.string().optional(),
+  MICROSOFT_CALLBACK_URL: z.string().url().optional(),
   API_PUBLIC_URL: z.string().url().optional(),
 
   // Integrations

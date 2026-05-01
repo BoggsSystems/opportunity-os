@@ -249,9 +249,10 @@ export function App() {
             refreshToken,
             user,
             session: { id: 'oauth-session' }, // SID will be in token anyway
-            subscription,
-            entitlements
           };
+
+          if (subscription) auth.subscription = subscription;
+          if (entitlements) auth.entitlements = entitlements;
           
           commitSession(auth);
           
