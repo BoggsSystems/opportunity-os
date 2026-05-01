@@ -597,6 +597,20 @@ enum RewardType {
   subscription_credit
 }
 
+enum EngagementRewardTrigger {
+  DAILY_QUOTA_MET
+  WEEKLY_QUOTA_MET
+  STREAK_HIT
+  CAMPAIGN_COMPLETED
+  ACTION_MILESTONE
+}
+
+enum RewardRuleType {
+  ACTION_THRESHOLD
+  CAMPAIGN_GOAL
+  TEMPORAL_STREAK
+}
+
 enum GrowthCreditStatus {
   available
   partially_used
@@ -611,6 +625,8 @@ enum MomentumStateType {
   stalled
   recovering
   strong_momentum
+  streak
+  velocity_pulse
 }
 
 enum CoachingNudgeType {
@@ -2663,6 +2679,47 @@ model ReferralReward {
   @@map("referral_rewards")
 }
 
+model RewardRule {
+  id               String                 @id @default(uuid()) @db.Uuid
+  ruleType         RewardRuleType
+  triggerType      EngagementRewardTrigger
+  criteriaJson     Json?
+  rewardType       RewardType
+  rewardQuantity   Int
+  featureKey       String?
+  isActive         Boolean                @default(true)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  rewards          EngagementReward[]
+
+  @@map("reward_rules")
+}
+
+model EngagementReward {
+  id             String                  @id @default(uuid()) @db.Uuid
+  userId         String                  @db.Uuid
+  ruleId         String?                 @db.Uuid
+  triggerType    EngagementRewardTrigger
+  rewardType     RewardType
+  quantity       Int
+  featureKey     String?
+  status         String                  @default("granted")
+  grantedAt      DateTime                @default(now())
+  expiresAt      DateTime?
+  metadataJson   Json?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rule           RewardRule?             @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  growthCredits  GrowthCredit[]
+
+  @@index([userId])
+  @@index([ruleId])
+  @@index([status])
+  @@map("engagement_rewards")
+}
+
 model GrowthCredit {
   id               String             @id @default(uuid()) @db.Uuid
   userId           String             @db.Uuid
@@ -2678,8 +2735,11 @@ model GrowthCredit {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  referralReward ReferralReward? @relation(fields: [referralRewardId], references: [id], onDelete: SetNull)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referralReward   ReferralReward?   @relation(fields: [referralRewardId], references: [id], onDelete: SetNull)
+  engagementReward EngagementReward? @relation(fields: [engagementRewardId], references: [id], onDelete: SetNull)
+
+  engagementRewardId String? @db.Uuid
 
   @@index([userId])
   @@index([featureKey])
