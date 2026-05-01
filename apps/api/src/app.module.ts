@@ -41,6 +41,7 @@ import { DevContextInterceptor } from "./common/dev-context.interceptor";
 import { TimeWarpInterceptor } from "./common/time-warp.interceptor";
 import { CommonModule } from "./common/common.module";
 import { SimProvidersModule } from "./modules/simulation/sim-providers.module";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { SimProvidersModule } from "./modules/simulation/sim-providers.module";
     WebSocketModule,
     CommonModule,
     SimProvidersModule,
+    NotificationsModule,
   ],
   controllers: [TestValidationController],
   providers: [

@@ -33,6 +33,7 @@ import { VerifyEmailDto } from "./dto/verify-email.dto";
 import { AuthenticatedUser } from "./auth.types";
 import { CommercialService } from "../commercial/commercial.service";
 import { AdminLifecycleService } from "../admin/admin-lifecycle.service";
+import { NotificationOrchestrator } from "../notifications/notification-orchestrator.service";
 
 @Injectable()
 export class AuthService {
@@ -43,6 +44,7 @@ export class AuthService {
     private readonly tokenService: TokenService,
     private readonly commercialService: CommercialService,
     private readonly adminLifecycleService: AdminLifecycleService,
+    private readonly notificationOrchestrator: NotificationOrchestrator,
   ) {}
 
   async validateGoogleUser(profile: {
@@ -824,6 +826,15 @@ export class AuthService {
       metadata: {
         hasReferral: Boolean(referral?.applied),
       },
+    });
+
+    // 🏆 New: Trigger Welcome Notification
+    await this.notificationOrchestrator.notify({
+      userId: result.user.id,
+      eventKey: "auth.welcome",
+      subject: "Welcome to Opportunity OS!",
+      body: `Hi ${result.user.fullName || "there"},\n\nWelcome to Opportunity OS. Your account is ready.`,
+      metadata: { identityId: result.identity.id }
     });
 
     return this.buildAuthResponse(

@@ -103,6 +103,22 @@ enum TaskPriority {
   urgent
 }
 
+enum NotificationChannel {
+  email
+  push
+  in_app
+  sms
+}
+
+enum NotificationStatus {
+  pending
+  sent
+  delivered
+  read
+  failed
+  simulated
+}
+
 enum CompanyType {
   employer
   prospect
@@ -777,8 +793,37 @@ model User {
   externalMappings             ExternalMapping[]
   engagementLogs               UserEngagementLog[]
   engagementRewards            EngagementReward[]
+  notifications                Notification[]
 
   @@map("users")
+}
+
+model Notification {
+  id               String              @id @default(uuid()) @db.Uuid
+  userId           String              @db.Uuid
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  channel          NotificationChannel
+  status           NotificationStatus  @default(pending)
+  eventKey         String              @db.VarChar(100)
+  
+  subject          String?             @db.VarChar(255)
+  body             String              @db.Text
+  metadataJson     Json?
+  
+  providerName     String?             @db.VarChar(50)
+  providerMessageId String?            @db.VarChar(255)
+  
+  error            String?             @db.Text
+  
+  readAt           DateTime?
+  sentAt           DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([userId, status])
+  @@index([eventKey])
+  @@map("notifications")
 }
 
 model UserEngagementLog {
