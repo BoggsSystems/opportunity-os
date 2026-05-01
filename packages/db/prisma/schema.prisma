@@ -776,6 +776,7 @@ model User {
   adminOperationalIssues       AdminOperationalIssue[]
   externalMappings             ExternalMapping[]
   engagementLogs               UserEngagementLog[]
+  engagementRewards            EngagementReward[]
 
   @@map("users")
 }

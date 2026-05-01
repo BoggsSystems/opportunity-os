@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
+import { RewardsService } from "../rewards/rewards.service";
 import {
   ActionItemStatus,
   CommandQueueItemStatus,
@@ -91,6 +93,9 @@ const QUEUE_INCLUDE = {
 
 @Injectable()
 export class CommandQueueService {
+  private readonly logger = new Logger(CommandQueueService.name);
+  constructor(private readonly rewardsService: RewardsService) {}
+
   async getToday(userId: string, input: QueueInput = {}) {
     const queueDate = this.resolveQueueDate(input.date);
     const limit = this.resolveLimit(input.limit);
@@ -191,7 +196,16 @@ export class CommandQueueService {
       throw new NotFoundException("Command queue not found");
     }
 
-    return this.serializeQueue(queue);
+    const result = this.serializeQueue(queue);
+
+    // 4. Trigger Rewards (Async)
+    if (status === CommandQueueItemStatus.completed) {
+      this.rewardsService.evaluateActionCompletion(userId, itemId).catch((err) => {
+        this.logger.error(`Rewards Evaluation Error for user ${userId}: ${err.message}`);
+      });
+    }
+
+    return result;
   }
 
   private async rebuildQueue(userId: string, queueDate: Date, limit: number) {
