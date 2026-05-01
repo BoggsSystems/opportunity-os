@@ -32,6 +32,7 @@ import { BrowserModule } from "./modules/browser/browser.module";
 import { ConnectionsModule } from "./modules/connections/connections.module";
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { AdminModule } from "./modules/admin/admin.module";
+import { CommandQueueModule } from "./modules/command-queue/command-queue.module";
 import { CrmModule } from "./modules/crm/crm.module";
 import { EngagementModule } from "./modules/engagement/engagement.module";
 import { WebSocketModule } from "./websocket/websocket.module";
@@ -73,6 +74,7 @@ import { DevContextInterceptor } from "./common/dev-context.interceptor";
     ConnectionsModule,
     OnboardingModule,
     AdminModule,
+    CommandQueueModule,
     CrmModule,
     EngagementModule,
     WebSocketModule,

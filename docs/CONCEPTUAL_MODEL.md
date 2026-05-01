@@ -1678,6 +1678,57 @@ Relationships:
 
 MVP: yes
 
+**DailyCommandQueue / Today's Command Queue**
+
+The user-facing daily execution plan. The queue is assembled from many active offerings, campaigns, lanes, cycles, conversations, replies, follow-ups, content motions, and stale opportunities. It is the cross-cycle operating surface the Conductor uses to guide the user through the day.
+
+Represents:
+
+* today's prioritized revenue actions
+* a mixed action run across campaigns and channels
+* the sequence the Conductor should present one action at a time
+* the daily plan that can be compared against completed, skipped, deferred, blocked, and failed actions
+
+Important distinction:
+
+* ActionCycle is the lane-level planning/execution window
+* ActionItem is the concrete work unit
+* DailyCommandQueue is the cross-cycle ordering of work for a specific day
+* the user may jump from one ActionCycle to another as they move through the queue
+
+Relationships:
+
+* belongs to one User
+* has many CommandQueueItems
+* has queue date, status, target action count, completed action count, generated/start/completion timestamps, and AI summary metadata
+* may be regenerated or reprioritized as replies, connector events, or user behavior changes the day
+
+MVP: yes
+
+**CommandQueueItem**
+
+A prioritized slot inside Today's Command Queue. It usually points to an existing ActionItem but can also represent a generated daily instruction before the underlying ActionItem is finalized.
+
+Represents:
+
+* the next action the Conductor should present
+* a cross-cycle action priority with an explanation
+* a queued email, LinkedIn DM, post, comment, call-prep, follow-up, reply triage, asset review, or proposal-prep task
+* a deferred, skipped, blocked, completed, or failed item within a daily action run
+
+Relationships:
+
+* belongs to one DailyCommandQueue
+* belongs to one User
+* may reference one Offering
+* may reference one Campaign
+* may reference one ActionLane
+* may reference one ActionCycle
+* may reference one ActionItem
+* has position, priority score, estimated effort, scheduled time, reason, status, and presentation/execution timestamps
+
+MVP: yes
+
 **ConversationThread**
 
 The durable record of a specific exchange or engagement stream created by an ActionItem or campaign motion. A thread may represent a LinkedIn DM conversation, email reply chain, LinkedIn post comment thread, YouTube comment thread, or other campaign feedback channel.
@@ -3093,6 +3144,14 @@ MVP: yes
 * Admin Metric Snapshots aggregate existing domain records for overview, funnel, campaign/action, connector, billing/referral, and operations views.
 * Admin Operational Issues may belong to a User and may reference stuck or failed source records by source type and id.
 * Growth Credits may be considered by Capability Gate when evaluating usage allowance.
+
+### Daily Command Queue Relationships
+
+* A User may have many Daily Command Queues, typically one per calendar day.
+* A Daily Command Queue has many Command Queue Items.
+* A Command Queue Item usually references one Action Item and may denormalize Offering, Campaign, Action Lane, and Action Cycle references for fast rendering and prioritization.
+* Action Cycles generate and organize action work; Daily Command Queues prioritize cross-cycle execution for the day.
+* The Conductor executes through Command Queue Items one at a time while preserving the underlying Action Item as the system-of-record work unit.
 
 ### Coaching, Momentum, and Engagement Relationships
 

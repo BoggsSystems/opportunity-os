@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import type {
   WorkspaceState,
   CampaignWorkspace,
+  CommandQueueItem,
+  CommandQueueItemStatus,
+  CommandQueueState,
   EmailReadiness,
   OutreachDraft,
   StrategicPlanResult
@@ -52,6 +55,7 @@ interface ActiveWorkspaceProps {
   workspace: WorkspaceState | null;
   campaignWorkspace: CampaignWorkspace | null;
   emailReadiness: EmailReadiness | null;
+  commandQueue: CommandQueueState | null;
   view: WorkspaceViewState;
   draft: OutreachDraft | null;
   outreachExecutionState: OutreachExecutionState;
@@ -70,6 +74,9 @@ interface ActiveWorkspaceProps {
   }) => Promise<any>;
   onConfirmCanvasAction: (input: { actionItemId: string; finalContent?: string; outcome?: string }) => Promise<any>;
   onSaveActionDraft: (input: { actionItemId: string; draftContent: string }) => Promise<any>;
+  onSelectCommandQueueItem: (item: CommandQueueItem) => Promise<void>;
+  onUpdateCommandQueueItem: (item: CommandQueueItem, status: CommandQueueItemStatus) => Promise<void>;
+  onRefreshCommandQueue: () => Promise<void>;
   onGenerateDraft: () => Promise<void>;
   onGenerateDraftForOpportunity: (opportunityId: string, kind?: 'initial' | 'follow_up') => Promise<void>;
   onStartDiscoveryScan: () => Promise<void>;
@@ -227,6 +234,87 @@ const WorkspaceActivationTour: React.FC<{
         </div>
       </section>
     </div>
+  );
+};
+
+const TodayCommandQueue: React.FC<{
+  queue: CommandQueueState | null;
+  isWorking: boolean;
+  onSelect: (item: CommandQueueItem) => Promise<void>;
+  onUpdate: (item: CommandQueueItem, status: CommandQueueItemStatus) => Promise<void>;
+  onRefresh: () => Promise<void>;
+}> = ({ queue, isWorking, onSelect, onUpdate, onRefresh }) => {
+  const actionableItems = queue?.items.filter((item) => !['completed', 'skipped', 'deferred'].includes(item.status)) ?? [];
+  const nextItem = actionableItems[0] ?? null;
+
+  return (
+    <section className="command-queue-panel">
+      <header className="command-queue-header">
+        <div>
+          <p className="eyebrow">Today&apos;s Command Queue</p>
+          <h3>{queue?.title || 'Prioritized action queue'}</h3>
+          <p>{queue?.summary || 'The Conductor will walk you through the next highest-leverage action.'}</p>
+        </div>
+        <div className="command-queue-actions">
+          <StatusBadge label={`${queue?.completedActionCount ?? 0}/${queue?.targetActionCount ?? actionableItems.length} done`} />
+          <button type="button" className="secondary-button compact" onClick={onRefresh} disabled={isWorking}>
+            Refresh
+          </button>
+        </div>
+      </header>
+
+      {nextItem ? (
+        <div className="command-queue-next">
+          <div>
+            <span>Next action</span>
+            <strong>{nextItem.title}</strong>
+            <p>{nextItem.reason}</p>
+          </div>
+          <button type="button" className="primary-button" onClick={() => onSelect(nextItem)} disabled={isWorking}>
+            Start next action
+          </button>
+        </div>
+      ) : (
+        <div className="command-queue-empty">
+          <strong>No queued actions</strong>
+          <p>Refresh the queue after the engine generates more open action items.</p>
+        </div>
+      )}
+
+      {queue?.items.length ? (
+        <div className="command-queue-list">
+          {queue.items.slice(0, 12).map((item) => (
+            <article className={`command-queue-item status-${item.status}`} key={item.id}>
+              <div className="command-queue-position">{item.position}</div>
+              <div className="command-queue-main">
+                <div className="command-queue-title-row">
+                  <strong>{item.title}</strong>
+                  <StatusBadge label={item.status.replace(/_/g, ' ')} />
+                </div>
+                <p>{item.reason || item.ancestry?.campaign?.title || 'Queued campaign action'}</p>
+                <div className="command-queue-meta">
+                  <span>{item.ancestry?.campaign?.title || 'Campaign'}</span>
+                  <span>{item.ancestry?.actionLane?.title || String(item.metadataJson?.['channel'] || 'Lane')}</span>
+                  <span>{item.estimatedMinutes ?? 8} min</span>
+                  <span>Score {item.priorityScore}</span>
+                </div>
+              </div>
+              <div className="command-queue-row-actions">
+                <button type="button" onClick={() => onSelect(item)} disabled={isWorking || !item.actionItemId}>
+                  Open
+                </button>
+                <button type="button" onClick={() => onUpdate(item, 'deferred')} disabled={isWorking || item.status === 'completed'}>
+                  Defer
+                </button>
+                <button type="button" onClick={() => onUpdate(item, 'skipped')} disabled={isWorking || item.status === 'completed'}>
+                  Skip
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 };
 
@@ -491,6 +579,7 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
   const hasCycleContext = Boolean(cycle || recommendation);
   const showActivationTour = props.view.action === 'idle' && Boolean(props.activationPayload);
   const showActionCanvas = props.view.action === 'idle' && Boolean(props.actionCanvasPayload);
+  const showCommandQueue = props.view.action === 'idle' && Boolean(props.commandQueue);
 
   return (
     <section className="active-workspace">
@@ -506,6 +595,16 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
 
       {showTimeline ? (
         <CycleTimeline phase={props.view.phase} />
+      ) : null}
+
+      {showCommandQueue ? (
+        <TodayCommandQueue
+          queue={props.commandQueue}
+          isWorking={props.isWorking}
+          onSelect={props.onSelectCommandQueueItem}
+          onUpdate={props.onUpdateCommandQueueItem}
+          onRefresh={props.onRefreshCommandQueue}
+        />
       ) : null}
 
       {showActionCanvas && props.actionCanvasPayload ? (
@@ -526,7 +625,7 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
         />
       ) : null}
 
-      {props.view.action === 'idle' && !showActivationTour && !showActionCanvas ? (
+      {props.view.action === 'idle' && !showActivationTour && !showActionCanvas && !showCommandQueue ? (
         <EmptyWorkspace />
       ) : null}
 

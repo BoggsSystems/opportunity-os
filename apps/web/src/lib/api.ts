@@ -1,7 +1,17 @@
 import type {
   AuthResponse,
+  AdminBillingReferralAnalytics,
+  AdminCampaignAnalytics,
+  AdminConnectorAnalytics,
+  AdminFunnel,
+  AdminMetricSnapshots,
+  AdminOperationalIssues,
+  AdminOverview,
+  AdminUsersResult,
   CapabilityCheckResult,
   CampaignWorkspace,
+  CommandQueueState,
+  CommandQueueItemStatus,
   CheckoutSession,
   CommercialState,
   ContentUploadResult,
@@ -97,6 +107,35 @@ export class ApiClient {
 
   async getCampaignWorkspace(campaignId: string) {
     return this.request<CampaignWorkspace>(`/campaigns/${encodeURIComponent(campaignId)}/workspace`);
+  }
+
+  async getTodayCommandQueue(input: { date?: string; refresh?: boolean; limit?: number } = {}) {
+    const query = new URLSearchParams();
+    if (input.date) query.set('date', input.date);
+    if (input.refresh) query.set('refresh', 'true');
+    if (input.limit) query.set('limit', String(input.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.request<CommandQueueState>(`/command-queue/today${suffix}`);
+  }
+
+  async updateCommandQueueItem(itemId: string, input: {
+    status?: CommandQueueItemStatus;
+    deferredUntil?: string;
+    reason?: string;
+    completeActionItem?: boolean;
+    metadataJson?: Record<string, unknown>;
+  }) {
+    return this.request<CommandQueueState>(`/command-queue/items/${encodeURIComponent(itemId)}`, {
+      method: 'PATCH',
+      body: input,
+    });
+  }
+
+  async presentCommandQueueItem(itemId: string) {
+    return this.request<CommandQueueState>(`/command-queue/items/${encodeURIComponent(itemId)}/present`, {
+      method: 'POST',
+      body: {},
+    });
   }
 
   async listOfferings() {
@@ -415,6 +454,67 @@ export class ApiClient {
 
   async getBillingState() {
     return this.request<any>('/billing/me');
+  }
+
+  async getAdminOverview() {
+    return this.request<AdminOverview>('/admin/overview');
+  }
+
+  async getAdminFunnel() {
+    return this.request<AdminFunnel>('/admin/funnel');
+  }
+
+  async listAdminUsers(input: { query?: string; stage?: string; limit?: number; cursor?: string } = {}) {
+    const query = new URLSearchParams();
+    if (input.query) query.set('query', input.query);
+    if (input.stage) query.set('stage', input.stage);
+    if (input.limit) query.set('limit', String(input.limit));
+    if (input.cursor) query.set('cursor', input.cursor);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.request<AdminUsersResult>(`/admin/users${suffix}`);
+  }
+
+  async getAdminUser(userId: string) {
+    return this.request<any>(`/admin/users/${encodeURIComponent(userId)}`);
+  }
+
+  async getAdminCampaigns() {
+    return this.request<AdminCampaignAnalytics>('/admin/campaigns');
+  }
+
+  async getAdminConnectors() {
+    return this.request<AdminConnectorAnalytics>('/admin/connectors');
+  }
+
+  async getAdminBillingReferrals() {
+    return this.request<AdminBillingReferralAnalytics>('/admin/billing-referrals');
+  }
+
+  async getAdminMetricSnapshots(input: { metricKey?: string; periodStart?: string; periodEnd?: string; limit?: number } = {}) {
+    const query = new URLSearchParams();
+    if (input.metricKey) query.set('metricKey', input.metricKey);
+    if (input.periodStart) query.set('periodStart', input.periodStart);
+    if (input.periodEnd) query.set('periodEnd', input.periodEnd);
+    if (input.limit) query.set('limit', String(input.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.request<AdminMetricSnapshots>(`/admin/metrics/snapshots${suffix}`);
+  }
+
+  async createAdminMonthlySnapshot(input: { month?: string; periodStart?: string; periodEnd?: string } = {}) {
+    return this.request<any>('/admin/metrics/snapshots/monthly', {
+      method: 'POST',
+      body: input,
+    });
+  }
+
+  async getAdminOperationalIssues(input: { status?: string; severity?: string; source?: string; limit?: number } = {}) {
+    const query = new URLSearchParams();
+    if (input.status) query.set('status', input.status);
+    if (input.severity) query.set('severity', input.severity);
+    if (input.source) query.set('source', input.source);
+    if (input.limit) query.set('limit', String(input.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.request<AdminOperationalIssues>(`/admin/operations/issues${suffix}`);
   }
 
   async getEmailReadiness() {

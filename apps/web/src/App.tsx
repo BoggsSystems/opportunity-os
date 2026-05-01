@@ -33,12 +33,16 @@ import { AuthScreen } from './components/auth/AuthScreen';
 import { LandingPage } from './features/marketing/components/LandingPage';
 import { WorkspaceTopBar } from './components/workspace/WorkspaceTopBar';
 import { ActiveWorkspace } from './components/workspace/ActiveWorkspace';
+import { AdminApp } from './admin/AdminApp';
 import type {
   AuthResponse,
   CanvasAction,
   CanvasState,
   CampaignWorkspace,
   CampaignProspectSummary,
+  CommandQueueItem,
+  CommandQueueState,
+  CommandQueueItemStatus,
   CommercialState,
   ConversationMessage,
   DiscoveryTargetSummary,
@@ -158,6 +162,7 @@ export function App() {
   const api = useMemo(() => new ApiClient(session?.accessToken ?? null), [session?.accessToken]);
   const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
   const [campaignWorkspace, setCampaignWorkspace] = useState<CampaignWorkspace | null>(null);
+  const [commandQueue, setCommandQueue] = useState<CommandQueueState | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [commercialState, setCommercialState] = useState<CommercialState | null>(null);
@@ -179,10 +184,11 @@ export function App() {
   const [isBooting, setIsBooting] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [view, setView] = useState<'landing' | 'onboarding' | 'auth' | 'app'>(() => {
+  const [view, setView] = useState<'landing' | 'onboarding' | 'auth' | 'app' | 'admin'>(() => {
     // For local testing/iteration, we can force the landing page
     const params = new URLSearchParams(window.location.search);
     if (params.get('landing') === 'true') return 'landing';
+    if (window.location.pathname.startsWith('/admin')) return session ? 'admin' : 'auth';
     return session ? 'app' : 'landing';
   });
   
@@ -292,6 +298,7 @@ export function App() {
         api.getSubscription(),
         api.getUsage(),
       ]);
+      const queueState = await api.getTodayCommandQueue({ limit: 50 }).catch(() => null);
       const emailState = await api.getEmailReadiness().catch(() => null);
       const commercial = await api.getCommercialState().catch(() => null);
       const availablePlans = await api.listPlans().catch(() => []);
@@ -301,6 +308,7 @@ export function App() {
         : await api.getCurrentCampaignWorkspace().catch(() => null);
       setWorkspace(workspaceState);
       setCampaignWorkspace(campaignState);
+      setCommandQueue(queueState);
       setActiveConversationId((current) => current ?? workspaceState.conductor.activeConversationId);
       setSubscription(subscriptionState);
       setUsage(usageState);
@@ -437,7 +445,7 @@ export function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
     setSession(stored);
     setSubscription(auth.subscription ?? null);
-    setView('app');
+    setView(window.location.pathname.startsWith('/admin') ? 'admin' : 'app');
   }
 
   async function handleAuth(mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) {
@@ -517,6 +525,7 @@ export function App() {
     setSession(null);
     setWorkspace(null);
     setCampaignWorkspace(null);
+    setCommandQueue(null);
     setMessages([]);
     setDraft(null);
     setOutreachExecutionState('idle');
@@ -604,6 +613,13 @@ export function App() {
         detail: 'The action was logged and the workspace state was refreshed.',
         tone: 'success',
       });
+      const activeQueueItem = commandQueue?.items.find((item) => item.actionItemId === input.actionItemId);
+      if (activeQueueItem) {
+        const updatedQueue = await api.updateCommandQueueItem(activeQueueItem.id, {
+          status: 'completed',
+        }).catch(() => null);
+        if (updatedQueue) setCommandQueue(updatedQueue);
+      }
       const canvasPayload = await api.getActionItemCanvas(input.actionItemId).catch(() => null);
       setActionCanvasPayload(canvasPayload);
       await loadWorkspace();
@@ -643,6 +659,84 @@ export function App() {
         tone: 'error',
       });
       return null;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function refreshCommandQueue() {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const queue = await api.getTodayCommandQueue({ refresh: true, limit: 50 });
+      setCommandQueue(queue);
+      setNotice({
+        title: "Today's queue refreshed",
+        detail: `${queue.items.length} actions are ready for review.`,
+        tone: 'success',
+      });
+    } catch (error) {
+      setNotice({
+        title: 'Queue refresh failed',
+        detail: error instanceof Error ? error.message : 'The command queue could not be refreshed.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function selectCommandQueueItem(item: CommandQueueItem) {
+    if (!item.actionItemId) return;
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const [updatedQueue, canvasPayload] = await Promise.all([
+        api.presentCommandQueueItem(item.id),
+        api.getActionItemCanvas(item.actionItemId),
+      ]);
+      setCommandQueue(updatedQueue);
+      setActionCanvasPayload(canvasPayload);
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: `I’ve staged the next queue item: ${item.title}. Review the campaign context and draft before you execute anything.`,
+        },
+      ]);
+    } catch (error) {
+      setNotice({
+        title: 'Could not stage action',
+        detail: error instanceof Error ? error.message : 'The queue item could not be opened.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function updateCommandQueueItem(item: CommandQueueItem, status: CommandQueueItemStatus) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const body =
+        status === 'deferred'
+          ? { status, deferredUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }
+          : { status };
+      const queue = await api.updateCommandQueueItem(item.id, body);
+      setCommandQueue(queue);
+      setNotice({
+        title: status === 'deferred' ? 'Action deferred' : 'Action updated',
+        detail: `${item.title} is now ${status.replace(/_/g, ' ')}.`,
+        tone: 'success',
+      });
+    } catch (error) {
+      setNotice({
+        title: 'Queue update failed',
+        detail: error instanceof Error ? error.message : 'The queue item could not be updated.',
+        tone: 'error',
+      });
     } finally {
       setIsWorking(false);
     }
@@ -1382,6 +1476,20 @@ export function App() {
     return <LandingPage onStart={(mode) => setView(mode === 'signup' ? 'onboarding' : 'auth')} />;
   }
 
+  if (view === 'admin') {
+    return (
+      <AdminApp
+        api={api}
+        user={session.user}
+        onBackToWorkspace={() => {
+          window.history.pushState(null, '', '/');
+          setView('app');
+        }}
+        onLogout={logout}
+      />
+    );
+  }
+
   return (
     <main className={`app-shell ${conductorExpanded ? 'conductor-expanded' : 'conductor-collapsed'}`}>
       <ConductorPane
@@ -1423,6 +1531,7 @@ export function App() {
             workspace={workspace}
             campaignWorkspace={campaignWorkspace}
             emailReadiness={emailReadiness}
+            commandQueue={commandQueue}
             view={workspaceView}
             draft={draft}
             outreachExecutionState={outreachExecutionState}
@@ -1436,6 +1545,9 @@ export function App() {
             onCaptureActionFeedback={captureActionFeedback}
             onConfirmCanvasAction={confirmCanvasAction}
             onSaveActionDraft={saveCanvasDraft}
+            onSelectCommandQueueItem={selectCommandQueueItem}
+            onUpdateCommandQueueItem={updateCommandQueueItem}
+            onRefreshCommandQueue={refreshCommandQueue}
             onGenerateDraft={generateDraft}
             onGenerateDraftForOpportunity={generateDraftForOpportunity}
             onStartDiscoveryScan={startDiscoveryScan}

@@ -15,6 +15,8 @@ interface AuthScreenProps {
 }
 
 const TEST_PASSWORD = 'Password123!';
+const ADMIN_TEST_EMAIL = 'jeff_boggs@hotmail.com';
+const ADMIN_TEST_NAME = 'Admin Operator';
 
 export const AuthScreen: React.FC<AuthScreenProps> = (props) => {
   const [mode, setMode] = useState<'login' | 'signup'>(props.initialMode || 'signup');
@@ -27,6 +29,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = (props) => {
     setFullName('Test Operator');
     setPassword(TEST_PASSWORD);
     setEmail(`web-test-${Date.now()}@example.com`);
+  }
+
+  function useAdminUser() {
+    setMode('login');
+    setFullName(ADMIN_TEST_NAME);
+    setPassword(TEST_PASSWORD);
+    setEmail(ADMIN_TEST_EMAIL);
   }
 
   return (
@@ -134,6 +143,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = (props) => {
             </button>
             <button className="secondary-button" disabled={props.isWorking} onClick={useGeneratedUser} type="button">
               Create test user
+            </button>
+            <button className="secondary-button" disabled={props.isWorking} onClick={useAdminUser} type="button">
+              Use admin test user
             </button>
           </div>
         </form>

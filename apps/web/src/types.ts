@@ -182,6 +182,87 @@ export interface CheckoutSession {
   mode: string;
 }
 
+export interface AdminOverview {
+  users: {
+    total: number;
+    activated: number;
+    firstActionCompleted: number;
+    paid: number;
+  };
+  activation: {
+    activationRate: number;
+    firstActionCompletionRate: number;
+  };
+  connectors: {
+    usersWithConnectedConnectors: number;
+    adoptionRate: number;
+  };
+  campaigns: {
+    total: number;
+    completedActions: number;
+  };
+  operations: {
+    openIssues: number;
+  };
+}
+
+export interface AdminFunnel {
+  totalUsers: number;
+  stages: Array<{
+    stage: string;
+    current: number;
+    reached: number;
+    dropoffFromPrevious: number;
+    conversionFromPrevious: number;
+  }>;
+  currentStageCounts: Record<string, number>;
+  furthestStageCounts: Record<string, number>;
+}
+
+export interface AdminUsersResult {
+  users: Array<any>;
+  nextCursor: string | null;
+}
+
+export interface AdminCampaignAnalytics {
+  totals: {
+    campaigns: number;
+    actionItems: number;
+  };
+  campaignStatus: Array<any>;
+  laneStatus: Array<any>;
+  cycleStatus: Array<any>;
+  actionStatus: Array<any>;
+}
+
+export interface AdminConnectorAnalytics {
+  statusCounts: Array<any>;
+  providerStatusCounts: Array<any>;
+  recentFailures: Array<any>;
+}
+
+export interface AdminBillingReferralAnalytics {
+  planDistribution: Array<any>;
+  referrals: {
+    visits: number;
+    attributions: number;
+    paidConversions: number;
+    milestones: Array<any>;
+    rewards: Array<any>;
+  };
+}
+
+export interface AdminMetricSnapshots {
+  scope: string;
+  snapshots: Array<any>;
+  count: number;
+  metricKeys: readonly string[];
+}
+
+export interface AdminOperationalIssues {
+  issues: Array<any>;
+}
+
 export type OfferingType =
   | 'product'
   | 'service'
@@ -420,6 +501,62 @@ export interface CampaignWorkspace {
   discovery?: {
     scans: DiscoveryScanSummary[];
   };
+}
+
+export type CommandQueueItemStatus =
+  | 'queued'
+  | 'presented'
+  | 'in_progress'
+  | 'completed'
+  | 'skipped'
+  | 'deferred'
+  | 'blocked'
+  | 'failed';
+
+export interface CommandQueueItem {
+  id: string;
+  commandQueueId: string;
+  userId: string;
+  offeringId?: string | null;
+  campaignId?: string | null;
+  actionLaneId?: string | null;
+  actionCycleId?: string | null;
+  actionItemId?: string | null;
+  position: number;
+  priorityScore: number;
+  status: CommandQueueItemStatus;
+  title: string;
+  reason?: string | null;
+  estimatedMinutes?: number | null;
+  scheduledFor?: string | null;
+  presentedAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  skippedAt?: string | null;
+  deferredUntil?: string | null;
+  metadataJson?: Record<string, unknown> | null;
+  actionItem?: any | null;
+  ancestry?: {
+    offering?: any | null;
+    campaign?: any | null;
+    actionLane?: any | null;
+    actionCycle?: any | null;
+  };
+}
+
+export interface CommandQueueState {
+  id: string;
+  userId: string;
+  queueDate: string;
+  status: string;
+  title?: string | null;
+  summary?: string | null;
+  targetActionCount?: number | null;
+  completedActionCount: number;
+  generatedAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  items: CommandQueueItem[];
 }
 
 export interface DiscoveryEvidenceSummary {

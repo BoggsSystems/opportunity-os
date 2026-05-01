@@ -386,6 +386,24 @@ enum ActionItemConfirmationSource {
   system
 }
 
+enum DailyCommandQueueStatus {
+  planned
+  active
+  completed
+  archived
+}
+
+enum CommandQueueItemStatus {
+  queued
+  presented
+  in_progress
+  completed
+  skipped
+  deferred
+  blocked
+  failed
+}
+
 enum ConversationThreadStatus {
   active
   waiting_for_reply
@@ -728,6 +746,8 @@ model User {
   coachingNudges               CoachingNudge[]
   campaignMetrics              CampaignMetric[]
   actionItems                  ActionItem[]
+  dailyCommandQueues           DailyCommandQueue[]
+  commandQueueItems            CommandQueueItem[]
   conversationThreads          ConversationThread[]
   conversationMessages         ConversationThreadMessage[]
   conversationInsights         ConversationThreadInsight[]
@@ -745,19 +765,19 @@ model User {
 }
 
 model UserEngagementLog {
-  id              String   @id @default(uuid()) @db.Uuid
-  userId          String   @db.Uuid
-  nudgeType       String   @db.VarChar(100) // e.g., 'ghost_campaign', 'milestone_reached'
-  strategyVersion String?  @db.VarChar(50)  // To track which AI prompt style worked better
-  sentAt          DateTime @default(now())
+  id              String    @id @default(uuid()) @db.Uuid
+  userId          String    @db.Uuid
+  nudgeType       String    @db.VarChar(100) // e.g., 'ghost_campaign', 'milestone_reached'
+  strategyVersion String?   @db.VarChar(50) // To track which AI prompt style worked better
+  sentAt          DateTime  @default(now())
   openedAt        DateTime?
   clickedAt       DateTime?
   convertedAt     DateTime? // e.g., timestamp when they upgraded after this email
-  
-  metadataJson    Json?    // Store the context we used (like campaign ID or signal IDs)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
+
+  metadataJson Json? // Store the context we used (like campaign ID or signal IDs)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, nudgeType])
@@ -768,19 +788,19 @@ model UserEngagementLog {
 model ExternalMapping {
   id              String   @id @default(uuid()) @db.Uuid
   userId          String   @db.Uuid
-  localEntityType String   // e.g., 'Person', 'Opportunity', 'Conversation'
+  localEntityType String // e.g., 'Person', 'Opportunity', 'Conversation'
   localEntityId   String   @db.Uuid
-  remoteProvider  String   // e.g., 'hubspot', 'salesforce', 'pipedrive'
-  remoteEntityId  String   // The ID in the external system
-  remoteUrl       String?  // Optional direct link to the record in the CRM
+  remoteProvider  String // e.g., 'hubspot', 'salesforce', 'pipedrive'
+  remoteEntityId  String // The ID in the external system
+  remoteUrl       String? // Optional direct link to the record in the CRM
   syncStatus      String   @default("synced") // 'synced', 'failed', 'stale'
   lastSyncedAt    DateTime @default(now())
-  metadataJson    Json?    // Stores provider-specific mapping details
+  metadataJson    Json? // Stores provider-specific mapping details
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, localEntityType, localEntityId, remoteProvider])
   @@index([localEntityType, localEntityId])
@@ -1816,20 +1836,21 @@ model Offering {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  proposals      OfferingProposal[]
-  positionings   OfferingPositioning[]
-  assets         OfferingAsset[]
-  goals          Goal[]
-  campaigns      Campaign[]
-  cycles         OpportunityCycle[]
-  discoveryScans DiscoveryScan[]
-  conversations  AIConversation[]
-  summaries      AIContextSummary[]      @relation("AIContextSummaryOffering")
-  aiTasks        AITask[]                @relation("AITaskOffering")
-  weeklyTargets  WeeklyTarget[]
-  momentumStates MomentumState[]
-  thesisMappings OfferingThesisMapping[]
+  user              User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposals         OfferingProposal[]
+  positionings      OfferingPositioning[]
+  assets            OfferingAsset[]
+  goals             Goal[]
+  campaigns         Campaign[]
+  cycles            OpportunityCycle[]
+  discoveryScans    DiscoveryScan[]
+  conversations     AIConversation[]
+  summaries         AIContextSummary[]      @relation("AIContextSummaryOffering")
+  aiTasks           AITask[]                @relation("AITaskOffering")
+  weeklyTargets     WeeklyTarget[]
+  momentumStates    MomentumState[]
+  thesisMappings    OfferingThesisMapping[]
+  commandQueueItems CommandQueueItem[]
 
   @@index([userId])
   @@index([offeringType, status])
@@ -2805,6 +2826,7 @@ model Campaign {
   conversationThreads ConversationThread[]
   campaignMetrics     CampaignMetric[]
   campaignConnectors  CampaignConnector[]
+  commandQueueItems   CommandQueueItem[]
 
   @@index([userId])
   @@index([guestSessionId])
@@ -2838,6 +2860,7 @@ model ActionLane {
   actionItems         ActionItem[]
   conversationThreads ConversationThread[]
   campaignMetrics     CampaignMetric[]
+  commandQueueItems   CommandQueueItem[]
 
   @@index([campaignId])
   @@index([laneType])
@@ -2876,6 +2899,7 @@ model ActionCycle {
   actionLane          ActionLane           @relation(fields: [actionLaneId], references: [id], onDelete: Cascade)
   actionItems         ActionItem[]
   conversationThreads ConversationThread[]
+  commandQueueItems   CommandQueueItem[]
 
   @@index([campaignId])
   @@index([actionLaneId])
@@ -2933,6 +2957,7 @@ model ActionItem {
   targetPerson        Person?              @relation("PersonActionItems", fields: [targetPersonId], references: [id], onDelete: SetNull)
   targetCompany       Company?             @relation("CompanyActionItems", fields: [targetCompanyId], references: [id], onDelete: SetNull)
   conversationThreads ConversationThread[]
+  commandQueueItems   CommandQueueItem[]
 
   @@index([userId])
   @@index([campaignId])
@@ -2950,6 +2975,81 @@ model ActionItem {
   @@index([campaignId, status, priorityScore])
   @@index([actionLaneId, status, priorityScore])
   @@map("action_items")
+}
+
+model DailyCommandQueue {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  userId               String                  @db.Uuid
+  queueDate            DateTime                @db.Date
+  status               DailyCommandQueueStatus @default(planned)
+  title                String?
+  summary              String?
+  targetActionCount    Int?
+  completedActionCount Int                     @default(0)
+  metadataJson         Json?
+  generatedAt          DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  user  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CommandQueueItem[]
+
+  @@unique([userId, queueDate])
+  @@index([userId])
+  @@index([queueDate])
+  @@index([status])
+  @@index([userId, status, queueDate])
+  @@map("daily_command_queues")
+}
+
+model CommandQueueItem {
+  id               String                 @id @default(uuid()) @db.Uuid
+  commandQueueId   String                 @db.Uuid
+  userId           String                 @db.Uuid
+  offeringId       String?                @db.Uuid
+  campaignId       String?                @db.Uuid
+  actionLaneId     String?                @db.Uuid
+  actionCycleId    String?                @db.Uuid
+  actionItemId     String?                @db.Uuid
+  position         Int
+  priorityScore    Int                    @default(50)
+  status           CommandQueueItemStatus @default(queued)
+  title            String
+  reason           String?
+  estimatedMinutes Int?
+  scheduledFor     DateTime?
+  presentedAt      DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  skippedAt        DateTime?
+  deferredUntil    DateTime?
+  metadataJson     Json?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  commandQueue DailyCommandQueue @relation(fields: [commandQueueId], references: [id], onDelete: Cascade)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offering     Offering?         @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  campaign     Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  actionLane   ActionLane?       @relation(fields: [actionLaneId], references: [id], onDelete: SetNull)
+  actionCycle  ActionCycle?      @relation(fields: [actionCycleId], references: [id], onDelete: SetNull)
+  actionItem   ActionItem?       @relation(fields: [actionItemId], references: [id], onDelete: SetNull)
+
+  @@unique([commandQueueId, position])
+  @@index([commandQueueId])
+  @@index([userId])
+  @@index([offeringId])
+  @@index([campaignId])
+  @@index([actionLaneId])
+  @@index([actionCycleId])
+  @@index([actionItemId])
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([priorityScore])
+  @@index([userId, status, priorityScore])
+  @@map("command_queue_items")
 }
 
 model ConversationThread {

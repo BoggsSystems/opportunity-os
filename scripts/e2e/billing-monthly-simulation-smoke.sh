@@ -35,6 +35,16 @@ esac
 # Force Mock AI for simulation
 export MOCK_AI=true
 
+if [[ -z "${JEFF_POWER_USER:-}" ]]; then
+  if [[ "$PROFILE" == "nexus" ]]; then
+    JEFF_POWER_USER=true
+  else
+    JEFF_POWER_USER=false
+  fi
+fi
+JEFF_EMAIL="${JEFF_EMAIL:-jeff_boggs@hotmail.com}"
+JEFF_ACTIONS_PER_DAY="${JEFF_ACTIONS_PER_DAY:-100}"
+
 TMP_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -63,6 +73,7 @@ require_tool jq
 require_tool psql
 require_non_negative_int BILLING_MONTHS "$BILLING_MONTHS"
 require_non_negative_int USERS_PER_MONTH "$USERS_PER_MONTH"
+require_non_negative_int JEFF_ACTIONS_PER_DAY "$JEFF_ACTIONS_PER_DAY"
 
 if (( BILLING_MONTHS < 1 || USERS_PER_MONTH < 1 )); then
   echo "BILLING_MONTHS and USERS_PER_MONTH must both be greater than zero." >&2
@@ -128,6 +139,8 @@ echo "API_URL=$API_URL"
 echo "RUN_ID=$RUN_ID"
 echo "BILLING_MONTHS=$BILLING_MONTHS"
 echo "USERS_PER_MONTH=$USERS_PER_MONTH"
+echo "JEFF_POWER_USER=$JEFF_POWER_USER"
+echo "JEFF_ACTIONS_PER_DAY=$JEFF_ACTIONS_PER_DAY"
 
 curl -sS "$API_URL/health" >/dev/null || {
   echo "API is not reachable at $API_URL. Start the backend first." >&2
@@ -338,6 +351,220 @@ SELECT 1;
 SQL
 
 echo "Seeded synthetic users, lifecycle snapshots, free subscriptions, and referral signups"
+
+if [[ "$JEFF_POWER_USER" == "true" ]]; then
+  psql_exec \
+    -v run_id="$RUN_ID" \
+    -v jeff_email="$JEFF_EMAIL" <<'SQL'
+DELETE FROM subscriptions
+WHERE provider = 'e2e-jeff-power-user'
+  AND "userId" IN (SELECT id FROM users WHERE email = :'jeff_email');
+
+WITH settings AS (
+  SELECT
+    :'run_id'::text AS run_id,
+    :'jeff_email'::text AS jeff_email,
+    (date_trunc('month', now())::date - interval '11 months')::timestamp AS start_at
+), jeff_user AS (
+  INSERT INTO users (id, email, "fullName", timezone, "createdAt", "updatedAt")
+  SELECT
+    gen_random_uuid(),
+    settings.jeff_email,
+    'Jeff Boggs',
+    'America/Toronto',
+    settings.start_at,
+    settings.start_at
+  FROM settings
+  ON CONFLICT (email) DO UPDATE SET
+    "fullName" = EXCLUDED."fullName",
+    timezone = EXCLUDED.timezone,
+    "updatedAt" = now()
+  RETURNING id, email, "createdAt"
+), builder_plan AS (
+  SELECT id FROM plans WHERE code = 'builder' LIMIT 1
+), jeff_subscription AS (
+  INSERT INTO subscriptions (
+    id,
+    "userId",
+    "planId",
+    status,
+    provider,
+    "billingInterval",
+    "startedAt",
+    "currentPeriodStart",
+    "currentPeriodEnd",
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    builder_plan.id,
+    'active',
+    'e2e-jeff-power-user',
+    'monthly',
+    settings.start_at,
+    date_trunc('month', now()),
+    date_trunc('month', now()) + interval '1 month',
+    settings.start_at,
+    now()
+  FROM jeff_user
+  CROSS JOIN builder_plan
+  CROSS JOIN settings
+), jeff_lifecycle AS (
+  INSERT INTO user_lifecycle_snapshots (
+    id,
+    "userId",
+    "currentStage",
+    "furthestStage",
+    "onboardingStartedAt",
+    "onboardingCompletedAt",
+    "firstCampaignGeneratedAt",
+    "actionLanesSelectedAt",
+    "connectorReadyAt",
+    "firstActionPrimedAt",
+    "firstActionCompletedAt",
+    "activatedAt",
+    "paidAt",
+    "lastActivityAt",
+    "metadataJson",
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    'paid'::"UserLifecycleStage",
+    'paid'::"UserLifecycleStage",
+    settings.start_at,
+    settings.start_at + interval '1 day',
+    settings.start_at + interval '1 day',
+    settings.start_at + interval '1 day',
+    settings.start_at + interval '1 day',
+    settings.start_at + interval '2 days',
+    settings.start_at + interval '2 days',
+    settings.start_at + interval '2 days',
+    settings.start_at + interval '2 days',
+    now(),
+    jsonb_build_object('runId', settings.run_id, 'source', 'nexus_jeff_power_user', 'targetActionsPerDay', 100),
+    settings.start_at,
+    now()
+  FROM jeff_user
+  CROSS JOIN settings
+  ON CONFLICT ("userId") DO UPDATE SET
+    "currentStage" = EXCLUDED."currentStage",
+    "furthestStage" = EXCLUDED."furthestStage",
+    "firstActionCompletedAt" = EXCLUDED."firstActionCompletedAt",
+    "activatedAt" = EXCLUDED."activatedAt",
+    "paidAt" = EXCLUDED."paidAt",
+    "lastActivityAt" = EXCLUDED."lastActivityAt",
+    "metadataJson" = EXCLUDED."metadataJson",
+    "updatedAt" = now()
+), offering_seed (
+  title,
+  offering_type,
+  summary,
+  target_audience,
+  positioning,
+  price_range,
+  primary_channels,
+  assets
+) AS (
+  VALUES
+    ('AI-Native SDLC Audit', 'consulting', 'A high-value consulting audit that evaluates software delivery and identifies where AI-native engineering can improve velocity, team structure, quality, and cost.', 'CTOs, CIOs, VPs of Engineering, Heads of Product, PE operating partners, and enterprise software leaders.', 'Find out where your software organization is leaking velocity and how AI-native engineering can transform delivery.', '$25,000-$150,000', ARRAY['LinkedIn','Email','Executive referrals','Webinars'], ARRAY['Audit overview PDF','AI-native SDLC maturity model','Velocity baseline worksheet','Executive briefing deck','Discovery call script','ROI calculator','Sample audit report']),
+    ('AI-Native SDLC Transformation', 'consulting', 'A larger implementation offering that redesigns delivery around AI-native workflows, orchestration, decomposition, verification, and governance.', 'Enterprise technology leaders, private equity portfolio companies, financial firms, SaaS companies, and software organizations under pressure to do more with smaller teams.', 'Move from traditional software delivery to an AI-native operating model.', '$150,000-$500,000+', ARRAY['LinkedIn','Email','Executive referrals','Workshops'], ARRAY['Transformation roadmap','Executive proposal','Before/after team model diagrams','AI-native pod structure','Governance framework','Implementation plan','Case study template']),
+    ('AI-Native Software Engineering Book', 'book', 'A thought-leadership product explaining the new physics of software velocity when AI collapses execution cost.', 'Software engineers, architects, CTOs, founders, recruiters, engineering managers, consultants, and leaders studying the future of software work.', 'The book for leaders trying to understand what software engineering becomes when AI collapses execution cost.', 'Low-ticket product with high strategic authority value', ARRAY['LinkedIn','Email','YouTube Shorts','Recruiter conversations'], ARRAY['Amazon book link','LinkedIn launch posts','Chapter excerpts','Executive briefing version','Recruiter outreach message','Quote cards','Book-to-consulting bridge copy']),
+    ('Executive AI-Native Engineering Briefing', 'advisory_program', 'A 60-minute to full-day leadership briefing on AI-native software engineering, maturity, and practical next steps.', 'CTOs, software executives, PE portfolio leaders, innovation teams, engineering directors, and transformation leaders.', 'Bring your leadership team up to speed on what AI-native software engineering means for velocity, cost, quality, and team structure.', '$2,500-$25,000', ARRAY['LinkedIn','Email','Executive referrals','Webinars'], ARRAY['Workshop landing page','Briefing deck','Agenda','Booking page','Readiness checklist','Workshop proposal','Post-workshop action plan']),
+    ('Opportunity OS / Opportunity Platform', 'platform', 'An AI-powered revenue operating system for consultants, founders, creators, authors, and business builders.', 'Independent consultants, freelancers, small agencies, founders, authors, coaches, B2B service providers, and solo operators.', 'Your AI-powered operating system for finding, shaping, and executing revenue opportunities.', '$49-$299/month and higher team tiers', ARRAY['LinkedIn','Email','Founder communities','Demo calls','Referrals'], ARRAY['Product landing page','Onboarding flow','Daily action dashboard','CRM pipeline','Outreach generator','Demo video','Founder story']),
+    ('AI-First MVP App Development', 'service', 'A product development service for rapidly building MVPs and working software using an AI-native development process.', 'Startup founders, solo entrepreneurs, small business owners, product managers, local businesses, and non-technical founders.', 'Get from idea to working software faster using an AI-native development process.', '$2,500-$25,000+', ARRAY['LinkedIn','Email','Founder communities','Local business outreach'], ARRAY['MVP package page','Portfolio examples','App screenshots','Pricing packages','Discovery questionnaire','Proposal template','Case study template']),
+    ('Capital Markets Software Architecture', 'consulting', 'AI-native software architecture and development for trading tools, WPF applications, risk systems, analytics dashboards, and capital markets modernization.', 'Trading firms, hedge funds, banks, fintech companies, risk teams, front-office technology groups, and recruiters seeking senior engineering talent.', 'AI-native software architecture and development for trading, risk, and capital markets systems.', 'Contract, fractional architecture, project consulting, or role pursuit', ARRAY['LinkedIn','Email','Recruiter conversations','Technical content'], ARRAY['Capital markets resume version','Trading systems portfolio page','WPF demo','Options pricing architecture','Monte Carlo / Ray architecture','Recruiter outreach messages','Technical case study']),
+    ('Robot Fleet Platform', 'platform', 'A future-facing platform for orchestrating fleets of robots, humanoids, drones, and autonomous machines through simulation, digital twins, telemetry, and workflow integration.', 'Warehouses, malls, resorts, property managers, logistics companies, industrial operators, security firms, and robotics-adjacent organizations.', 'Lower your labor costs with fleets of autonomous robots.', '$25,000-$250,000+ pilots', ARRAY['LinkedIn','Email','Industry outreach','Pilot proposals','Investor conversations'], ARRAY['Simulation demo','Digital twin architecture','Azure architecture diagram','Fleet dashboard','ROI model','Industry pitch decks','Pilot proposal','Robot task library'])
+), inserted_offerings AS (
+  INSERT INTO offerings (
+    id,
+    "userId",
+    title,
+    description,
+    "offeringType",
+    status,
+    "externalId",
+    source,
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    offering_seed.title,
+    concat(
+      offering_seed.summary,
+      E'\n\nTarget audience: ', offering_seed.target_audience,
+      E'\n\nPositioning: ', offering_seed.positioning,
+      E'\n\nPrice range: ', offering_seed.price_range,
+      E'\n\nPrimary channels: ', array_to_string(offering_seed.primary_channels, ', ')
+    ),
+    offering_seed.offering_type::"OfferingType",
+    'active'::"OfferingStatus",
+    'nexus-jeff-' || lower(regexp_replace(offering_seed.title, '[^a-zA-Z0-9]+', '-', 'g')),
+    'nexus_jeff_power_user',
+    settings.start_at,
+    now()
+  FROM offering_seed
+  CROSS JOIN jeff_user
+  CROSS JOIN settings
+  RETURNING id, title, description, "createdAt"
+), inserted_positioning AS (
+  INSERT INTO offering_positionings (id, "offeringId", title, description, status, "createdAt", "updatedAt")
+  SELECT
+    gen_random_uuid(),
+    inserted_offerings.id,
+    inserted_offerings.title || ' - Primary Positioning',
+    split_part(inserted_offerings.description, E'\n\nPrice range:', 1),
+    'active'::"OfferingPositioningStatus",
+    inserted_offerings."createdAt",
+    now()
+  FROM inserted_offerings
+  RETURNING id
+), asset_seed AS (
+  SELECT
+    inserted_offerings.id AS offering_id,
+    inserted_offerings.title AS offering_title,
+    unnest(offering_seed.assets) AS asset_title
+  FROM inserted_offerings
+  JOIN offering_seed ON offering_seed.title = inserted_offerings.title
+)
+INSERT INTO offering_assets (
+  id,
+  "offeringId",
+  title,
+  description,
+  "assetType",
+  "contentText",
+  "isPublic",
+  status,
+  "createdAt",
+  "updatedAt"
+)
+SELECT
+  gen_random_uuid(),
+  asset_seed.offering_id,
+  asset_seed.asset_title,
+  'Seeded support asset for ' || asset_seed.offering_title,
+  CASE
+    WHEN asset_seed.asset_title ILIKE '%deck%' THEN 'document'::"OfferingAssetType"
+    WHEN asset_seed.asset_title ILIKE '%video%' THEN 'video'::"OfferingAssetType"
+    WHEN asset_seed.asset_title ILIKE '%case study%' THEN 'case_study'::"OfferingAssetType"
+    ELSE 'document'::"OfferingAssetType"
+  END,
+  'Synthetic Nexus Audit asset context for ' || asset_seed.asset_title,
+  false,
+  'active'::"OfferingStatus",
+  now(),
+  now()
+FROM asset_seed;
+SQL
+  echo "Seeded Jeff power-user profile and offerings"
+fi
 
 declare -a months=()
 while IFS= read -r month; do
@@ -721,6 +948,327 @@ SELECT
   (SELECT count(*) FROM inserted_items) AS actions,
   (SELECT count(*) FROM inserted_threads) AS threads;
 SQL
+
+  if [[ "$JEFF_POWER_USER" == "true" ]]; then
+    psql_exec \
+      -v run_id="$RUN_ID" \
+      -v month="$month" \
+      -v jeff_email="$JEFF_EMAIL" \
+      -v jeff_actions_per_day="$JEFF_ACTIONS_PER_DAY" <<'SQL'
+WITH settings AS (
+  SELECT
+    :'run_id'::text AS run_id,
+    :'jeff_email'::text AS jeff_email,
+    :'jeff_actions_per_day'::int AS actions_per_day,
+    to_date(:'month', 'YYYY-MM')::timestamp AS period_start,
+    (to_date(:'month', 'YYYY-MM') + interval '1 month')::timestamp AS period_end
+), jeff_user AS (
+  SELECT users.id
+  FROM users
+  JOIN settings ON users.email = settings.jeff_email
+), jeff_offerings AS (
+  SELECT
+    offerings.id,
+    offerings.title,
+    row_number() OVER (ORDER BY offerings.title) AS offering_rank
+  FROM offerings
+  JOIN jeff_user ON jeff_user.id = offerings."userId"
+  WHERE offerings.source = 'nexus_jeff_power_user'
+), campaign_seed AS (
+  SELECT
+    jeff_offerings.id AS offering_id,
+    jeff_offerings.title AS offering_title,
+    jeff_offerings.offering_rank,
+    campaign_template.campaign_rank,
+    campaign_template.angle,
+    campaign_template.target_segment
+  FROM jeff_offerings
+  CROSS JOIN (VALUES
+    (1, 'greenfield-outreach', 'High-intent prospects and executive buyers'),
+    (2, 'authority-content', 'LinkedIn audience and warm network'),
+    (3, 'warm-network-reactivation', 'Existing contacts and weak ties'),
+    (4, 'booking-and-follow-up', 'Prospects ready for calls and next steps')
+  ) AS campaign_template(campaign_rank, angle, target_segment)
+), inserted_campaigns AS (
+  INSERT INTO campaigns (
+    id,
+    "userId",
+    "offeringId",
+    title,
+    description,
+    objective,
+    "targetSegment",
+    status,
+    "priorityScore",
+    "metadataJson",
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    campaign_seed.offering_id,
+    campaign_seed.offering_title || ' - ' || campaign_seed.angle || ' - ' || :'month',
+    'Jeff Nexus Audit power-user campaign for ' || campaign_seed.offering_title || '.',
+    'Generate high-velocity revenue actions across email, LinkedIn, content, comments, calls, and follow-up.',
+    campaign_seed.target_segment,
+    'ACTIVE'::"CampaignStatus",
+    80 + campaign_seed.campaign_rank,
+    jsonb_build_object(
+      'runId', settings.run_id,
+      'month', :'month',
+      'source', 'nexus_jeff_power_user',
+      'offeringTitle', campaign_seed.offering_title,
+      'campaignRank', campaign_seed.campaign_rank
+    ),
+    settings.period_start + ((campaign_seed.offering_rank + campaign_seed.campaign_rank) || ' hours')::interval,
+    settings.period_start + ((campaign_seed.offering_rank + campaign_seed.campaign_rank) || ' hours')::interval
+  FROM campaign_seed
+  CROSS JOIN jeff_user
+  CROSS JOIN settings
+  RETURNING id, "userId", "offeringId", title, "metadataJson", "createdAt"
+), lane_seed AS (
+  SELECT
+    inserted_campaigns.id AS campaign_id,
+    inserted_campaigns."userId" AS user_id,
+    inserted_campaigns."metadataJson",
+    inserted_campaigns."createdAt",
+    lane_template.lane_rank,
+    lane_template.lane_type,
+    lane_template.action_type,
+    lane_template.title,
+    lane_template.description
+  FROM inserted_campaigns
+  CROSS JOIN (VALUES
+    (1, 'email'::"ActionLaneType", 'email', 'Email Outreach', 'Targeted outbound emails and follow-ups.'),
+    (2, 'linkedin_dm'::"ActionLaneType", 'linkedin_dm', 'LinkedIn DM Outreach', 'Direct messages and reply handling.'),
+    (3, 'linkedin_content'::"ActionLaneType", 'linkedin_post', 'LinkedIn Content', 'Posts, article snippets, quote cards, and launch content.'),
+    (4, 'linkedin_commenting'::"ActionLaneType", 'linkedin_comment', 'LinkedIn Commenting', 'Comments and replies on relevant posts.'),
+    (5, 'call_outreach'::"ActionLaneType", 'book_call', 'Call Booking', 'Call booking, prep, and follow-up motions.')
+  ) AS lane_template(lane_rank, lane_type, action_type, title, description)
+), inserted_lanes AS (
+  INSERT INTO action_lanes (
+    id,
+    "campaignId",
+    "laneType",
+    title,
+    description,
+    strategy,
+    status,
+    "priorityScore",
+    "metadataJson",
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    lane_seed.campaign_id,
+    lane_seed.lane_type,
+    lane_seed.title,
+    lane_seed.description,
+    'Power-user daily execution lane for Jeff Nexus Audit simulation.',
+    'ACTIVE'::"ActionLaneStatus",
+    85,
+    lane_seed."metadataJson" || jsonb_build_object('laneRank', lane_seed.lane_rank, 'actionType', lane_seed.action_type),
+    lane_seed."createdAt",
+    lane_seed."createdAt"
+  FROM lane_seed
+  RETURNING id, "campaignId", "laneType", title, "metadataJson", "createdAt"
+), inserted_cycles AS (
+  INSERT INTO action_cycles (
+    id,
+    "campaignId",
+    "actionLaneId",
+    "cycleNumber",
+    title,
+    objective,
+    "actionType",
+    status,
+    "priorityScore",
+    "startsAt",
+    "endsAt",
+    "executedAt",
+    "confirmedAt",
+    "metadataJson",
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    inserted_lanes."campaignId",
+    inserted_lanes.id,
+    1,
+    inserted_lanes.title || ' cycle ' || :'month',
+    'Sustain approximately ' || settings.actions_per_day || ' daily revenue actions for Jeff.',
+    inserted_lanes."metadataJson"->>'actionType',
+    'completed'::"ActionCycleStatus",
+    90,
+    settings.period_start,
+    settings.period_end - interval '1 second',
+    settings.period_start + interval '2 days',
+    settings.period_end - interval '1 day',
+    inserted_lanes."metadataJson" || jsonb_build_object('source', 'nexus_jeff_power_user', 'month', :'month'),
+    settings.period_start,
+    settings.period_end - interval '1 day'
+  FROM inserted_lanes
+  CROSS JOIN settings
+  RETURNING id, "campaignId", "actionLaneId", "actionType", "metadataJson"
+), day_slots AS (
+  SELECT
+    generate_series(settings.period_start, settings.period_end - interval '1 day', interval '1 day')::timestamp AS action_day,
+    settings.actions_per_day
+  FROM settings
+), daily_actions AS (
+  SELECT
+    day_slots.action_day,
+    action_number,
+    row_number() OVER (ORDER BY day_slots.action_day, action_number) AS action_rank
+  FROM day_slots
+  CROSS JOIN LATERAL generate_series(1, day_slots.actions_per_day) AS action_number
+), cycle_pool AS (
+  SELECT
+    inserted_cycles.*,
+    row_number() OVER (ORDER BY (inserted_cycles."metadataJson"->>'campaignRank')::int, (inserted_cycles."metadataJson"->>'laneRank')::int) AS cycle_rank,
+    count(*) OVER () AS cycle_count
+  FROM inserted_cycles
+), inserted_items AS (
+  INSERT INTO action_items (
+    id,
+    "userId",
+    "campaignId",
+    "actionLaneId",
+    "actionCycleId",
+    "actionType",
+    title,
+    instructions,
+    "draftContent",
+    status,
+    "confirmationRequired",
+    "priorityScore",
+    "dueAt",
+    "preparedAt",
+    "completedAt",
+    "respondedAt",
+    "metadataJson",
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    cycle_pool."campaignId",
+    cycle_pool."actionLaneId",
+    cycle_pool.id,
+    cycle_pool."actionType",
+    CASE cycle_pool."actionType"
+      WHEN 'email' THEN 'Send targeted email outreach'
+      WHEN 'linkedin_dm' THEN 'Send LinkedIn DM or follow-up'
+      WHEN 'linkedin_post' THEN 'Generate and publish LinkedIn content'
+      WHEN 'linkedin_comment' THEN 'Comment or reply on relevant LinkedIn post'
+      WHEN 'book_call' THEN 'Book, prep, or follow up on a call'
+      ELSE 'Execute revenue action'
+    END || ' #' || daily_actions.action_rank || ' for ' || :'month',
+    'Jeff power-user simulated action at roughly 100 actions per day across offerings and channels.',
+    'Synthetic draft content for ' || cycle_pool."actionType" || ' tied to ' || (cycle_pool."metadataJson"->>'offeringTitle') || '.',
+    CASE
+      WHEN daily_actions.action_rank % 97 = 0 THEN 'converted'::"ActionItemStatus"
+      WHEN daily_actions.action_rank % 13 = 0 THEN 'responded'::"ActionItemStatus"
+      WHEN daily_actions.action_rank % 17 = 0 THEN 'published_confirmed'::"ActionItemStatus"
+      ELSE 'sent_confirmed'::"ActionItemStatus"
+    END,
+    true,
+    80 + (daily_actions.action_number % 20),
+    daily_actions.action_day + ((daily_actions.action_number % 10) || ' hours')::interval,
+    daily_actions.action_day,
+    daily_actions.action_day + ((daily_actions.action_number % 10) || ' hours')::interval,
+    CASE
+      WHEN daily_actions.action_rank % 13 = 0 THEN daily_actions.action_day + interval '2 days'
+      ELSE null
+    END,
+    jsonb_build_object(
+      'runId', settings.run_id,
+      'source', 'nexus_jeff_power_user',
+      'month', :'month',
+      'targetActionsPerDay', settings.actions_per_day,
+      'offeringTitle', cycle_pool."metadataJson"->>'offeringTitle',
+      'campaignRank', cycle_pool."metadataJson"->>'campaignRank',
+      'laneRank', cycle_pool."metadataJson"->>'laneRank',
+      'actionRank', daily_actions.action_rank
+    ),
+    daily_actions.action_day,
+    daily_actions.action_day + ((daily_actions.action_number % 10) || ' hours')::interval
+  FROM daily_actions
+  JOIN cycle_pool ON cycle_pool.cycle_rank = ((daily_actions.action_rank - 1) % cycle_pool.cycle_count) + 1
+  CROSS JOIN jeff_user
+  CROSS JOIN settings
+  RETURNING id, "userId", "campaignId", "actionLaneId", "completedAt", "respondedAt", "metadataJson"
+), inserted_threads AS (
+  INSERT INTO conversation_threads (
+    id,
+    "userId",
+    "campaignId",
+    "actionLaneId",
+    "actionItemId",
+    channel,
+    status,
+    "lastMessageAt",
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    inserted_items."userId",
+    inserted_items."campaignId",
+    inserted_items."actionLaneId",
+    inserted_items.id,
+    CASE
+      WHEN inserted_items."metadataJson"->>'laneRank' = '1' THEN 'email'
+      WHEN inserted_items."metadataJson"->>'laneRank' IN ('2', '4') THEN 'linkedin'
+      ELSE 'content'
+    END,
+    'active'::"ConversationThreadStatus",
+    inserted_items."respondedAt",
+    inserted_items."respondedAt",
+    inserted_items."respondedAt"
+  FROM inserted_items
+  WHERE inserted_items."respondedAt" IS NOT NULL
+  RETURNING id, "userId", "lastMessageAt", "metadataJson"
+), inserted_messages AS (
+  INSERT INTO conversation_thread_messages (
+    id,
+    "userId",
+    "threadId",
+    direction,
+    source,
+    "bodyText",
+    "attachmentUrls",
+    "attachmentMimeTypes",
+    "occurredAt",
+    "createdAt",
+    "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    inserted_threads."userId",
+    inserted_threads.id,
+    'inbound'::"ConversationMessageDirection",
+    CASE WHEN row_number() OVER (ORDER BY inserted_threads.id) % 6 = 0 THEN 'screenshot'::"ConversationMessageSource" ELSE 'manual_paste'::"ConversationMessageSource" END,
+    'Interested. Can you send more detail or suggest a time to talk?',
+    CASE WHEN row_number() OVER (ORDER BY inserted_threads.id) % 6 = 0 THEN ARRAY['nexus://jeff/reply-screenshot.png'] ELSE '{}'::text[] END,
+    CASE WHEN row_number() OVER (ORDER BY inserted_threads.id) % 6 = 0 THEN ARRAY['image/png'] ELSE '{}'::text[] END,
+    inserted_threads."lastMessageAt",
+    inserted_threads."lastMessageAt",
+    inserted_threads."lastMessageAt"
+  FROM inserted_threads
+)
+SELECT
+  (SELECT count(*) FROM inserted_campaigns) AS campaigns,
+  (SELECT count(*) FROM inserted_lanes) AS lanes,
+  (SELECT count(*) FROM inserted_cycles) AS cycles,
+  (SELECT count(*) FROM inserted_items) AS actions,
+  (SELECT count(*) FROM inserted_threads) AS threads;
+SQL
+  fi
 
   payload="$TMP_DIR/snapshot-$month.json"
   write_json "$payload" --arg month "$month" '{month:$month}'
