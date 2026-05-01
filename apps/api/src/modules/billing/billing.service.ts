@@ -7,11 +7,16 @@ import {
 import { createHmac, timingSafeEqual } from "crypto";
 import {
   BillingEventStatus,
+  AdminOperationalIssueSeverity,
+  AdminOperationalIssueSource,
   Prisma,
   ReferralMilestoneType,
   SubscriptionStatus,
+  UserLifecycleStage,
   prisma,
 } from "@opportunity-os/db";
+import { AdminLifecycleService } from "../admin/admin-lifecycle.service";
+import { AdminOperationsService } from "../admin/admin-operations.service";
 import { CommercialService } from "../commercial/commercial.service";
 
 type CheckoutInput = {
@@ -61,7 +66,11 @@ export class BillingService {
     process.env["BILLING_PORTAL_RETURN_URL"] ||
     "http://localhost:5174/?billing=portal";
 
-  constructor(private readonly commercialService: CommercialService) {}
+  constructor(
+    private readonly commercialService: CommercialService,
+    private readonly adminLifecycleService: AdminLifecycleService,
+    private readonly adminOperationsService: AdminOperationsService,
+  ) {}
 
   async getBillingState(userId: string) {
     const [commercialState, billingCustomer, subscription, plans, overrides] =
@@ -334,14 +343,25 @@ export class BillingService {
         ...result,
       };
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Webhook processing failed";
       await prisma.billingEvent.update({
         where: { id: billingEvent.id },
         data: {
           status: BillingEventStatus.failed,
-          errorMessage:
-            error instanceof Error
-              ? error.message
-              : "Webhook processing failed",
+          errorMessage: message,
+        },
+      });
+      await this.adminOperationsService.createIssue({
+        source: AdminOperationalIssueSource.webhook,
+        sourceId: billingEvent.id,
+        providerName: "stripe",
+        severity: AdminOperationalIssueSeverity.error,
+        title: `Stripe webhook failed: ${event.type}`,
+        details: message,
+        metadata: {
+          providerEventId: event.id,
+          eventType: event.type,
         },
       });
       throw error;
@@ -519,6 +539,13 @@ export class BillingService {
           entityId: subscription.id,
         },
       );
+      await this.adminLifecycleService.recordEvent({
+        userId: subscription.userId,
+        stage: UserLifecycleStage.paid,
+        eventType: "paid_conversion",
+        sourceType: "subscription",
+        sourceId: subscription.id,
+      });
     }
 
     return {

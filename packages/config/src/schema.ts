@@ -44,6 +44,7 @@ const envSchema = z.object({
   // Auth
   JWT_SECRET: z.string().min(32).default('your-jwt-secret-change-in-production'),
   AUTH_SECRET: z.string().min(32).default('your-auth-secret-change-in-production'),
+  ADMIN_EMAILS: z.string().optional(),
 
   // Logging
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

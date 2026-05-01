@@ -11,7 +11,7 @@ The platform is an **AI-powered opportunity operating system** for:
 * tracking applications
 * enforcing plan/usage rules
 
-At the conceptual level, the system has 18 domain areas:
+At the conceptual level, the system has 19 domain areas:
 
 1. Identity and ownership
 2. Commercial access and billing
@@ -28,9 +28,10 @@ At the conceptual level, the system has 18 domain areas:
 13. Workspace Orchestration
 14. Integration Capabilities & Connectors
 15. Growth, Referrals, and Rewards
-16. Coaching, Momentum, and Engagement
-17. Browser Execution
-18. Conversation Feedback and Campaign Memory
+16. Admin Control Tower and Lifecycle Analytics
+17. Coaching, Momentum, and Engagement
+18. Browser Execution
+19. Conversation Feedback and Campaign Memory
 
 ---
 
@@ -70,6 +71,7 @@ Relationships:
 * a User has many Search Profiles
 * a User has many Resume assets
 * a User has many Campaigns
+* a User may have Lifecycle Events, a Lifecycle Snapshot, and Operational Issues used by admin analytics
 
 MVP: yes
 
@@ -2571,7 +2573,120 @@ MVP: later
 
 ---
 
-### P. Coaching, Momentum, and Engagement
+### P. Admin Control Tower and Lifecycle Analytics
+
+This domain represents founder/operator visibility into the platform as a living set of user, campaign, connector, billing, referral, and operational pipelines.
+
+It answers:
+
+* how many users are entering, activating, retaining, and converting?
+* where do users stall in the onboarding-to-first-action journey?
+* which campaigns, action lanes, connectors, and referral paths correlate with activation?
+* which operational failures need attention?
+* how is the platform progressing toward company growth goals?
+
+The admin domain should primarily operate on **derived read models**. Core modules own writes and business behavior. Admin services compose lifecycle state, aggregate existing domain records, and persist only durable admin-oriented facts or snapshots when useful.
+
+**User Lifecycle Event**
+
+A durable event that marks meaningful user progress through the product funnel.
+
+Represents:
+
+* account creation
+* onboarding start/completion
+* profile grounding
+* offering selection
+* campaign generation
+* action lane selection
+* connector readiness
+* first action priming/completion
+* activation, retention, paid conversion, stalling, or dormancy
+
+Relationships:
+
+* belongs to one User
+* may reference a source object such as Campaign, ActionCycle, ActionItem, UserConnector, BillingEvent, or ReferralAttribution by source type and id
+* contributes to Funnel and Overview admin metrics
+
+MVP: yes
+
+**User Lifecycle Snapshot**
+
+The latest admin-facing lifecycle state for a user.
+
+Represents:
+
+* current lifecycle stage
+* furthest lifecycle stage reached
+* timestamps for key activation milestones
+* last activity
+* stall/dormancy markers
+
+Relationships:
+
+* belongs to one User
+* is updated from lifecycle events and core domain milestones
+* powers user explorer and funnel stage counts
+
+MVP: yes
+
+**Admin Metric Snapshot**
+
+A computed metric value captured for an admin scope and optional period.
+
+Represents:
+
+* overview metrics such as total users, active users, paying users, connector adoption, first-action completion
+* funnel metrics such as stage counts and drop-off
+* campaign/action metrics such as campaign count, cycle count, completed actions
+* connector metrics such as connected/failed counts by provider
+* billing/referral metrics such as plan distribution, paid conversions, referral conversions
+* operations metrics such as open issues and stuck states
+
+Relationships:
+
+* aggregates existing domain records
+* may be recomputed periodically or created on demand
+* does not own product behavior
+
+MVP: yes, optional for cached/historical admin views
+
+**Admin Operational Issue**
+
+A durable issue record for operational health and support triage.
+
+Represents:
+
+* connector failures
+* failed webhooks
+* failed AI calls
+* stuck onboarding states
+* stuck action cycles or action items
+* billing/referral processing issues
+* background job failures
+
+Relationships:
+
+* may belong to one User
+* may reference a source object by source type and id
+* may be acknowledged, resolved, ignored, or left open
+
+MVP: yes
+
+Admin V1 scope:
+
+* Overview: users, activation, first action, paid users, connector adoption
+* Funnel: lifecycle stage counts and drop-off
+* Users: searchable user state explorer
+* Campaigns/Actions: campaign count, action cycle count, completed actions
+* Connectors: connected vs failed by provider
+* Billing/Referrals: plan distribution, paid conversions, referral conversions
+* Operations: recent failures and stuck states
+
+---
+
+### Q. Coaching, Momentum, and Engagement
 
 This domain represents product-native nudges that help users keep moving through opportunity cycles.
 
@@ -2968,6 +3083,15 @@ MVP: yes
 * Referral Milestones belong to a Referral Attribution and represent meaningful product progress.
 * Referral Rewards are granted only after meaningful milestones, not simple clicks.
 * Referral Rewards may create Growth Credits or Usage Credits.
+
+### Admin Control Tower Relationships
+
+* A User may have many User Lifecycle Events.
+* A User may have one User Lifecycle Snapshot.
+* User Lifecycle Events mark meaningful product milestones and may reference source domain records by source type and id.
+* User Lifecycle Snapshots power current funnel state and searchable user explorer views.
+* Admin Metric Snapshots aggregate existing domain records for overview, funnel, campaign/action, connector, billing/referral, and operations views.
+* Admin Operational Issues may belong to a User and may reference stuck or failed source records by source type and id.
 * Growth Credits may be considered by Capability Gate when evaluating usage allowance.
 
 ### Coaching, Momentum, and Engagement Relationships
@@ -3300,6 +3424,10 @@ Examples:
 * Referral Milestone
 * Referral Reward
 * Growth Credit / Usage Credit
+* User Lifecycle Event
+* User Lifecycle Snapshot
+* Admin Metric Snapshot
+* Admin Operational Issue
 * Goal Progress
 * Weekly Target / Outreach Quota
 

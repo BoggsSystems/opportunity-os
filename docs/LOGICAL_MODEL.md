@@ -81,8 +81,76 @@ Values:
 
 * `password`
 * `google_oauth`
+* `linkedin_oauth`
+* `microsoft_oauth`
 * `apple_sign_in`
 * `passkey`
+
+### `user_lifecycle_stage`
+
+Values:
+
+* `visitor`
+* `account_created`
+* `onboarding_started`
+* `profile_grounded`
+* `offering_selected`
+* `campaign_generated`
+* `action_lanes_selected`
+* `connector_ready`
+* `first_action_primed`
+* `first_action_completed`
+* `activated`
+* `retained`
+* `paid`
+* `stalled`
+* `dormant`
+
+### `admin_operational_issue_severity`
+
+Values:
+
+* `info`
+* `warning`
+* `error`
+* `critical`
+
+### `admin_operational_issue_status`
+
+Values:
+
+* `open`
+* `investigating`
+* `resolved`
+* `ignored`
+
+### `admin_operational_issue_source`
+
+Values:
+
+* `onboarding`
+* `connector`
+* `billing`
+* `referral`
+* `campaign`
+* `action_cycle`
+* `action_item`
+* `ai`
+* `webhook`
+* `background_job`
+* `system`
+
+### `admin_metric_snapshot_scope`
+
+Values:
+
+* `overview`
+* `funnel`
+* `user_lifecycle`
+* `campaign_actions`
+* `connectors`
+* `billing_referrals`
+* `operations`
 
 ### `verification_token_type`
 
@@ -3554,6 +3622,154 @@ Purpose: performance and momentum tracking across campaigns and lanes for AI dec
 
 ---
 
+### `user_lifecycle_events`
+
+Purpose: durable user funnel events for admin lifecycle analytics.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `stage` user_lifecycle_stage NOT NULL
+* `event_type` VARCHAR NOT NULL
+* `source_type` VARCHAR NULL
+* `source_id` UUID NULL
+* `occurred_at` TIMESTAMP NOT NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `stage`
+* index on `event_type`
+* index on `occurred_at`
+* composite index on (`user_id`, `stage`, `occurred_at`)
+
+#### Notes
+
+* Used for funnel stage counts, activation analysis, and lifecycle timeline views.
+* `source_type`/`source_id` can reference Campaign, ActionCycle, ActionItem, UserConnector, BillingEvent, ReferralAttribution, or another source record.
+* Events mark meaningful milestones, not every click.
+
+---
+
+### `user_lifecycle_snapshots`
+
+Purpose: latest admin-facing lifecycle state for each user.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL UNIQUE FK -> `users.id`
+* `current_stage` user_lifecycle_stage NOT NULL
+* `furthest_stage` user_lifecycle_stage NOT NULL
+* `onboarding_started_at` TIMESTAMP NULL
+* `onboarding_completed_at` TIMESTAMP NULL
+* `first_campaign_generated_at` TIMESTAMP NULL
+* `action_lanes_selected_at` TIMESTAMP NULL
+* `connector_ready_at` TIMESTAMP NULL
+* `first_action_primed_at` TIMESTAMP NULL
+* `first_action_completed_at` TIMESTAMP NULL
+* `activated_at` TIMESTAMP NULL
+* `retained_at` TIMESTAMP NULL
+* `paid_at` TIMESTAMP NULL
+* `stalled_at` TIMESTAMP NULL
+* `dormant_at` TIMESTAMP NULL
+* `last_activity_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on `user_id`
+* index on `current_stage`
+* index on `furthest_stage`
+* index on `activated_at`
+* index on `paid_at`
+* index on `last_activity_at`
+
+#### Notes
+
+* Supports the admin user explorer and funnel stage counts.
+* Updated from lifecycle events and core domain milestones.
+* Does not replace the source domain records.
+
+---
+
+### `admin_metric_snapshots`
+
+Purpose: cached or historical admin metrics for overview, funnel, and operational dashboards.
+
+#### Columns
+
+* `id` UUID PK
+* `scope` admin_metric_snapshot_scope NOT NULL
+* `metric_key` VARCHAR NOT NULL
+* `metric_value` NUMERIC NOT NULL
+* `metric_unit` VARCHAR NULL
+* `period_start` TIMESTAMP NULL
+* `period_end` TIMESTAMP NULL
+* `dimensions_json` JSONB NULL
+* `computed_at` TIMESTAMP NOT NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `scope`
+* index on `metric_key`
+* composite index on (`scope`, `metric_key`, `computed_at`)
+* composite index on (`period_start`, `period_end`)
+
+#### Notes
+
+* V1 can compute many admin metrics live; this table exists for cached/historical snapshots when useful.
+* Example scopes: overview, funnel, campaign_actions, connectors, billing_referrals, operations.
+* Example metrics: total_users, activated_users, first_action_completed_users, connector_adoption_rate, paid_users.
+
+---
+
+### `admin_operational_issues`
+
+Purpose: operational health and support triage for failures or stuck states.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NULL FK -> `users.id`
+* `source` admin_operational_issue_source NOT NULL
+* `source_id` UUID NULL
+* `provider_name` VARCHAR NULL
+* `severity` admin_operational_issue_severity NOT NULL
+* `status` admin_operational_issue_status NOT NULL
+* `title` VARCHAR NOT NULL
+* `details` TEXT NULL
+* `detected_at` TIMESTAMP NOT NULL
+* `acknowledged_at` TIMESTAMP NULL
+* `resolved_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `user_id`
+* index on `source`
+* index on `status`
+* index on `severity`
+* index on `detected_at`
+* composite index on (`source`, `status`, `detected_at`)
+
+#### Notes
+
+* Captures connector failures, webhook failures, AI failures, stuck onboarding, stuck action cycles/items, and billing/referral processing issues.
+* Admin views should surface recent open issues and unresolved critical issues first.
+* Source domain records remain the system of record; this table tracks admin triage state.
+
+---
+
 ### `engagement_states`
 
 Purpose: user engagement posture used for reactivation and lifecycle messaging.
@@ -3863,6 +4079,15 @@ Purpose: durable record of positive or progress-oriented events that can feed co
 * `referral_milestones` -> optional many `referral_rewards`
 * `referral_rewards` -> optional many `growth_credits`
 * `users` -> many `growth_credits`
+
+### Admin Control Tower and Lifecycle Analytics
+
+* `users` -> many `user_lifecycle_events`
+* `users` -> optional one `user_lifecycle_snapshots`
+* `user_lifecycle_events` may reference source records by `source_type` and `source_id`
+* `admin_metric_snapshots` aggregate existing domain records by scope and metric key
+* `users` -> optional many `admin_operational_issues`
+* `admin_operational_issues` may reference stuck or failed source records by `source` and `source_id`
 
 ### Coaching, Momentum, and Engagement
 
@@ -4229,6 +4454,30 @@ These are the most important ones to include early.
 * `referral_milestones(referral_attribution_id, milestone_type)`
 * `referral_rewards(user_id, reward_type)`
 
+### Admin Control Tower Lookups
+
+* `user_lifecycle_events(user_id)`
+* `user_lifecycle_events(stage)`
+* `user_lifecycle_events(event_type)`
+* `user_lifecycle_events(occurred_at)`
+* `user_lifecycle_events(user_id, stage, occurred_at)`
+* `user_lifecycle_snapshots(user_id)`
+* `user_lifecycle_snapshots(current_stage)`
+* `user_lifecycle_snapshots(furthest_stage)`
+* `user_lifecycle_snapshots(activated_at)`
+* `user_lifecycle_snapshots(paid_at)`
+* `user_lifecycle_snapshots(last_activity_at)`
+* `admin_metric_snapshots(scope)`
+* `admin_metric_snapshots(metric_key)`
+* `admin_metric_snapshots(scope, metric_key, computed_at)`
+* `admin_metric_snapshots(period_start, period_end)`
+* `admin_operational_issues(user_id)`
+* `admin_operational_issues(source)`
+* `admin_operational_issues(status)`
+* `admin_operational_issues(severity)`
+* `admin_operational_issues(detected_at)`
+* `admin_operational_issues(source, status, detected_at)`
+
 ### Coaching and Momentum Lookups
 
 * `goal_progress(goal_id)`
@@ -4333,6 +4582,15 @@ These are important even if some are enforced at application level instead of DB
 * application logic should prevent self-referrals
 * growth credits created from rewards should expire or be consumed according to their grant terms
 
+### Admin Control Tower
+
+* admin read models should not own core product behavior
+* lifecycle events should be written only for meaningful product milestones
+* lifecycle snapshots should be rebuildable from lifecycle events and source domain records
+* admin metric snapshots are optional caches/history; V1 services may compute metrics live from source tables
+* operational issues should preserve source pointers and triage status without replacing provider logs or domain records
+* admin funnel metrics should use lifecycle state first, then fall back to source domain records when lifecycle events have not been backfilled
+
 ### Coaching and Momentum
 
 * momentum state should be computed from durable activity, task, cycle, opportunity, and target data
@@ -4401,12 +4659,16 @@ These are the tables I recommend for the first real schema pass:
 * `referral_milestones`
 * `referral_rewards`
 * `growth_credits`
+* `user_lifecycle_events`
+* `user_lifecycle_snapshots`
+* `admin_metric_snapshots`
+* `admin_operational_issues`
 * `goal_progress`
 * `weekly_targets`
 * `momentum_states`
 * `coaching_nudges`
 
-That is a strong MVP backbone with first-class offering context, workspace orchestration, capability-based integration architecture, bounded free usage, referral rewards, and product-native momentum coaching.
+That is a strong MVP backbone with first-class offering context, workspace orchestration, capability-based integration architecture, bounded free usage, referral rewards, admin lifecycle visibility, and product-native momentum coaching.
 
 ---
 
@@ -4497,6 +4759,10 @@ Models to include:
 - ReferralMilestone
 - ReferralReward
 - GrowthCredit
+- UserLifecycleEvent
+- UserLifecycleSnapshot
+- AdminMetricSnapshot
+- AdminOperationalIssue
 - GoalProgress
 - WeeklyTarget
 - MomentumState
@@ -4520,6 +4786,7 @@ Requirements:
 - Preserve offering context by adding optional offeringId references on Goal, Campaign, OpportunityCycle, AIConversation, AIContextSummary, and AITask
 - Include commercial gating tables needed for bounded free usage: Plan, PlanFeature, Subscription, UsageCounter, ModelAccessPolicy, and GrowthCredit
 - Include referral reward tables for milestone-based rewards and analytics: ReferralLink, ReferralVisit, ReferralAttribution, ReferralMilestone, ReferralReward
+- Include admin read-model tables for V1 control tower visibility: UserLifecycleEvent, UserLifecycleSnapshot, AdminMetricSnapshot, AdminOperationalIssue
 - Include coaching tables for early momentum support: GoalProgress, WeeklyTarget, MomentumState, CoachingNudge
 - Do not overmodel deferred features yet
 
@@ -4541,6 +4808,9 @@ Important modeling notes:
 - VerificationToken belongs to a User and/or AuthenticationIdentity depending on flow
 - UsageCounter is scoped by User + featureKey + billing period
 - GrowthCredit is scoped by User + featureKey and can extend effective allowance
+- UserLifecycleEvent and UserLifecycleSnapshot support admin funnel and user explorer views without replacing core domain records
+- AdminMetricSnapshot stores optional cached/historical admin metrics; V1 admin services may compute most metrics live
+- AdminOperationalIssue tracks triage state for stuck or failed operational records
 - Referral rewards are created only from meaningful milestones, not raw clicks
 - MomentumState and CoachingNudge are user-owned records that may optionally reference goals, offerings, campaigns, or other linked entities
 - WorkspaceSignal belongs to one User and may reference a source entity through sourceType + sourceId

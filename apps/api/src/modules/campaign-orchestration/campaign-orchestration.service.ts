@@ -16,6 +16,7 @@ import {
   ConversationMessageSource,
   ConversationThreadStatus,
   ReferralMilestoneType,
+  UserLifecycleStage,
   prisma,
 } from "@opportunity-os/db";
 import {
@@ -35,6 +36,7 @@ import {
   UpdateActionItemDto,
 } from "./dto/campaign.dto";
 import { AiService } from "../ai/ai.service";
+import { AdminLifecycleService } from "../admin/admin-lifecycle.service";
 import { CommercialService } from "../commercial/commercial.service";
 
 @Injectable()
@@ -42,6 +44,7 @@ export class CampaignOrchestrationService {
   constructor(
     private readonly aiService: AiService,
     private readonly commercialService: CommercialService,
+    private readonly adminLifecycleService: AdminLifecycleService,
   ) {}
 
   async finalizeOnboardingPlan(
@@ -227,6 +230,57 @@ export class CampaignOrchestrationService {
         entityId: result.firstActionCycle?.id,
       },
     );
+
+    const lifecycleEvents = [
+      this.adminLifecycleService.recordEvent({
+        userId,
+        stage: UserLifecycleStage.profile_grounded,
+        eventType: "onboarding_completed",
+        sourceType: "onboarding_plan",
+        sourceId: result.firstActionCycle?.id,
+        metadata: {
+          campaigns: result.campaigns.length,
+          actionLanes: result.actionLanes.length,
+        },
+      }),
+      this.adminLifecycleService.recordEvent({
+        userId,
+        stage: UserLifecycleStage.campaign_generated,
+        eventType: "campaigns_generated",
+        sourceType: "onboarding_plan",
+        sourceId: result.firstActionCycle?.id,
+        metadata: {
+          campaigns: result.campaigns.length,
+        },
+      }),
+      this.adminLifecycleService.recordEvent({
+        userId,
+        stage: UserLifecycleStage.action_lanes_selected,
+        eventType: "action_lanes_selected",
+        sourceType: "onboarding_plan",
+        sourceId: result.firstActionCycle?.id,
+        metadata: {
+          actionLanes: result.actionLanes.length,
+        },
+      }),
+    ];
+
+    if (result.firstActionItem) {
+      lifecycleEvents.push(
+        this.adminLifecycleService.recordEvent({
+          userId,
+          stage: UserLifecycleStage.first_action_primed,
+          eventType: "first_action_primed",
+          sourceType: "action_item",
+          sourceId: result.firstActionItem.id,
+          metadata: {
+            actionType: result.firstActionItem.actionType,
+          },
+        }),
+      );
+    }
+
+    await Promise.all(lifecycleEvents);
 
     return result;
   }
@@ -875,6 +929,31 @@ export class CampaignOrchestrationService {
         },
       );
     }
+
+    await this.adminLifecycleService.recordEvent({
+      userId,
+      stage: UserLifecycleStage.first_action_completed,
+      eventType: "first_action_completed",
+      sourceType: "action_item",
+      sourceId: actionItem.id,
+      occurredAt,
+      metadata: {
+        actionType: actionItem.actionType,
+        status: confirmedStatus,
+      },
+    });
+
+    await this.adminLifecycleService.recordEvent({
+      userId,
+      stage: UserLifecycleStage.activated,
+      eventType: "activated",
+      sourceType: "action_item",
+      sourceId: actionItem.id,
+      occurredAt,
+      metadata: {
+        reason: "first_action_completed",
+      },
+    });
 
     return confirmedActionItem;
   }

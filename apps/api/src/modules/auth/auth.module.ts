@@ -9,9 +9,10 @@ import { TokenService } from "./token.service";
 import { GoogleStrategy } from "./google.strategy";
 import { LinkedInStrategy } from "./linkedin.strategy";
 import { CommercialModule } from "../commercial/commercial.module";
+import { AdminModule } from "../admin/admin.module";
 
 @Module({
-  imports: [CommercialModule, PassportModule],
+  imports: [CommercialModule, AdminModule, PassportModule],
   controllers: [AuthController],
   providers: [
     AuthService,

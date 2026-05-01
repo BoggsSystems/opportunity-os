@@ -611,6 +611,62 @@ enum CoachingNudgeStatus {
   expired
 }
 
+enum UserLifecycleStage {
+  visitor
+  account_created
+  onboarding_started
+  profile_grounded
+  offering_selected
+  campaign_generated
+  action_lanes_selected
+  connector_ready
+  first_action_primed
+  first_action_completed
+  activated
+  retained
+  paid
+  stalled
+  dormant
+}
+
+enum AdminOperationalIssueSeverity {
+  info
+  warning
+  error
+  critical
+}
+
+enum AdminOperationalIssueStatus {
+  open
+  investigating
+  resolved
+  ignored
+}
+
+enum AdminOperationalIssueSource {
+  onboarding
+  connector
+  billing
+  referral
+  campaign
+  action_cycle
+  action_item
+  ai
+  webhook
+  background_job
+  system
+}
+
+enum AdminMetricSnapshotScope {
+  overview
+  funnel
+  user_lifecycle
+  campaign_actions
+  connectors
+  billing_referrals
+  operations
+}
+
 model User {
   id              String    @id @default(uuid()) @db.Uuid
   email           String    @unique
@@ -678,6 +734,9 @@ model User {
   userPosture                  UserPosture?
   calendarEvents               CalendarEvent[]
   technicalProfiles            TechnicalProfile[]
+  lifecycleEvents              UserLifecycleEvent[]
+  lifecycleSnapshot            UserLifecycleSnapshot?
+  adminOperationalIssues       AdminOperationalIssue[]
 
   @@map("users")
 }
@@ -2974,6 +3033,107 @@ model CampaignMetric {
   @@index([actionLaneId, metricType, periodStart])
   @@index([computedAt])
   @@map("campaign_metrics")
+}
+
+model UserLifecycleEvent {
+  id           String             @id @default(uuid()) @db.Uuid
+  userId       String             @db.Uuid
+  stage        UserLifecycleStage
+  eventType    String             @db.VarChar(120)
+  sourceType   String?            @db.VarChar(80)
+  sourceId     String?            @db.Uuid
+  occurredAt   DateTime           @default(now())
+  metadataJson Json?
+  createdAt    DateTime           @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stage])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@index([userId, stage, occurredAt])
+  @@map("user_lifecycle_events")
+}
+
+model UserLifecycleSnapshot {
+  id                       String             @id @default(uuid()) @db.Uuid
+  userId                   String             @unique @db.Uuid
+  currentStage             UserLifecycleStage @default(account_created)
+  furthestStage            UserLifecycleStage @default(account_created)
+  onboardingStartedAt      DateTime?
+  onboardingCompletedAt    DateTime?
+  firstCampaignGeneratedAt DateTime?
+  actionLanesSelectedAt    DateTime?
+  connectorReadyAt         DateTime?
+  firstActionPrimedAt      DateTime?
+  firstActionCompletedAt   DateTime?
+  activatedAt              DateTime?
+  retainedAt               DateTime?
+  paidAt                   DateTime?
+  stalledAt                DateTime?
+  dormantAt                DateTime?
+  lastActivityAt           DateTime?
+  metadataJson             Json?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([currentStage])
+  @@index([furthestStage])
+  @@index([activatedAt])
+  @@index([paidAt])
+  @@index([lastActivityAt])
+  @@map("user_lifecycle_snapshots")
+}
+
+model AdminMetricSnapshot {
+  id             String                   @id @default(uuid()) @db.Uuid
+  scope          AdminMetricSnapshotScope
+  metricKey      String                   @db.VarChar(120)
+  metricValue    Decimal                  @db.Decimal(18, 4)
+  metricUnit     String?                  @db.VarChar(40)
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  dimensionsJson Json?
+  computedAt     DateTime                 @default(now())
+  metadataJson   Json?
+  createdAt      DateTime                 @default(now())
+
+  @@index([scope])
+  @@index([metricKey])
+  @@index([scope, metricKey, computedAt])
+  @@index([periodStart, periodEnd])
+  @@map("admin_metric_snapshots")
+}
+
+model AdminOperationalIssue {
+  id             String                        @id @default(uuid()) @db.Uuid
+  userId         String?                       @db.Uuid
+  source         AdminOperationalIssueSource
+  sourceId       String?                       @db.Uuid
+  providerName   String?                       @db.VarChar(80)
+  severity       AdminOperationalIssueSeverity @default(warning)
+  status         AdminOperationalIssueStatus   @default(open)
+  title          String                        @db.VarChar(200)
+  details        String?                       @db.Text
+  detectedAt     DateTime                      @default(now())
+  acknowledgedAt DateTime?
+  resolvedAt     DateTime?
+  metadataJson   Json?
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([source])
+  @@index([status])
+  @@index([severity])
+  @@index([detectedAt])
+  @@index([source, status, detectedAt])
+  @@map("admin_operational_issues")
 }
 
 model TechnicalProfile {

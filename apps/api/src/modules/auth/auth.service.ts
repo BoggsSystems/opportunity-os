@@ -13,6 +13,7 @@ import {
   CampaignStatus,
   prisma,
   AuthenticationCredentialType,
+  UserLifecycleStage,
 } from "@opportunity-os/db";
 import { getConfig } from "@opportunity-os/config";
 import {
@@ -31,6 +32,7 @@ import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { VerifyEmailDto } from "./dto/verify-email.dto";
 import { AuthenticatedUser } from "./auth.types";
 import { CommercialService } from "../commercial/commercial.service";
+import { AdminLifecycleService } from "../admin/admin-lifecycle.service";
 
 @Injectable()
 export class AuthService {
@@ -40,6 +42,7 @@ export class AuthService {
     private readonly passwordService: PasswordService,
     private readonly tokenService: TokenService,
     private readonly commercialService: CommercialService,
+    private readonly adminLifecycleService: AdminLifecycleService,
   ) {}
 
   async validateGoogleUser(profile: {
@@ -796,6 +799,17 @@ export class AuthService {
         guestSessionId: dto.guestSessionId,
       },
     );
+
+    await this.adminLifecycleService.recordEvent({
+      userId: result.user.id,
+      stage: UserLifecycleStage.account_created,
+      eventType: "account_created",
+      sourceType: "auth_signup",
+      sourceId: result.identity.id,
+      metadata: {
+        hasReferral: Boolean(referral?.applied),
+      },
+    });
 
     return this.buildAuthResponse(
       result.user,

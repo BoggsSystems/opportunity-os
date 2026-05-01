@@ -8,8 +8,8 @@ export class LinkedInStrategy extends PassportStrategy(Strategy, 'linkedin') {
   constructor() {
     const config = getConfig();
     super({
-      clientID: config.LINKEDIN_CLIENT_ID,
-      clientSecret: config.LINKEDIN_CLIENT_SECRET,
+      clientID: config.LINKEDIN_CLIENT_ID || 'linkedin-client-id-not-configured',
+      clientSecret: config.LINKEDIN_CLIENT_SECRET || 'linkedin-client-secret-not-configured',
       callbackURL: config.LINKEDIN_CALLBACK_URL || 'http://localhost:3002/auth/linkedin/callback',
       scope: ['r_emailaddress', 'r_liteprofile'],
     });
