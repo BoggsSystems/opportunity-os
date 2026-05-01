@@ -18,7 +18,7 @@ case "$PROFILE" in
     USERS_PER_MONTH=50
     ;;
   nexus)
-    BILLING_MONTHS=12
+    BILLING_MONTHS=24
     USERS_PER_MONTH=200
     ;;
   heavy)
@@ -1128,9 +1128,13 @@ WITH settings AS (
 ), cycle_pool AS (
   SELECT
     inserted_cycles.*,
+    inserted_lanes."laneType",
+    inserted_campaigns."offeringId",
     row_number() OVER (ORDER BY (inserted_cycles."metadataJson"->>'campaignRank')::int, (inserted_cycles."metadataJson"->>'laneRank')::int) AS cycle_rank,
     count(*) OVER () AS cycle_count
   FROM inserted_cycles
+  JOIN inserted_lanes ON inserted_lanes.id = inserted_cycles."actionLaneId"
+  JOIN inserted_campaigns ON inserted_campaigns.id = inserted_cycles."campaignId"
 ), inserted_items AS (
   INSERT INTO action_items (
     id,
@@ -1201,7 +1205,54 @@ WITH settings AS (
   JOIN cycle_pool ON cycle_pool.cycle_rank = ((daily_actions.action_rank - 1) % cycle_pool.cycle_count) + 1
   CROSS JOIN jeff_user
   CROSS JOIN settings
-  RETURNING id, "userId", "campaignId", "actionLaneId", "completedAt", "respondedAt", "metadataJson"
+  RETURNING id, "userId", "campaignId", "actionLaneId", "actionCycleId", "priorityScore", "dueAt", "completedAt", "respondedAt", "metadataJson", "title", "createdAt"
+), inserted_queues AS (
+  INSERT INTO daily_command_queues (
+    id, "userId", "queueDate", status, title, summary, "targetActionCount", "completedActionCount", "generatedAt", "createdAt", "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    jeff_user.id,
+    day_slots.action_day::date,
+    'active'::"DailyCommandQueueStatus",
+    'Conductor Daily Loop - ' || to_char(day_slots.action_day, 'Mon DD'),
+    'High-velocity revenue loop for Jeff.',
+    settings.actions_per_day,
+    settings.actions_per_day,
+    day_slots.action_day,
+    day_slots.action_day,
+    day_slots.action_day
+  FROM day_slots
+  CROSS JOIN jeff_user
+  CROSS JOIN settings
+  ON CONFLICT ("userId", "queueDate") DO NOTHING
+  RETURNING id, "userId", "queueDate"
+), inserted_queue_items AS (
+  INSERT INTO command_queue_items (
+    id, "commandQueueId", "userId", "actionItemId", "offeringId", "campaignId", "actionLaneId", "actionCycleId", 
+    position, status, title, "priorityScore", "createdAt", "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    inserted_queues.id,
+    jeff_user.id,
+    inserted_items.id,
+    cycle_pool."offeringId",
+    inserted_items."campaignId",
+    inserted_items."actionLaneId",
+    inserted_items."actionCycleId",
+    ((inserted_items."metadataJson"->>'actionRank')::int % settings.actions_per_day) + 1,
+    'completed'::"CommandQueueItemStatus",
+    inserted_items.title,
+    inserted_items."priorityScore",
+    inserted_items."createdAt",
+    inserted_items."createdAt"
+  FROM inserted_items
+  JOIN inserted_queues ON inserted_queues."userId" = inserted_items."userId" AND inserted_queues."queueDate" = inserted_items."dueAt"::date
+  JOIN cycle_pool ON cycle_pool.id = inserted_items."actionCycleId"
+  CROSS JOIN jeff_user
+  CROSS JOIN settings
+  ON CONFLICT ("commandQueueId", position) DO NOTHING
 ), inserted_threads AS (
   INSERT INTO conversation_threads (
     id,
@@ -1266,6 +1317,7 @@ SELECT
   (SELECT count(*) FROM inserted_lanes) AS lanes,
   (SELECT count(*) FROM inserted_cycles) AS cycles,
   (SELECT count(*) FROM inserted_items) AS actions,
+  (SELECT count(*) FROM inserted_queues) AS queues,
   (SELECT count(*) FROM inserted_threads) AS threads;
 SQL
   fi

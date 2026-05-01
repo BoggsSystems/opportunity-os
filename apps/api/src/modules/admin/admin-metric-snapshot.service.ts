@@ -31,6 +31,9 @@ const MONTHLY_METRIC_KEYS = [
   "actions.completed",
   "actions.responded",
   "actions.converted",
+  "command_queue.generated",
+  "command_queue.completed_actions",
+  "command_queue.completion_rate",
 ] as const;
 
 const COMPLETED_ACTION_STATUSES = [
@@ -156,6 +159,7 @@ export class AdminMetricSnapshotService {
       completedActions,
       respondedActions,
       convertedActions,
+      commandQueueStats,
     ] = await Promise.all([
       prisma.user.count({ where: { createdAt: { lt: period.end } } }),
       prisma.user.count({
@@ -280,6 +284,11 @@ export class AdminMetricSnapshotService {
           completedAt: { gte: period.start, lt: period.end },
         },
       }),
+      prisma.dailyCommandQueue.aggregate({
+        where: { queueDate: { gte: period.start, lt: period.end } },
+        _count: { id: true },
+        _sum: { targetActionCount: true, completedActionCount: true },
+      }),
     ]);
 
     const mrrCents = paidSubscriptions.reduce(
@@ -308,6 +317,15 @@ export class AdminMetricSnapshotService {
       this.metric("actions.completed", completedActions, "count"),
       this.metric("actions.responded", respondedActions, "count"),
       this.metric("actions.converted", convertedActions, "count"),
+      this.metric("command_queue.generated", commandQueueStats._count.id, "count"),
+      this.metric("command_queue.completed_actions", commandQueueStats._sum.completedActionCount || 0, "count"),
+      this.metric(
+        "command_queue.completion_rate",
+        commandQueueStats._sum.targetActionCount && commandQueueStats._sum.targetActionCount > 0
+          ? Math.round((commandQueueStats._sum.completedActionCount || 0) / commandQueueStats._sum.targetActionCount * 100)
+          : 0,
+        "percentage"
+      ),
     ];
   }
 

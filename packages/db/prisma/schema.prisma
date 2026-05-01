@@ -836,6 +836,9 @@ model Credential {
   passwordHash             String?
   providerName             String?
   providerAccountId        String?
+  accessToken              String?
+  refreshToken             String?
+  expiresAt                DateTime?
   passwordVersion          Int                          @default(1)
   createdAt                DateTime                     @default(now())
   updatedAt                DateTime                     @updatedAt
@@ -1833,6 +1836,7 @@ model Offering {
   status       OfferingStatus @default(draft)
   externalId   String?        @db.VarChar(255)
   source       String?        @db.VarChar(50)
+  metadataJson Json?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 

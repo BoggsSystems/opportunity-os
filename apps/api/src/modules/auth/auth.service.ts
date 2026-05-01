@@ -50,6 +50,8 @@ export class AuthService {
     firstName?: string;
     lastName?: string;
     providerId: string;
+    accessToken?: string;
+    refreshToken?: string;
     guestSessionId?: string;
     initialStrategy?: any;
   }) {
@@ -71,6 +73,15 @@ export class AuthService {
     });
 
     if (credential) {
+      // Update tokens
+      await prisma.credential.update({
+        where: { id: credential.id },
+        data: {
+          accessToken: profile.accessToken,
+          refreshToken: profile.refreshToken || credential.refreshToken,
+        }
+      });
+      
       // User exists, log them in
       const refreshToken = this.tokenService.generateOpaqueToken();
       const refreshTokenHash = this.tokenService.hashOpaqueToken(refreshToken);
@@ -131,6 +142,8 @@ export class AuthService {
             credentialType: "google_oauth" as AuthenticationCredentialType,
             providerName: "google",
             providerAccountId: profile.providerId,
+            accessToken: profile.accessToken,
+            refreshToken: profile.refreshToken,
           },
         });
 
@@ -186,6 +199,8 @@ export class AuthService {
           credentialType: "google_oauth" as AuthenticationCredentialType,
           providerName: "google",
           providerAccountId: profile.providerId,
+          accessToken: profile.accessToken,
+          refreshToken: profile.refreshToken,
         },
       });
     }

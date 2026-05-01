@@ -11,13 +11,20 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       clientID: config.GOOGLE_CLIENT_ID || 'google-client-id-not-configured',
       clientSecret: config.GOOGLE_CLIENT_SECRET || 'google-client-secret-not-configured',
       callbackURL: config.GOOGLE_CALLBACK_URL || 'http://localhost:3002/auth/google/callback',
-      scope: ['email', 'profile'],
+      scope: [
+        'email', 
+        'profile',
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/calendar.readonly'
+      ],
+      accessType: 'offline',
+      prompt: 'consent',
     });
   }
 
   async validate(
     accessToken: string,
-    _refreshToken: string,
+    refreshToken: string,
     profile: any,
     done: VerifyCallback,
   ): Promise<any> {
@@ -28,6 +35,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       lastName: name.familyName,
       picture: photos[0].value,
       accessToken,
+      refreshToken,
       provider: 'google',
       providerId: profile.id,
     };
