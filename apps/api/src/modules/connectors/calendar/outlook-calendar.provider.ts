@@ -4,12 +4,23 @@ import {
   CalendarProvider,
   SyncedCalendarEvent,
 } from './calendar-provider.interface';
+import { SystemDateService } from '../../../common/system-date.service';
+import { SimCalendarProvider } from '../../simulation/providers/sim-calendar.provider';
 
 @Injectable()
 export class OutlookCalendarProvider implements CalendarProvider {
   readonly providerName = 'outlook' as const;
 
+  constructor(
+    private readonly systemDateService: SystemDateService,
+    private readonly simCalendarProvider: SimCalendarProvider,
+  ) {}
+
   async listEvents(credentials: CalendarConnectorCredentials, options?: { timeMin?: Date; timeMax?: Date }): Promise<SyncedCalendarEvent[]> {
+    if (this.systemDateService.isSimulation()) {
+      return this.simCalendarProvider.listEvents(credentials, options);
+    }
+
     const accessToken = this.requireAccessToken(credentials);
     const start = options?.timeMin?.toISOString() ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const end = options?.timeMax?.toISOString() ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -28,6 +39,10 @@ export class OutlookCalendarProvider implements CalendarProvider {
   }
 
   async test(credentials: CalendarConnectorCredentials) {
+    if (this.systemDateService.isSimulation()) {
+      return this.simCalendarProvider.test(credentials);
+    }
+
     const accessToken = this.requireAccessToken(credentials);
     const response = await fetch('https://graph.microsoft.com/v1.0/me/calendar', {
       headers: { Authorization: `Bearer ${accessToken}` },

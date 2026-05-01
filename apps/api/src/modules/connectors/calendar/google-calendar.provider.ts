@@ -5,11 +5,23 @@ import {
   SyncedCalendarEvent,
 } from './calendar-provider.interface';
 
+import { SystemDateService } from '../../../common/system-date.service';
+import { SimCalendarProvider } from '../../simulation/providers/sim-calendar.provider';
+
 @Injectable()
 export class GoogleCalendarProvider implements CalendarProvider {
   readonly providerName = 'google_calendar' as const;
 
+  constructor(
+    private readonly systemDateService: SystemDateService,
+    private readonly simCalendarProvider: SimCalendarProvider,
+  ) {}
+
   async listEvents(credentials: CalendarConnectorCredentials, options?: { timeMin?: Date; timeMax?: Date }): Promise<SyncedCalendarEvent[]> {
+    if (this.systemDateService.isSimulation()) {
+      return this.simCalendarProvider.listEvents(credentials, options);
+    }
+
     const accessToken = this.requireAccessToken(credentials);
     const timeMin = options?.timeMin?.toISOString() ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const timeMax = options?.timeMax?.toISOString() ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -28,6 +40,10 @@ export class GoogleCalendarProvider implements CalendarProvider {
   }
 
   async test(credentials: CalendarConnectorCredentials) {
+    if (this.systemDateService.isSimulation()) {
+      return this.simCalendarProvider.test(credentials);
+    }
+
     const accessToken = this.requireAccessToken(credentials);
     const response = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList/primary', {
       headers: { Authorization: `Bearer ${accessToken}` },

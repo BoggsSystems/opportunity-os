@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { SystemDateService } from "../../common/system-date.service";
@@ -94,7 +93,6 @@ const QUEUE_INCLUDE = {
 
 @Injectable()
 export class CommandQueueService {
-  private readonly logger = new Logger(CommandQueueService.name);
   constructor(
     private readonly rewardsService: RewardsService,
     private readonly systemDateService: SystemDateService,
@@ -202,11 +200,13 @@ export class CommandQueueService {
 
     const result = this.serializeQueue(queue);
 
-    // 4. Trigger Rewards (Async)
+    // 4. Trigger Rewards (Synchronous for simulation reliability)
     if (status === CommandQueueItemStatus.completed) {
-      this.rewardsService.evaluateActionCompletion(userId, itemId).catch((err) => {
-        this.logger.error(`Rewards Evaluation Error for user ${userId}: ${err.message}`);
-      });
+      try {
+        await this.rewardsService.evaluateActionCompletion(userId, itemId);
+      } catch (err: any) {
+        // Silent error for rewards to not block core pipeline
+      }
     }
 
     return result;

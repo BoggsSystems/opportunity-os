@@ -6,6 +6,13 @@ export class SystemDateService {
   private static readonly als = new AsyncLocalStorage<Date>();
 
   /**
+   * Returns true if we are currently running in a 'Time Warp' simulation context.
+   */
+  isSimulation(): boolean {
+    return SystemDateService.als.getStore() !== undefined;
+  }
+
+  /**
    * Returns the current date. If a 'Time Warp' date is set for the current 
    * request context, it returns that instead of the real system time.
    */
@@ -22,11 +29,12 @@ export class SystemDateService {
   }
 
   /**
-   * Helper to get the start of the current (warped) day.
+   * Helper to get the start of the current (warped) day in UTC.
    */
   today(): Date {
     const d = this.now();
-    d.setHours(0, 0, 0, 0);
-    return d;
+    return new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+    );
   }
 }

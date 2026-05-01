@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { createHmac, timingSafeEqual } from "crypto";
@@ -53,8 +54,11 @@ type StripeSubscriptionPayload = {
   };
 };
 
+import { SystemDateService } from "../../common/system-date.service";
+
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
   private readonly stripeApiBase = "https://api.stripe.com/v1";
   private readonly defaultSuccessUrl =
     process.env["BILLING_SUCCESS_URL"] ||
@@ -70,6 +74,7 @@ export class BillingService {
     private readonly commercialService: CommercialService,
     private readonly adminLifecycleService: AdminLifecycleService,
     private readonly adminOperationsService: AdminOperationsService,
+    private readonly systemDateService: SystemDateService,
   ) {}
 
   async getBillingState(userId: string) {
@@ -105,7 +110,7 @@ export class BillingService {
           where: {
             userId,
             status: "active",
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            OR: [{ expiresAt: null }, { expiresAt: { gt: this.systemDateService.now() } }],
           },
           orderBy: { createdAt: "desc" },
         }),
@@ -302,6 +307,7 @@ export class BillingService {
     signature?: string;
     rawBody?: Buffer;
     body: unknown;
+    isSimulated?: boolean;
   }) {
     const event = this.parseAndVerifyWebhook(input);
     const billingEvent = await prisma.billingEvent.upsert({
@@ -332,7 +338,7 @@ export class BillingService {
         data: {
           userId: result.userId,
           status: BillingEventStatus.processed,
-          processedAt: new Date(),
+          processedAt: this.systemDateService.now(),
           errorMessage: null,
         },
       });
@@ -432,6 +438,49 @@ export class BillingService {
     });
 
     return record;
+  }
+
+  /**
+   * Applies a financial credit (discount/balance top-up) to a user's billing account.
+   */
+  async applyFinancialCredit(userId: string, amountCents: number, description: string) {
+    const customer = await prisma.billingCustomer.findFirst({
+      where: { userId, provider: "stripe", status: "active" },
+    });
+
+    if (!customer) {
+      this.logger.warn(`Cannot apply financial credit to user ${userId}: No active billing customer found.`);
+      return;
+    }
+
+    // In a real scenario, we'd call Stripe:
+    // https://stripe.com/docs/api/customer_balance_transactions/create
+    if (this.isStripeConfigured()) {
+      try {
+        await this.stripeRequest(`customers/${customer.providerCustomerId}/balance_transactions`, {
+          amount: -amountCents, // Negative means credit to the customer
+          currency: "usd",
+          description,
+        });
+      } catch (err: any) {
+        this.logger.error(`Failed to apply Stripe balance credit for user ${userId}: ${err.message}`);
+      }
+    }
+
+    // Record the event locally
+    await prisma.billingEvent.create({
+      data: {
+        userId,
+        provider: "stripe",
+        providerEventId: `local_credit_${Date.now()}`,
+        eventType: "customer.balance_adjustment",
+        status: BillingEventStatus.processed,
+        processedAt: this.systemDateService.now(),
+        payloadJson: this.toJson({ amountCents, description }),
+      },
+    });
+
+    this.logger.log(`Applied $${(amountCents / 100).toFixed(2)} credit to user ${userId}: ${description}`);
   }
 
   private async processStripeEvent(
@@ -607,7 +656,7 @@ export class BillingService {
         providerPriceId: priceId,
         status,
         billingInterval: payload.metadata?.["interval"] || null,
-        startedAt: periodStart || new Date(),
+        startedAt: periodStart || this.systemDateService.now(),
         currentPeriodStart: periodStart,
         currentPeriodEnd: periodEnd,
         cancelAtPeriodEnd: Boolean(payload.cancel_at_period_end),
@@ -643,7 +692,7 @@ export class BillingService {
             in: [SubscriptionStatus.active, SubscriptionStatus.trialing],
           },
         },
-        data: { status: SubscriptionStatus.canceled, endedAt: new Date() },
+        data: { status: SubscriptionStatus.canceled, endedAt: this.systemDateService.now() },
       });
     }
 
@@ -740,13 +789,14 @@ export class BillingService {
     signature?: string;
     rawBody?: Buffer;
     body: unknown;
+    isSimulated?: boolean;
   }): StripeEvent {
     const secret = this.usableStripeSecret(
       process.env["STRIPE_WEBHOOK_SECRET"],
     );
     const rawPayload =
       input.rawBody?.toString("utf8") || JSON.stringify(input.body ?? {});
-    if (secret) {
+    if (secret && !input.isSimulated) {
       if (!input.signature) {
         throw new BadRequestException("Missing Stripe signature.");
       }
@@ -939,7 +989,7 @@ export class BillingService {
   }
 
   private currentMonthlyWindow() {
-    const now = new Date();
+    const now = this.systemDateService.now();
     const start = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
     );

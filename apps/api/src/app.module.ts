@@ -38,8 +38,9 @@ import { EngagementModule } from "./modules/engagement/engagement.module";
 import { RewardsModule } from "./modules/rewards/rewards.module";
 import { WebSocketModule } from "./websocket/websocket.module";
 import { DevContextInterceptor } from "./common/dev-context.interceptor";
-import { SystemDateService } from "./common/system-date.service";
 import { TimeWarpInterceptor } from "./common/time-warp.interceptor";
+import { CommonModule } from "./common/common.module";
+import { SimProvidersModule } from "./modules/simulation/sim-providers.module";
 
 @Module({
   imports: [
@@ -82,8 +83,12 @@ import { TimeWarpInterceptor } from "./common/time-warp.interceptor";
     EngagementModule,
     RewardsModule,
     WebSocketModule,
+    CommonModule,
+    SimProvidersModule,
   ],
   controllers: [TestValidationController],
+  providers: [
+    {
       provide: APP_INTERCEPTOR,
       useClass: DevContextInterceptor,
     },
@@ -91,7 +96,6 @@ import { TimeWarpInterceptor } from "./common/time-warp.interceptor";
       provide: APP_INTERCEPTOR,
       useClass: TimeWarpInterceptor,
     },
-    SystemDateService,
   ],
 })
 export class AppModule {}

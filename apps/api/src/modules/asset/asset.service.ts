@@ -1,13 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { prisma, AssetCategory } from '@opportunity-os/db';
 import { AiService } from '../ai/ai.service';
+import { SystemDateService } from '../../common/system-date.service';
 const pdf = require('pdf-parse');
 
 @Injectable()
 export class AssetService {
   private readonly logger = new Logger(AssetService.name);
 
-  constructor(private aiService: AiService) {}
+  constructor(
+    private aiService: AiService,
+    private systemDateService: SystemDateService
+  ) {}
 
   async createAsset(userId: string, data: {
     displayName: string;
@@ -26,6 +30,8 @@ export class AssetService {
         fileUrl: data.fileUrl,
         category: data.category,
         mimeType: data.mimeType,
+        createdAt: this.systemDateService.now(),
+        updatedAt: this.systemDateService.now(),
       },
     });
   }
@@ -67,7 +73,7 @@ export class AssetService {
       text = fileBuffer.toString('utf8').slice(0, 20000);
     }
 
-    const narrativeData = await this.generateStrategicNarrative(text);
+    const narrativeData = await this.generateStrategicNarrative(text, asset.displayName);
 
     return await prisma.assetNarrative.upsert({
       where: { assetId },
@@ -87,7 +93,16 @@ export class AssetService {
     });
   }
 
-  private async generateStrategicNarrative(content: string) {
+  private async generateStrategicNarrative(content: string, fileName: string) {
+    if (this.systemDateService.isSimulation()) {
+      return {
+        valueProposition: `Simulated value proposition for ${fileName}`,
+        targetPersona: 'Simulated Target Persona',
+        keyProofPoints: ['Simulated Proof Point 1', 'Simulated Proof Point 2'],
+        aiToneDNA: ['Simulated', 'Professional', 'Efficient'],
+      };
+    }
+
     const prompt = `
       Analyze the following professional document and extract a strategic outreach narrative.
       Return the response in JSON format with the following keys:

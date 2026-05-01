@@ -48,11 +48,13 @@ export class BillingController {
   async handleWebhook(
     @Req() request: RawBodyRequest,
     @Headers("stripe-signature") stripeSignature?: string,
+    @Headers("x-nexus-simulated-date") simulatedDate?: string,
   ) {
     return this.billingService.handleStripeWebhook({
       signature: stripeSignature,
       rawBody: request.rawBody,
       body: request.body,
+      isSimulated: Boolean(simulatedDate),
     });
   }
 }

@@ -1,17 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { prisma, EngagementRewardTrigger, RewardType, RewardRuleType } from '@opportunity-os/db';
+import { prisma, EngagementRewardTrigger } from '@opportunity-os/db';
 import { SystemDateService } from '../../common/system-date.service';
+
+import { BillingService } from '../billing/billing.service';
 
 @Injectable()
 export class RewardsService {
   private readonly logger = new Logger(RewardsService.name);
-  constructor(private readonly systemDateService: SystemDateService) {}
+  constructor(
+    private readonly systemDateService: SystemDateService,
+    private readonly billingService: BillingService,
+  ) {}
 
   /**
    * Evaluates if an action completion triggers any rewards.
    */
-  async evaluateActionCompletion(userId: string, actionItemId: string) {
-    this.logger.log(`Evaluating rewards for user ${userId} after action ${actionItemId}`);
+  async evaluateActionCompletion(userId: string, _actionItemId: string) {
+    const now = this.systemDateService.now();
+    this.logger.log(`Evaluating rewards for user ${userId} [Simulated Date: ${now.toISOString()}]`);
 
     // 1. Update Momentum State
     await this.updateMomentumForAction(userId);
@@ -53,6 +59,7 @@ export class RewardsService {
           stateType: 'velocity_pulse',
           score: 1,
           reason: 'Daily action pulse',
+          createdAt: this.systemDateService.now(),
         },
       });
     }
@@ -72,6 +79,8 @@ export class RewardsService {
         completedAt: { gte: today },
       },
     });
+
+    this.logger.debug(`User ${userId} has ${count} completions today (${today.toISOString()})`);
 
     // Check rules for ACTION_THRESHOLD
     const rules = await prisma.rewardRule.findMany({
@@ -116,10 +125,12 @@ export class RewardsService {
 
     // Simplified streak logic: check consecutive days
     for (const activity of activities) {
-      const activityDate = new Date(activity.createdAt);
-      activityDate.setHours(0, 0, 0, 0);
+      const d = new Date(activity.createdAt);
+      const activityDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
       const diffDays = Math.floor((currentDate.getTime() - activityDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      this.logger.debug(`Streak check: activityDate=${activityDate.toISOString()}, currentDate=${currentDate.toISOString()}, diff=${diffDays}`);
 
       if (diffDays === 0) {
         streak++;
@@ -127,6 +138,7 @@ export class RewardsService {
         streak++;
         currentDate = activityDate;
       } else {
+        this.logger.debug(`Streak broken at diff=${diffDays}`);
         break;
       }
     }
@@ -142,6 +154,7 @@ export class RewardsService {
         stateType: 'streak',
         score: streak,
         reason: `${streak} day execution streak`,
+        createdAt: this.systemDateService.now(),
       },
       update: {
         score: streak,
@@ -202,6 +215,8 @@ export class RewardsService {
           featureKey: rule.featureKey,
           status: 'granted',
           metadataJson: { ruleTitle: rule.ruleType },
+          createdAt: this.systemDateService.now(),
+          grantedAt: this.systemDateService.now(),
         },
       });
 
@@ -214,9 +229,19 @@ export class RewardsService {
             featureKey: rule.featureKey,
             creditType: rule.rewardType,
             quantityGranted: rule.rewardQuantity,
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 day expiry
+            expiresAt: new Date(this.systemDateService.now().getTime() + 30 * 24 * 60 * 60 * 1000), // 30 day expiry
+            createdAt: this.systemDateService.now(),
           },
         });
+      }
+
+      // If it's a financial reward, apply credit to billing
+      if (rule.rewardType === 'subscription_credit') {
+        await this.billingService.applyFinancialCredit(
+          userId,
+          rule.rewardQuantity,
+          `Reward: ${rule.ruleType} (${triggerType})`
+        );
       }
     });
 
