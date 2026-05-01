@@ -17,6 +17,10 @@ case "$PROFILE" in
     BILLING_MONTHS=6
     USERS_PER_MONTH=50
     ;;
+  nexus)
+    BILLING_MONTHS=12
+    USERS_PER_MONTH=200
+    ;;
   heavy)
     BILLING_MONTHS=12
     USERS_PER_MONTH=500

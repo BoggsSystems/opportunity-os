@@ -24,19 +24,22 @@ export class OutreachService {
 
     const context = await this.contextOrchestrator.buildStack(userId, actionItemId);
     
-    const actionItem = await prisma.actionItem.findFirst({
+    const actionItem = await (prisma.actionItem.findFirst({
       where: { id: actionItemId, userId },
-      include: { person: true, company: true }
-    });
+      include: { targetPerson: true, targetCompany: true }
+    }) as any);
 
     if (!actionItem) throw new NotFoundException('ActionItem not found');
 
-    const leadName = actionItem.person?.firstName || actionItem.person?.fullName || 'there';
-    const companyName = actionItem.company?.name || 'your company';
+    const leadName = actionItem.targetPerson?.firstName || actionItem.targetPerson?.fullName || 'there';
+    const companyName = actionItem.targetCompany?.name || 'your company';
 
     const prompt = this.buildPrompt(context, leadName, companyName);
-    const result = await this.aiService.generateText(prompt, {
-      systemPrompt: this.getSystemPrompt(context),
+    const result = await this.aiService.generateText('', {
+      messages: [
+        { role: 'system', content: this.getSystemPrompt(context) },
+        { role: 'user', content: prompt }
+      ],
       temperature: 0.7
     });
 

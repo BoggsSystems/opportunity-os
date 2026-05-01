@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { AppModule } from '../../src/app.module';
 import { prisma } from '@opportunity-os/db';
+import { CommercialService } from '../../src/modules/commercial/commercial.service';
 
 describe('Digital Twin Validator (E2E)', () => {
   let app: INestApplication;
@@ -13,6 +14,7 @@ describe('Digital Twin Validator (E2E)', () => {
 
     app = moduleFixture.createNestApplication();
     await app.init();
+    jest.setTimeout(60000); // 60 seconds
   });
 
   afterAll(async () => {
@@ -35,7 +37,7 @@ describe('Digital Twin Validator (E2E)', () => {
     // We will verify the logic via the CommercialService directly or a mocked AI service call if available.
     
     // For now, we verify that resolveActiveSubscription (via isPaidUser) returns false for past_due
-    const commercialService = app.get('CommercialService');
+    const commercialService = app.get(CommercialService);
     const isPaid = await commercialService.isPaidUser(pastDueSub.userId);
     
     expect(isPaid).toBe(false);
@@ -44,7 +46,7 @@ describe('Digital Twin Validator (E2E)', () => {
   it('should verify MRR snapshots match active subscription volume', async () => {
     const latestSnapshot = await prisma.adminMetricSnapshot.findFirst({
       where: { metricKey: 'billing.mrr_cents' },
-      orderBy: { periodStart: 'desc' }
+      orderBy: { createdAt: 'desc' }
     });
 
     if (!latestSnapshot) {

@@ -1,12 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { prisma } from '@opportunity-os/db';
-import { 
-  ContextStack, 
-  ActionContext, 
-  ActionLaneContext, 
-  CampaignContext, 
-  OfferingContext 
-} from '../interfaces/context-stack.interface';
+import { ContextStack } from '../interfaces/context-stack.interface';
 
 @Injectable()
 export class ContextOrchestratorService {
@@ -23,9 +17,8 @@ export class ContextOrchestratorService {
             }
           }
         },
-        person: true,
-        company: true,
-        opportunity: true
+        targetPerson: true,
+        targetCompany: true
       }
     }) as any);
 
@@ -37,8 +30,8 @@ export class ContextOrchestratorService {
       action: {
         id: actionItem.id,
         title: actionItem.title,
-        description: actionItem.description,
-        suggestedAction: actionItem.suggestedAction,
+        description: actionItem.instructions || actionItem.description,
+        suggestedAction: actionItem.draftContent || actionItem.suggestedAction,
         metadata: actionItem.metadataJson
       }
     };
