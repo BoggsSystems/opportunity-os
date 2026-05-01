@@ -7,21 +7,21 @@ export interface CrmProvider {
    * Upserts a contact in the external CRM.
    * Returns the remote ID of the contact.
    */
-  upsertContact(person: Person): Promise<string>;
+  upsertContact(person: Person, credentials: any): Promise<string>;
 
   /**
    * Creates or updates a deal/opportunity in the external CRM.
    * Returns the remote ID of the deal.
    */
-  createDeal(opportunity: Opportunity): Promise<string>;
+  createDeal(opportunity: Opportunity, credentials: any): Promise<string>;
 
   /**
    * Pushes an interaction (email, call, etc.) to the external CRM.
    */
-  pushMessage(activity: Activity): Promise<void>;
+  pushMessage(activity: Activity, credentials: any): Promise<void>;
 
   /**
    * Verifies if the connection to the external CRM is valid.
    */
-  testConnection(): Promise<boolean>;
+  testConnection(credentials: any): Promise<boolean>;
 }

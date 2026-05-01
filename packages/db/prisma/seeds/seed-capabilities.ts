@@ -70,6 +70,15 @@ async function seedCapabilities() {
         defaultConfigJson: { maxDepth: 3, respectRobots: true },
       },
     }),
+    prisma.capability.create({
+      data: {
+        capabilityType: 'crm',
+        name: 'CRM',
+        description: 'Sync contacts, deals, and activities with external CRMs',
+        supportedFeaturesJson: ['contact_sync', 'deal_sync', 'activity_sync', 'search'],
+        defaultConfigJson: { autoSync: true },
+      },
+    }),
   ]);
 
   console.log('Created capabilities:', capabilities.map((c: any) => c.name));
@@ -80,6 +89,7 @@ async function seedCapabilities() {
   const messagingCapability = capabilities.find((c: any) => c.capabilityType === 'messaging')!;
   const discoveryCapability = capabilities.find((c: any) => c.capabilityType === 'discovery')!;
   const storageCapability = capabilities.find((c: any) => c.capabilityType === 'storage')!;
+  const crmCapability = capabilities.find((c: any) => c.capabilityType === 'crm')!;
 
   const providers = await Promise.all([
     // Email providers
@@ -207,6 +217,45 @@ async function seedCapabilities() {
             redirectUri: { type: 'string' },
           },
           required: ['clientId', 'clientSecret'],
+        },
+      },
+    }),
+
+    // CRM providers
+    prisma.capabilityProvider.create({
+      data: {
+        capabilityId: crmCapability.id,
+        providerName: 'hubspot',
+        displayName: 'HubSpot',
+        description: 'HubSpot CRM integration',
+        authType: 'oauth2',
+        requiredScopesJson: ['crm.objects.contacts.read', 'crm.objects.contacts.write', 'crm.objects.deals.read', 'crm.objects.deals.write'],
+        rateLimitConfigJson: { requestsPerSecond: 10 },
+        providerConfigSchemaJson: {
+          type: 'object',
+          properties: {
+            accessToken: { type: 'string' },
+          },
+          required: ['accessToken'],
+        },
+      },
+    }),
+    prisma.capabilityProvider.create({
+      data: {
+        capabilityId: crmCapability.id,
+        providerName: 'salesforce',
+        displayName: 'Salesforce',
+        description: 'Salesforce CRM integration',
+        authType: 'oauth2',
+        requiredScopesJson: ['api', 'refresh_token', 'offline_access'],
+        rateLimitConfigJson: { requestsPerSecond: 5 },
+        providerConfigSchemaJson: {
+          type: 'object',
+          properties: {
+            accessToken: { type: 'string' },
+            instanceUrl: { type: 'string' },
+          },
+          required: ['accessToken', 'instanceUrl'],
         },
       },
     }),
