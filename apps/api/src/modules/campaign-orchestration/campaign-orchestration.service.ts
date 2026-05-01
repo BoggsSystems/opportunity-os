@@ -287,7 +287,7 @@ export class CampaignOrchestrationService {
 
   // CAMPAIGN OPERATIONS
   async createCampaign(userId: string, data: CreateCampaignDto) {
-    return prisma.campaign.create({
+    const campaign = await prisma.campaign.create({
       data: {
         userId,
         title: data.title,
@@ -309,6 +309,19 @@ export class CampaignOrchestrationService {
         actionLanes: true,
       },
     });
+
+    await this.adminLifecycleService.recordEvent({
+      userId,
+      stage: UserLifecycleStage.campaign_generated,
+      eventType: "campaign_generated",
+      sourceType: "campaign",
+      sourceId: campaign.id,
+      metadata: {
+        title: campaign.title,
+      },
+    });
+
+    return campaign;
   }
 
   async getCampaign(userId: string, campaignId: string) {

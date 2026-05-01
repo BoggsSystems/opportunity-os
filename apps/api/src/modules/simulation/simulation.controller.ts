@@ -1,10 +1,20 @@
 import { Controller, Post, Body } from '@nestjs/common';
 import { prisma, CampaignStatus, ActionLaneStatus, ActionItemStatus } from '@opportunity-os/db';
 import { SystemDateService } from '../../common/system-date.service';
+import { RetentionOrchestrator } from '../engagement/services/retention-orchestrator.service';
 
 @Controller('simulation')
 export class SimulationController {
-  constructor(private readonly systemDateService: SystemDateService) {}
+  constructor(
+    private readonly systemDateService: SystemDateService,
+    private readonly retentionOrchestrator: RetentionOrchestrator,
+  ) {}
+
+  @Post('trigger-retention-scan')
+  async triggerRetentionScan() {
+    await this.retentionOrchestrator.processRetentionQueue();
+    return { success: true };
+  }
 
   @Post('seed-user-data')
   async seedUserData(@Body() body: { userId: string }) {

@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { prisma } from '@opportunity-os/db';
+import { prisma, UserLifecycleStage } from '@opportunity-os/db';
 import { AiService } from '../../ai/ai.service';
+import { SystemDateService } from '../../../common/system-date.service';
 import { NotificationOrchestrator } from '../../notifications/notification-orchestrator.service';
+import { AdminLifecycleService } from '../../admin/admin-lifecycle.service';
 
 @Injectable()
 export class RetentionOrchestrator {
@@ -10,6 +12,8 @@ export class RetentionOrchestrator {
   constructor(
     private readonly aiService: AiService,
     private readonly notificationOrchestrator: NotificationOrchestrator,
+    private readonly systemDateService: SystemDateService,
+    private readonly adminLifecycleService: AdminLifecycleService,
   ) {}
 
   /**
@@ -30,7 +34,7 @@ export class RetentionOrchestrator {
         engagementLogs: {
           none: {
             nudgeType: 'ghost_campaign',
-            sentAt: { gte: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) }, // Frequency cap: 3 days
+            sentAt: { gte: new Date(this.systemDateService.now().getTime() - 3 * 24 * 60 * 60 * 1000) }, // Frequency cap: 3 days
           },
         },
       },
@@ -92,6 +96,16 @@ export class RetentionOrchestrator {
           generatedContent: nudgeContent
         },
       },
+    });
+
+    // 🏆 New: Flag the user as 'stalled' in the lifecycle
+    await this.adminLifecycleService.recordEvent({
+      userId: user.id,
+      stage: UserLifecycleStage.stalled,
+      eventType: 'ghost_campaign_stalled',
+      sourceType: 'retention_nudge',
+      sourceId: campaign.id,
+      metadata: { campaignId: campaign.id }
     });
   }
 }
