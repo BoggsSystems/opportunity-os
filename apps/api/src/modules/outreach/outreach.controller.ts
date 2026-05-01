@@ -32,6 +32,18 @@ export class OutreachController {
     return this.outreachService.generateFollowUpDraft(user.id, opportunityId);
   }
 
+  @Get('hierarchical/:actionItemId')
+  async generateHierarchicalDraft(
+    @Param('actionItemId') actionItemId: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) {
+      throw new UnauthorizedException('No authenticated user found');
+    }
+
+    return this.outreachService.generateHierarchicalDraft(user.id, actionItemId);
+  }
+
   @Post('send')
   async send(
     @Body() body: SendOutreachDto,

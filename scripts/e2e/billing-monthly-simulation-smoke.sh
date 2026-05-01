@@ -297,6 +297,37 @@ WITH settings AS (
     numbered_users."createdAt"
   FROM numbered_users
   CROSS JOIN settings
+), inserted_engagement_logs AS (
+  INSERT INTO user_engagement_logs (
+    id, "userId", "nudgeType", "sentAt", "metadataJson", "createdAt", "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    numbered_users.id,
+    'ghost_campaign',
+    numbered_users."createdAt" + interval '2 days',
+    jsonb_build_object('runId', settings.run_id, 'simulated', true),
+    now(),
+    now()
+  FROM numbered_users
+  CROSS JOIN settings
+  WHERE numbered_users.global_number % 10 > 7 -- Matches 'account_created' stage in simulation
+), inserted_external_mappings AS (
+  INSERT INTO external_mappings (
+    id, "userId", "localEntityType", "localEntityId", "remoteProvider", "remoteEntityId", "syncStatus", "createdAt", "updatedAt"
+  )
+  SELECT
+    gen_random_uuid(),
+    numbered_users.id,
+    'Person',
+    gen_random_uuid(), -- Synthetic person ID for simulation
+    CASE WHEN numbered_users.global_number % 2 = 0 THEN 'hubspot' ELSE 'salesforce' END,
+    'ext-' || gen_random_uuid(),
+    'synced',
+    now(),
+    now()
+  FROM numbered_users
+  WHERE numbered_users.global_number % 10 <= 2 -- Matches 'activated' stage in simulation
 )
 SELECT 1;
 

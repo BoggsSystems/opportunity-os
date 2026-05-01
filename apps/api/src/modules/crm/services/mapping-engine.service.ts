@@ -1,9 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { prisma, ExternalMapping, Prisma } from '@opportunity-os/db';
 
 @Injectable()
 export class MappingEngine {
-  private readonly logger = new Logger(MappingEngine.name);
 
   /**
    * Retrieves the remote ID for a given local entity and provider.

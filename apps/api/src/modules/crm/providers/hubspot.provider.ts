@@ -102,7 +102,7 @@ export class HubspotProvider implements CrmProvider {
 
     const properties = {
       dealname: opportunity.title,
-      amount: opportunity.value?.toString() || '0',
+      amount: opportunity.estimatedValueCents?.toString() || '0',
       dealstage: this.mapStageToHubspot(opportunity.stage),
       description: opportunity.summary || '',
     };

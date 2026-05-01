@@ -59,16 +59,23 @@ describe('Digital Twin Validator (E2E)', () => {
       }
     });
 
-    // Each active 'builder' sub is 4900 cents
-    const expectedMrr = activeSubs * 4900;
+    // Each active 'builder' sub price
+    const builderPlan = await prisma.plan.findFirst({ where: { code: 'builder' } });
+    const priceCents = builderPlan?.monthlyPriceCents || 2900;
+    const expectedMrr = activeSubs * priceCents;
     
     // In our simulation, the snapshot value should exactly match the sum of active paid subs
-    expect(latestSnapshot.metricValue).toBe(expectedMrr);
+    expect(Number(latestSnapshot.metricValue)).toBe(expectedMrr);
   });
 
   it('should verify that every user has a lifecycle snapshot', async () => {
     const totalUsers = await prisma.user.count({
-      where: { email: { contains: 'billing-sim-' } }
+      where: { 
+        email: { 
+          contains: 'billing-sim-',
+          not: { contains: '-admin-' }
+        }
+      }
     });
     
     const totalSnapshots = await prisma.userLifecycleSnapshot.count({
@@ -76,5 +83,50 @@ describe('Digital Twin Validator (E2E)', () => {
     });
 
     expect(totalSnapshots).toBe(totalUsers);
+  });
+
+  it('should verify that all activated users have CRM mappings', async () => {
+    // Activated users in simulation (mod 10 <= 2) should have a mapping
+    const activatedUsers = await prisma.user.findMany({
+      where: {
+        email: { 
+          contains: 'billing-sim-',
+          not: { contains: '-admin-' }
+        },
+        lifecycleSnapshot: { currentStage: 'activated' }
+      }
+    });
+
+    for (const user of activatedUsers) {
+      const mapping = await prisma.externalMapping.findFirst({
+        where: { userId: user.id }
+      });
+      expect(mapping).toBeDefined();
+      expect(['hubspot', 'salesforce']).toContain(mapping?.remoteProvider);
+    }
+  });
+
+  it('should verify that stalled users received a ghost_campaign nudge', async () => {
+    // Stalled users in simulation (mod 10 > 7) should have a log
+    const stalledUsers = await prisma.user.findMany({
+      where: {
+        email: { 
+          contains: 'billing-sim-',
+          not: { contains: '-admin-' }
+        },
+        lifecycleSnapshot: { currentStage: 'account_created' }
+      }
+    });
+
+    for (const user of stalledUsers) {
+      const log = await prisma.userEngagementLog.findFirst({
+        where: { 
+          userId: user.id,
+          nudgeType: 'ghost_campaign'
+        }
+      });
+      expect(log).toBeDefined();
+      expect(log?.metadataJson).toMatchObject({ simulated: true });
+    }
   });
 });

@@ -107,7 +107,9 @@ export class CrmOrchestrator implements OnModuleInit {
         userId,
         status: 'connected',
         capabilityProvider: {
-          capabilityType: 'crm',
+          capability: {
+            capabilityType: 'crm',
+          },
         },
       },
       include: {
@@ -116,7 +118,7 @@ export class CrmOrchestrator implements OnModuleInit {
       },
     });
 
-    return connectors.map((c) => ({
+    return connectors.map((c: any) => ({
       providerName: c.capabilityProvider.providerName,
       credentials: this.parseCredentials(c.connectorCredentials?.encryptedData),
     }));

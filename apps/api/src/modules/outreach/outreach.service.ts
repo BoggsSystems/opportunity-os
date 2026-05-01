@@ -3,13 +3,88 @@ import { ActivityType, Prisma, prisma } from '@opportunity-os/db';
 import { CommercialService } from '../commercial/commercial.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { SendOutreachDto } from './dto/send-outreach.dto';
+import { AiService } from '../ai/ai.service';
+import { ContextOrchestratorService } from './services/context-orchestrator.service';
+import { ContextStack } from './interfaces/context-stack.interface';
 
 @Injectable()
 export class OutreachService {
   constructor(
     private readonly commercialService: CommercialService,
     private readonly connectorsService: ConnectorsService,
+    private readonly contextOrchestrator: ContextOrchestratorService,
+    private readonly aiService: AiService,
   ) {}
+
+  async generateHierarchicalDraft(userId: string, actionItemId: string) {
+    const allowance = await this.commercialService.incrementUsage(userId, 'email_drafts');
+    if (!allowance.allowed) {
+      return { success: false, blocked: true, ...allowance };
+    }
+
+    const context = await this.contextOrchestrator.buildStack(userId, actionItemId);
+    
+    const actionItem = await prisma.actionItem.findFirst({
+      where: { id: actionItemId, userId },
+      include: { person: true, company: true }
+    });
+
+    if (!actionItem) throw new NotFoundException('ActionItem not found');
+
+    const leadName = actionItem.person?.firstName || actionItem.person?.fullName || 'there';
+    const companyName = actionItem.company?.name || 'your company';
+
+    const prompt = this.buildPrompt(context, leadName, companyName);
+    const result = await this.aiService.generateText(prompt, {
+      systemPrompt: this.getSystemPrompt(context),
+      temperature: 0.7
+    });
+
+    const subjectMatch = result.match(/Subject:\s*(.*)/i);
+    const bodyMatch = result.split(/Body:\s*/i);
+    
+    const subject = subjectMatch ? subjectMatch[1] : `Re: ${context.action.title}`;
+    const body = bodyMatch.length > 1 ? bodyMatch[1].trim() : result.trim();
+
+    return {
+      id: actionItemId,
+      subject,
+      body,
+      strategyName: context.persona?.name,
+      usage: {
+        featureKey: allowance.featureKey,
+        used: allowance.used,
+        remaining: allowance.remaining,
+      },
+    };
+  }
+
+  private getSystemPrompt(context: ContextStack): string {
+    return [
+      `You are a strategic outreach specialist acting in the persona of: ${context.persona?.name || 'Professional Consultant'}.`,
+      `Your tone and logic must follow these instructions: ${context.persona?.instructions || 'Be professional and concise.'}`,
+      `Your goal is: ${context.campaign?.strategicAngle || 'Generate interest in the offering'}.`,
+      'ALWAYS return the output in this format:',
+      'Subject: [Subject Line]',
+      'Body: [Email/Message Body]'
+    ].join('\n');
+  }
+
+  private buildPrompt(context: ContextStack, leadName: string, companyName: string): string {
+    return [
+      '### CONTEXT STACK ###',
+      `1. FOUNDATION (Offering): ${context.offering?.title}. Value Prop: ${context.offering?.valueProposition}`,
+      `2. STRATEGY (Campaign): ${context.campaign?.name}. Angle: ${context.campaign?.strategicAngle}`,
+      `3. TACTICS (Action Lane): Channel: ${context.actionLane?.type}. Name: ${context.actionLane?.name}`,
+      `4. TRIGGER (Signal): ${context.action.title}. Details: ${context.action.description}`,
+      '',
+      '### RECIPIENT ###',
+      `Name: ${leadName}`,
+      `Company: ${companyName}`,
+      '',
+      'Write the outreach message now.'
+    ].join('\n');
+  }
 
   async generateDraft(userId: string, opportunityId: string) {
     const allowance = await this.commercialService.incrementUsage(userId, 'email_drafts');
@@ -22,10 +97,7 @@ export class OutreachService {
     }
 
     const opportunity = await prisma.opportunity.findFirst({
-      where: {
-        id: opportunityId,
-        userId,
-      },
+      where: { id: opportunityId, userId },
       include: {
         company: true,
         primaryPerson: true,

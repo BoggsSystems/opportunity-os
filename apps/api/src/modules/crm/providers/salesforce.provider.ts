@@ -88,7 +88,7 @@ export class SalesforceProvider implements CrmProvider {
 
     const body = {
       Name: opportunity.title,
-      Amount: opportunity.value || 0,
+      Amount: opportunity.estimatedValueCents || 0,
       StageName: this.mapStageToSalesforce(opportunity.stage),
       CloseDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default 30 days from now
       Description: opportunity.summary || '',
