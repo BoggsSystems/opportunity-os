@@ -739,8 +739,28 @@ model User {
   lifecycleSnapshot            UserLifecycleSnapshot?
   adminOperationalIssues       AdminOperationalIssue[]
   externalMappings             ExternalMapping[]
+  engagementLogs               UserEngagementLog[]
 
   @@map("users")
+}
+
+model UserEngagementLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  nudgeType       String   @db.VarChar(100) // e.g., 'ghost_campaign', 'milestone_reached'
+  strategyVersion String?  @db.VarChar(50)  // To track which AI prompt style worked better
+  sentAt          DateTime @default(now())
+  openedAt        DateTime?
+  clickedAt       DateTime?
+  convertedAt     DateTime? // e.g., timestamp when they upgraded after this email
+  
+  metadataJson    Json?    // Store the context we used (like campaign ID or signal IDs)
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, nudgeType])
+  @@index([sentAt])
+  @@map("user_engagement_logs")
 }
 
 model ExternalMapping {
