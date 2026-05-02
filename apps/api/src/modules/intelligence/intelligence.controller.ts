@@ -15,15 +15,12 @@ export class IntelligenceController {
   }
 
   @Post('shred')
-  async shredText(
+  async shredAssets(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() data: { text: string; sourceId: string; sourceType: ConceptSourceType }
+    @Body() data: { assetIds: string[]; sourceType: ConceptSourceType }
   ) {
     if (!user?.id) throw new UnauthorizedException();
-    return this.intelligenceService.shredText(user.id, data.text, {
-      id: data.sourceId,
-      type: data.sourceType
-    });
+    return this.intelligenceService.shredAssets(user.id, data.assetIds, data.sourceType);
   }
 
   @Post('concepts/link-proof')

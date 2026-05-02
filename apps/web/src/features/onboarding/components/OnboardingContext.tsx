@@ -331,6 +331,34 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
 
   const handleDiscoveryNext = async () => {
     if (currentStep === 'discovery-sensing') {
+      const currentSpotlight = spotlightData[spotlightIndex];
+      
+      // Handle Google Sub-steps (Drive -> Gmail)
+      if (currentSpotlight?.id === 'google' && googleSubStep === 'drive') {
+        // TRIGGER SHREDDING for selected assets before moving to Gmail
+        if (selectedAssetIds.length > 0) {
+          setIsLoading(true);
+          setGenerationMessage('Director is shredding your strategic assets into the Vault...');
+          try {
+            // In a real scenario, we'd send the list of IDs to a bulk shredding endpoint
+            // For now, we'll simulate the call or hit the shred endpoint if we had a single one
+            await api.post('/intelligence/shred', { 
+              assetIds: selectedAssetIds,
+              sourceType: 'knowledge_asset'
+            });
+          } catch (e) {
+            console.warn('Shredding trigger failed, but continuing...', e);
+          } finally {
+            setIsLoading(false);
+            setGenerationMessage(null);
+          }
+        }
+        
+        setGoogleSubStep('gmail');
+        setWizardMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', text: "Strategic assets captured. Now mapping your Gmail topography to identify key professional threads and relationships." }]);
+        return;
+      }
+
       if (spotlightIndex < spotlightData.length - 1) {
         const nextIdx = spotlightIndex + 1;
         setSpotlightIndex(nextIdx);

@@ -69,6 +69,36 @@ export class GoogleDriveProvider implements StorageProvider {
     };
   }
 
+  async peekFile(credentials: StorageConnectorCredentials, externalId: string, rangeBytes: number = 1024): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    const accessToken = this.requireAccessToken(credentials);
+    
+    const metaResponse = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(externalId)}?fields=name,mimeType`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const meta = await this.readJson(metaResponse);
+    if (!metaResponse.ok) return { buffer: Buffer.alloc(0), fileName: '', mimeType: '' };
+
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(externalId)}?alt=media`,
+      { 
+        headers: { 
+          Authorization: `Bearer ${accessToken}`,
+          Range: `bytes=0-${rangeBytes}` 
+        } 
+      },
+    );
+
+    if (!response.ok) return { buffer: Buffer.alloc(0), fileName: meta.name, mimeType: meta.mimeType };
+
+    const arrayBuffer = await response.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      fileName: meta.name,
+      mimeType: meta.mimeType,
+    };
+  }
+
   async test(credentials: StorageConnectorCredentials) {
     const accessToken = this.requireAccessToken(credentials);
     const response = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {

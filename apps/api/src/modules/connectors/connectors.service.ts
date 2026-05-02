@@ -60,13 +60,31 @@ export class ConnectorsService {
     const connector = await this.findConnectedConnector(userId, CapabilityType.storage);
     if (!connector) return [];
 
-    const provider = this.storageProviderFor(connector.capabilityProvider.providerName);
-    const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
-
     const files = await provider.listFiles(credentials);
-    const suggestedIds = await this.aiService.identifyStrategicAssets(
-      files.map(f => ({ id: f.externalId, name: f.displayName }))
-    );
+
+    // Identify files that need a "peek" (generic names or high-energy candidates)
+    const filesWithContext = await Promise.all(files.map(async f => {
+      const isSuspicious = /draft|untitled|copy|version|resume|book|manifesto/i.test(f.displayName) || 
+                          (f.sizeBytes && f.sizeBytes > 1024 * 1024); // > 1MB
+
+      let snippet = "";
+      if (isSuspicious) {
+        try {
+          const peek = await provider.peekFile(credentials, f.externalId);
+          snippet = peek.buffer.toString('utf8').replace(/[^\x20-\x7E]/g, '').substring(0, 500);
+        } catch (e) {
+          // Ignore peek failures
+        }
+      }
+
+      return { 
+        id: f.externalId, 
+        name: f.displayName, 
+        snippet 
+      };
+    }));
+
+    const suggestedIds = await this.aiService.identifyStrategicAssets(filesWithContext);
 
     return files
       .filter(f => suggestedIds.includes(f.externalId))
@@ -1315,6 +1333,26 @@ export class ConnectorsService {
       linkedReplies: linked.length,
       replies: linked,
     };
+  }
+
+  async downloadFile(userId: string, externalId: string) {
+    const connector = await this.findConnectedConnector(
+      userId,
+      CapabilityType.storage,
+    );
+    if (!connector) {
+      throw new BadRequestException(
+        "Connect storage before downloading.",
+      );
+    }
+    const provider = this.storageProviderFor(
+      connector.capabilityProvider.providerName,
+    );
+    const credentials = this.parseCredentials(
+      connector.connectorCredentials?.encryptedData,
+    );
+
+    return provider.downloadFile(credentials, externalId);
   }
 
   async syncStorage(userId: string) {

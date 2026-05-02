@@ -223,39 +223,34 @@ JSON OUTPUT:`;
       return { concepts: [], proofPoints: [] };
     }
   }
-
-  async identifyStrategicAssets(files: { id: string; name: string }[]): Promise<string[]> {
-    this.logger.log(`Identifying strategic assets from ${files.length} files`);
+  async identifyStrategicAssets(files: { id: string; name: string; snippet?: string }[]): Promise<string[]> {
+    this.logger.log(`Identifying strategic assets from ${files.length} files with snippets`);
     
-    const fileList = files.map(f => `- [${f.id}] ${f.name}`).join('\n');
     const prompt = `
-You are a High-Signal Strategic Commander. I am providing you with a list of filenames from a user's cloud storage (Google Drive/OneDrive).
-Your task is to identify which files are likely to be "High-Value Strategic Assets". 
+You are a High-Signal Strategic Scout. I am providing you with a list of files from a professional's cloud storage.
+Your goal is to identify files that likely contain:
+- Resumes/CVs
+- Books or Manuscripts
+- Business Plans/Theses
+- Strategic Frameworks
+- Portfolio/Case Studies
 
-STRATEGIC ASSET EXAMPLES:
-- Resumes or CVs
-- Book Manuscripts or Drafts
-- Business Plans or Pitch Decks
-- Strategic Theses or Whitepapers
-- Research Papers or Case Studies
-- Portfolios or Project Showcases
+For some files, I have provided a "Snippet" (the first 500 characters). Use the snippet to confirm the content even if the filename is generic (e.g., "Draft(27)").
 
-FILE LIST:
-${fileList}
+FILES:
+${files.map(f => `- ID: ${f.id} | Name: ${f.name} ${f.snippet ? `| Snippet: [${f.snippet}]` : ''}`).join('\n')}
 
 INSTRUCTIONS:
-1. Identify the files that match the criteria above.
-2. Return ONLY a valid JSON array containing the IDs of the identified files.
-3. If no strategic assets are found, return an empty array [].
-4. Do not include folders, system files, or generic documents (like "Untitled document" or "Notes").
-5. Output ONLY the JSON array. No explanations.
+1. Return ONLY a valid JSON array of the IDs that are strategically relevant.
+2. Be selective. We only want high-value "Knowledge Assets".
+3. If a file is a generic image, a system file, or unrelated noise, EXCLUDE it.
 
-IDENTIFIED ASSET IDS:`;
+JSON OUTPUT (Array of IDs):`;
 
     const request: AiRequest = {
       prompt,
-      temperature: 0.1,
-      maxTokens: 500,
+      temperature: 0, 
+      maxTokens: 1000,
     };
 
     const response = await this.aiProviderFactory.getProvider().generateText(request);

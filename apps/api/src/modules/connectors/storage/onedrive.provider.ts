@@ -68,6 +68,32 @@ export class OneDriveProvider implements StorageProvider {
     };
   }
 
+  async peekFile(credentials: StorageConnectorCredentials, externalId: string, rangeBytes: number = 1024): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    const accessToken = this.requireAccessToken(credentials);
+    
+    const metaResponse = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(externalId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const meta = await this.readJson(metaResponse);
+    if (!metaResponse.ok) return { buffer: Buffer.alloc(0), fileName: '', mimeType: '' };
+
+    const response = await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${encodeURIComponent(externalId)}/content`, {
+      headers: { 
+        Authorization: `Bearer ${accessToken}`,
+        Range: `bytes=0-${rangeBytes}` 
+      },
+    });
+
+    if (!response.ok) return { buffer: Buffer.alloc(0), fileName: meta.name, mimeType: meta.file.mimeType };
+
+    const arrayBuffer = await response.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      fileName: meta.name,
+      mimeType: meta.file.mimeType,
+    };
+  }
+
   async test(credentials: StorageConnectorCredentials) {
     const accessToken = this.requireAccessToken(credentials);
     const response = await fetch('https://graph.microsoft.com/v1.0/me/drive', {
