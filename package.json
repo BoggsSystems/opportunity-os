@@ -23,7 +23,7 @@
     "test:e2e:admin-growth:baseline": "ALLOW_DB_RESET=true bash scripts/db/reset-test-baseline.sh && bash scripts/e2e/admin-growth-loop-smoke.sh",
     "test:e2e:billing-simulation": "bash scripts/e2e/billing-monthly-simulation-smoke.sh",
     "test:e2e:billing-simulation:baseline": "ALLOW_DB_RESET=true bash scripts/db/reset-test-baseline.sh && bash scripts/e2e/billing-monthly-simulation-smoke.sh",
-    "test:nexus:time-warp": "tsx scripts/nexus/time-warp-test.ts",
+    "test:nexus:time-warp": "tsx scripts/nexus/financial-time-warp.ts",
     "docker:up": "docker-compose -f infra/docker/docker-compose.local.yml up -d",
     "docker:down": "docker-compose -f infra/docker/docker-compose.local.yml down",
     "docker:logs": "docker-compose -f infra/docker/docker-compose.local.yml logs -f"
