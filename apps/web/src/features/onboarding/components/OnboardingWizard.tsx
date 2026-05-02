@@ -462,7 +462,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = memo(({
 
   useEffect(() => {
     if (currentStep === 'account' && user) {
-      nextStep('intent');
+      nextStep('relationships');
     }
   }, [currentStep, user]);
 
@@ -1100,7 +1100,8 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
                {provider.id === 'microsoft' && <Network size={24} />}
             </div>
             <div className="header-meta">
-              <h2>Discovery Calibration: {isGoogle ? `Google ${googleSubStep?.toUpperCase()}` : provider.name}</h2>
+              <div className="phase-indicator">Phase 03: Discovery Calibration</div>
+              <h2>{isGoogle ? `Google ${googleSubStep?.toUpperCase()}` : provider.name}</h2>
               <p className="status-badge live">Live Sensing...</p>
             </div>
           </div>
@@ -1167,6 +1168,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
     return (
       <div className="discovery-synthesis-container animate-in">
         <div className="synthesis-header">
+          <div className="phase-indicator">Phase 04: Discovery Synthesis</div>
           <div className="synthesis-badge">Ecosystem Synthesis Complete</div>
           <h1>Your Global Strategic Map</h1>
           <p>I have fused your professional identity, network topography, and relationship intensity into a unified posture.</p>
@@ -1293,7 +1295,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
   const renderIntent = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <div className="phase-indicator">Phase 04: Strategic Intent</div>
+        <div className="phase-indicator">Phase 06: Strategic Intent</div>
         <h1>Based on your profile, what is the objective?</h1>
         <p>I have mapped your network and expertise. Select a mission to initialize the campaign.</p>
       </div>
@@ -1457,7 +1459,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
   const renderKnowledge = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <div className="phase-indicator">Phase 03: Knowledge</div>
+        <div className="phase-indicator">Phase 05: Knowledge Grounding</div>
         <h1>What have you built?</h1>
         <p>Upload your book PDF, decks, resume, or portfolio. I'll extract your core frameworks to ground our outreach.</p>
       </div>
@@ -1567,7 +1569,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
   const renderCampaigns = () => (
     <div className="onboarding-content">
       <div className="onboarding-header">
-        <div className="phase-indicator">Phase 05: Campaign Architecture</div>
+        <div className="phase-indicator">Phase 07: Campaign Architecture</div>
         <h1>Now let's put these lanes into motion.</h1>
         <p>Each Revenue Lane needs a campaign — a focused, time-bound push to generate real conversations.</p>
       </div>
@@ -1673,7 +1675,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
     return (
       <div className="onboarding-content">
         <div className="onboarding-header">
-          <div className="phase-indicator">Phase 06: Strategic Analysis</div>
+          <div className="phase-indicator">Phase 08: Tactical Calibration</div>
           <h1>Intelligence Report: Strategy Primed.</h1>
           <p>I've synthesized your network, expertise, and target campaigns.</p>
         </div>
@@ -1725,7 +1727,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
       <div className="onboarding-content">
         <div className="onboarding-header">
           <div className="phase-indicator">
-            Phase 06a: Tactical Arsenal {activeCampaigns.length > 0 ? `- Campaign ${safeCampaignIndex + 1} of ${activeCampaigns.length}` : ''}
+            Phase 08a: Tactical Arsenal {activeCampaigns.length > 0 ? `- Campaign ${safeCampaignIndex + 1} of ${activeCampaigns.length}` : ''}
           </div>
           <h1>Choose action lanes for this campaign.</h1>
           <p>Approve the execution motions for one campaign before moving to the next.</p>
@@ -1812,7 +1814,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
     return (
       <div className="onboarding-content">
         <div className="onboarding-header">
-          <div className="phase-indicator">Phase 06b: Connectivity Hub</div>
+          <div className="phase-indicator">Phase 09: Connectivity Hub</div>
           <h1>Establish your data bridges.</h1>
           <p>To fuel your selected tactical arsenal, we need to establish these technical connections.</p>
         </div>
@@ -2090,7 +2092,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
     return (
       <div className="onboarding-content">
         <div className="onboarding-header">
-          <div className="phase-indicator">Phase 07: Activation</div>
+          <div className="phase-indicator">Phase 10: Activation</div>
           <h1>Action cycles are ready.</h1>
           <p>Review the approved campaign lanes, then start the first cycle when you are ready. Nothing is sent without approval.</p>
         </div>
@@ -2193,7 +2195,7 @@ ${campaignLanes.map(lane => `- ${lane.title}: ${lane.description || ''} Tactics:
     return (
       <div className="onboarding-content">
         <div className="onboarding-header">
-          <div className="phase-indicator">Phase 08: Workspace Handoff</div>
+          <div className="phase-indicator">Phase 11: Workspace Handoff</div>
           <h1>Your workspace is about to open.</h1>
           <p>The strategy, connector state, and selected first action cycle will continue into the workspace canvas.</p>
         </div>
