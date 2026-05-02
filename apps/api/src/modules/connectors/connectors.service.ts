@@ -37,6 +37,7 @@ import { GithubProvider } from "./social/github.provider";
 import { SocialProvider } from "./social/social-provider.interface";
 import { ShopifyCommerceProvider } from "./commerce/shopify-commerce.provider";
 import { CommerceProvider } from "./commerce/commerce-provider.interface";
+import { AiService } from "../ai/ai.service";
 
 @Injectable()
 export class ConnectorsService {
@@ -52,7 +53,30 @@ export class ConnectorsService {
     private readonly icloudCalendarProvider: ICloudCalendarProvider,
     private readonly githubProvider: GithubProvider,
     private readonly shopifyProvider: ShopifyCommerceProvider,
+    private readonly aiService: AiService,
   ) {}
+
+  async getStorageSuggestions(userId: string) {
+    const connector = await this.findConnectedConnector(userId, CapabilityType.storage);
+    if (!connector) return [];
+
+    const provider = this.storageProviderFor(connector.capabilityProvider.providerName);
+    const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
+
+    const files = await provider.listFiles(credentials);
+    const suggestedIds = await this.aiService.identifyStrategicAssets(
+      files.map(f => ({ id: f.externalId, name: f.displayName }))
+    );
+
+    return files
+      .filter(f => suggestedIds.includes(f.externalId))
+      .map(f => ({
+        id: f.externalId,
+        name: f.displayName,
+        mimeType: f.mimeType,
+        modifiedAt: f.modifiedAt
+      }));
+  }
 
   async listConnectors(userId: string) {
     // 1. Get existing UserConnectors
@@ -85,46 +109,62 @@ export class ConnectorsService {
     });
 
     for (const cred of authCredentials) {
-      const providerName = cred.providerName === 'google' ? 'gmail' : 'outlook';
-      if (existingProviders.has(providerName)) continue;
+      const isGoogle = cred.providerName === 'google';
+      const emailProviderName = isGoogle ? 'gmail' : 'outlook';
+      const storageProviderName = isGoogle ? 'google_drive' : 'onedrive';
+      const calendarProviderName = isGoogle ? 'google_calendar' : 'outlook';
 
-      // Auto-bridge: Create a UserConnector for this login
-      try {
-        const capabilityType = cred.providerName === 'google' ? CapabilityType.email : CapabilityType.email; // Simplified
-        const capability = await prisma.capability.findFirst({ where: { capabilityType } });
-        const provider = await prisma.capabilityProvider.findFirst({ 
-          where: { providerName, capabilityId: capability?.id } 
-        });
+      const potentialConnectors = [
+        { providerName: emailProviderName, capabilityType: CapabilityType.email },
+        { providerName: storageProviderName, capabilityType: CapabilityType.storage },
+        { providerName: calendarProviderName, capabilityType: CapabilityType.calendar },
+      ];
 
-        if (capability && provider) {
-          const connector = await prisma.userConnector.create({
-            data: {
-              userId,
-              capabilityId: capability.id,
-              capabilityProviderId: provider.id,
-              status: ConnectorStatus.connected,
-              connectorName: provider.displayName,
-              enabledFeaturesJson: this.toJson(["send", "sync", "reply_detection"]),
-              enabledRoles: ["IDENTITY", "SIGNAL"],
-              lastSuccessAt: new Date(),
+      for (const target of potentialConnectors) {
+        if (existingProviders.has(target.providerName)) continue;
+
+        try {
+          const capability = await prisma.capability.findFirst({ where: { capabilityType: target.capabilityType } });
+          const provider = await prisma.capabilityProvider.findFirst({ 
+            where: { providerName: target.providerName, capabilityId: capability?.id } 
+          });
+
+          if (capability && provider) {
+            const connector = await prisma.userConnector.create({
+              data: {
+                userId,
+                capabilityId: capability.id,
+                capabilityProviderId: provider.id,
+                status: ConnectorStatus.connected,
+                connectorName: provider.displayName,
+                enabledFeaturesJson: target.capabilityType === CapabilityType.email 
+                  ? this.toJson(["send", "sync", "reply_detection"])
+                  : target.capabilityType === CapabilityType.storage
+                    ? this.toJson(["list", "download", "sync"])
+                    : this.toJson(["list", "read"]),
+                enabledRoles: ["IDENTITY", "SIGNAL", "STRATEGIC"],
+                lastSuccessAt: new Date(),
+              }
+            });
+
+            await this.saveCredentials(connector.id, {
+              accessToken: cred.accessToken,
+              refreshToken: cred.refreshToken,
+              expiresAt: cred.expiresAt
+            });
+
+            const refreshed = await prisma.userConnector.findUnique({
+              where: { id: connector.id },
+              include: { capability: true, capabilityProvider: true, connectorCredentials: true }
+            });
+            if (refreshed) {
+              existingConnectors.push(refreshed);
+              existingProviders.add(target.providerName);
             }
-          });
-
-          await this.saveCredentials(connector.id, {
-            accessToken: cred.accessToken,
-            refreshToken: cred.refreshToken,
-            expiresAt: cred.expiresAt
-          });
-
-          // Add to the list we return
-          const refreshed = await prisma.userConnector.findUnique({
-            where: { id: connector.id },
-            include: { capability: true, capabilityProvider: true, connectorCredentials: true }
-          });
-          if (refreshed) existingConnectors.push(refreshed);
+          }
+        } catch (e) {
+          console.error(`Failed to auto-bridge ${target.providerName} connector:`, e);
         }
-      } catch (e) {
-        console.error(`Failed to auto-bridge ${cred.providerName} connector:`, e);
       }
     }
 
@@ -1223,6 +1263,10 @@ export class ConnectorsService {
     });
 
     const result = await provider.sync(credentials, syncState?.providerCursor);
+    
+    // Build professional topography from synced messages
+    await this.processSyncedEmails(userId, result.messages);
+    
     const linked = await this.linkReplies(userId, result.messages);
 
     await prisma.connectorSyncState.upsert({
@@ -1472,6 +1516,61 @@ export class ConnectorsService {
           }
         : null,
     };
+  }
+
+  private async processSyncedEmails(userId: string, messages: SyncedEmailMessage[]) {
+    for (const message of messages) {
+      if (!message.fromEmail) continue;
+
+      // 1. Create/Update Person for Sender
+      const sender = await prisma.person.upsert({
+        where: { userId_email: { userId, email: message.fromEmail.toLowerCase() } },
+        create: {
+          userId,
+          email: message.fromEmail.toLowerCase(),
+          fullName: message.fromName || message.fromEmail,
+          firstName: message.fromName?.split(' ')[0],
+          lastName: message.fromName?.split(' ').slice(1).join(' '),
+          contactSource: 'email_sync',
+        },
+        update: {
+          fullName: message.fromName || undefined,
+        },
+      });
+
+      // 2. Create/Update ConversationThread
+      if (message.providerThreadId) {
+        await prisma.conversationThread.upsert({
+          where: { userId_externalId: { userId, externalId: message.providerThreadId } },
+          create: {
+            userId,
+            externalId: message.providerThreadId,
+            subject: message.subject,
+            participantEmails: [message.fromEmail, ...message.toEmails],
+            lastMessageAt: message.receivedAt,
+          },
+          update: {
+            lastMessageAt: message.receivedAt > new Date(0) ? message.receivedAt : undefined,
+          },
+        });
+      }
+
+      // 3. (Optional) Create Company if domain is professional
+      const domain = message.fromEmail.split('@')[1];
+      const genericDomains = ['gmail.com', 'outlook.com', 'hotmail.com', 'yahoo.com', 'icloud.com'];
+      if (domain && !genericDomains.includes(domain)) {
+        await prisma.company.upsert({
+          where: { userId_domain: { userId, domain } },
+          create: {
+            userId,
+            domain,
+            name: domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1),
+            source: 'email_sync',
+          },
+          update: {},
+        });
+      }
+    }
   }
 
   private async linkReplies(userId: string, messages: SyncedEmailMessage[]) {

@@ -42,6 +42,7 @@ import { TimeWarpInterceptor } from "./common/time-warp.interceptor";
 import { CommonModule } from "./common/common.module";
 import { SimProvidersModule } from "./modules/simulation/sim-providers.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { IntelligenceModule } from "./modules/intelligence/intelligence.module";
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { NotificationsModule } from "./modules/notifications/notifications.modul
     CommonModule,
     SimProvidersModule,
     NotificationsModule,
+    IntelligenceModule,
   ],
   controllers: [TestValidationController],
   providers: [

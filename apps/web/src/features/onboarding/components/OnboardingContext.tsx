@@ -58,6 +58,10 @@ export interface OnboardingContextType {
   uploadStatus: 'idle' | 'uploading' | 'success' | 'error';
   isConductorThinking: boolean;
   generationMessage: string | null;
+  storageSuggestions: any[];
+  setStorageSuggestions: (suggestions: any[]) => void;
+  selectedAssetIds: string[];
+  setSelectedAssetIds: (ids: string[]) => void;
   onComplete: () => void;
   isWorking: boolean;
   isConductorExpanded: boolean;
@@ -166,6 +170,8 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const [isSensingActive, setIsSensingActive] = useState(false);
   const [spotlightData, setSpotlightData] = useState<any[]>([]);
   const [spotlightIndex, setSpotlightIndex] = useState(0);
+  const [storageSuggestions, setStorageSuggestions] = useState<any[]>([]);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
   const [googleSubStep, setGoogleSubStep] = useState<'drive' | 'gmail' | null>(null);
   const [discoveryCalibration, setDiscoveryCalibration] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -179,45 +185,48 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
 
   // --- Sync with Real Connectors ---
   useEffect(() => {
+    console.log('🔄 OnboardingContext: User changed or mounted', user?.id);
     if (user?.id) {
-      api.getWorkspace().then(ws => {
-        // Assuming workspace or another endpoint has connectors. 
-        // Actually, let's use listConnectors if available or just check emailReadiness
-        api.get<any[]>('/connectors').then(connectors => {
-          if (Array.isArray(connectors)) {
-            const active = connectors
-              .filter(c => c.status === 'connected' || c.status === 'syncing')
-              .map(c => {
-                const name = c.providerName;
-                if (name === 'google_oauth' || name === 'gmail' || name === 'google_calendar') return 'google';
-                if (name === 'microsoft' || name === 'outlook') return 'microsoft';
-                return name;
-              });
-            
+      api.get<any[]>('/connectors').then(connectors => {
+        console.log('📊 OnboardingContext: Fetched connectors:', connectors.length);
+        if (Array.isArray(connectors)) {
+          const active = connectors
+            .filter(c => c.status === 'connected' || c.status === 'syncing')
+            .map(c => {
+              const name = c.providerName || c.capabilityProvider?.providerName || '';
+              if (name === 'google_oauth' || name === 'gmail' || name === 'google_calendar') return 'google';
+              if (name === 'microsoft' || name === 'outlook' || name === 'onedrive') return 'microsoft';
+              return name;
+            });
+          
+          if (active.length > 0) {
+            console.log('✅ OnboardingContext: Found active providers:', active);
             setConnectedProviders(prev => {
               const next = new Set([...prev, ...active]);
               return Array.from(next);
             });
-
-            const statuses: Record<string, any> = {};
-            connectors.forEach(c => {
-              const name = c.providerName;
-              let id = name;
-              if (name === 'google_oauth' || name === 'gmail' || name === 'google_calendar') id = 'google';
-              else if (name === 'microsoft' || name === 'outlook') id = 'microsoft';
-              
-              if (c.status === 'connected') {
-                statuses[id] = { status: 'completed', result: 'Verified' };
-              } else if (c.status === 'syncing') {
-                statuses[id] = { status: 'syncing', message: 'Sensing...' };
-              }
-            });
-            setProviderStatuses(prev => ({ ...prev, ...statuses }));
           }
-        }).catch(() => null);
-      }).catch(() => null);
+
+          const statuses: Record<string, any> = {};
+          connectors.forEach(c => {
+            const name = c.providerName || c.capabilityProvider?.providerName || '';
+            let id = name;
+            if (name === 'google_oauth' || name === 'gmail' || name === 'google_calendar') id = 'google';
+            else if (name === 'microsoft' || name === 'outlook' || name === 'onedrive') id = 'microsoft';
+            
+            if (c.status === 'connected') {
+              statuses[id] = { status: 'completed', result: 'Verified' };
+            } else if (c.status === 'syncing') {
+              statuses[id] = { status: 'syncing', message: 'Sensing...' };
+            }
+          });
+          setProviderStatuses(prev => ({ ...prev, ...statuses }));
+        }
+      }).catch(err => {
+        console.error('❌ OnboardingContext: Failed to fetch connectors:', err);
+      });
     }
-  }, [user?.id, api]);
+  }, [user, api]);
 
   // --- Persistence ---
   useEffect(() => {
@@ -355,26 +364,79 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       const provider = { linkedin: 'LinkedIn', google: 'Google', microsoft: 'Outlook' }[id as 'linkedin' | 'google' | 'microsoft'];
       setProviderStatuses(prev => ({ ...prev, [id]: { status: 'syncing', message: 'Sensing network topography...' } }));
       setSensingLogs(prev => [...prev, { id: `log-${id}`, message: `Scanning ${provider} for relationship depth...`, type: 'info' }]);
-      await new Promise(r => setTimeout(r, 1500));
+      
+      // TRIGGER REAL SYNC
+      try {
+        if (id === 'google' || id === 'microsoft') {
+          // Sync Email
+          const emailRes = await api.post<any>('/connectors/email/sync');
+          setSensingLogs(prev => [...prev, { id: `sync-email-${id}`, message: `Synced ${emailRes.synced || 0} messages from ${provider} inbox.`, type: 'success' }]);
+          
+          // Sync Storage Suggestions (Metadata Scan)
+          try {
+            const suggestions = await api.get<any[]>('/connectors/storage/suggestions');
+            setStorageSuggestions(suggestions);
+            setSelectedAssetIds(suggestions.map(s => s.id)); // Default to selecting all found
+            if (suggestions.length > 0) {
+              setSensingLogs(prev => [...prev, { id: `suggestions-${id}`, message: `Conductor identified ${suggestions.length} high-value strategic assets.`, type: 'info' }]);
+            }
+          } catch (e) {
+            console.warn(`Storage suggestions failed for ${id}`, e);
+          }
+          
+          // Sync Storage (General Topography)
+        }
+      } catch (err: any) {
+        console.error(`Sensing failed for ${provider}:`, err);
+        setSensingLogs(prev => [...prev, { id: `err-${id}`, message: `Sensing partial for ${provider}: ${err.message || 'Connection timeout'}`, type: 'error' }]);
+      }
+
       setProviderStatuses(prev => ({ ...prev, [id]: { status: 'completed', result: 'Verified' } }));
       setSensingLogs(prev => [...prev, { id: `success-${id}`, message: `${provider} sensing complete.`, type: 'success' }]);
     }
 
-    const spotlights = connectedProviders.map(id => ({
-      id,
-      name: { linkedin: 'LinkedIn', google: 'Gmail', microsoft: 'Outlook' }[id as 'linkedin' | 'google' | 'microsoft'],
-      metric: id === 'linkedin' ? '12,400' : '1,842',
-      metricLabel: id === 'linkedin' ? 'Connections' : 'Nodes',
-      insight: 'High-density professional topography detected.',
-      conductorSpeech: `Analysis complete. I have mapped your ${id} ecosystem.`
-    }));
+    // Fetch real stats from the database
+    let stats = { personCount: 0, companyCount: 0, threadCount: 0, totalNodes: 0 };
+    try {
+      const liveStats = await api.get<any>('/discovery/stats');
+      if (liveStats && typeof liveStats.totalNodes === 'number') {
+        stats = liveStats;
+        console.log('📊 OnboardingContext: Live discovery stats fetched:', stats);
+      }
+    } catch (err) {
+      console.warn('⚠️ OnboardingContext: Failed to fetch live stats:', err);
+    }
+
+    const spotlights = connectedProviders.map(id => {
+      const isLinkedIn = id === 'linkedin';
+      
+      return {
+        id,
+        name: { linkedin: 'LinkedIn', google: 'Gmail', microsoft: 'Outlook' }[id as 'linkedin' | 'google' | 'microsoft'],
+        metric: stats.totalNodes.toLocaleString(),
+        metricLabel: isLinkedIn ? 'Connections' : 'Nodes',
+        breakdown: [
+          { label: isLinkedIn ? 'Connections' : 'Contacts', value: stats.personCount.toLocaleString() },
+          { label: 'Companies', value: stats.companyCount.toLocaleString() },
+          { label: isLinkedIn ? 'Signals' : 'Threads', value: stats.threadCount.toLocaleString() }
+        ],
+        insight: stats.totalNodes > 0 ? 'Professional topography detected and mapped.' : 'No significant topography detected yet. Proceeding with strategic intent.',
+        conductorSpeech: stats.totalNodes > 0 
+          ? `Analysis complete. I have mapped your ${id} ecosystem.`
+          : `I've scanned your ${id} ecosystem. It appears to be a fresh canvas. We'll build your strategic map from the ground up.`
+      };
+    });
 
     setSpotlightData(spotlights);
     setSpotlightIndex(0);
     setIsSensingActive(false);
+
+    const firstSpotlight = spotlights[0];
+    if (firstSpotlight?.id === 'google') {
+      setGoogleSubStep('gmail');
+    }
     
     setTimeout(() => {
-      const firstSpotlight = spotlights[0];
       if (firstSpotlight) {
         setWizardMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', text: firstSpotlight.conductorSpeech }]);
       }
@@ -434,6 +496,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     proposedActionLanes, selectedActionLanes, currentActionLaneCampaignIndex, connectedProviders,
     providerStatuses, sensingLogs, isSensingActive, spotlightData, spotlightIndex, googleSubStep,
     discoveryCalibration, isLoading, uploadStatus, isConductorThinking, generationMessage,
+    storageSuggestions, setStorageSuggestions, selectedAssetIds, setSelectedAssetIds,
     nextStep, triggerStepNarration, handleDiscoveryNext, startSequentialSensing, designActionLanes,
     handleConductorSend, seedState, setConnectedProviders, setDiscoveryCalibration, setUploadStatus,
     setActiveImportId, setWizardMessages, setSelectedCampaigns, setSelectedActionLanes,

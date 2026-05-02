@@ -5,7 +5,8 @@ import { useOnboarding } from '../OnboardingContext';
 export const SensingCalibrationPhase: React.FC = () => {
   const { 
     spotlightData, spotlightIndex, googleSubStep, discoveryCalibration,
-    setDiscoveryCalibration, handleDiscoveryNext
+    setDiscoveryCalibration, handleDiscoveryNext,
+    storageSuggestions, selectedAssetIds, setSelectedAssetIds
   } = useOnboarding();
 
   if (!spotlightData || spotlightIndex >= spotlightData.length) return null;
@@ -27,28 +28,40 @@ export const SensingCalibrationPhase: React.FC = () => {
         <div className="spotlight-card interactive-calibration">
           <div className="spotlight-header">
             <div className={`provider-icon ${provider.id}`}>
-               {provider.id === 'linkedin' && <Users size={24} />}
-               {provider.id === 'google' && <Globe size={24} />}
+               {provider.id === 'linkedin' && (
+                 <img src="https://upload.wikimedia.org/wikipedia/commons/c/ca/LinkedIn_logo_initials.png" alt="LinkedIn" width="24" height="24" />
+               )}
+               {provider.id === 'google' && (
+                 <img src="https://upload.wikimedia.org/wikipedia/commons/d/da/Google_Drive_logo.png" alt="Google Drive" width="24" height="24" />
+               )}
                {provider.id === 'microsoft' && <Network size={24} />}
             </div>
             <div className="header-meta">
               <div className="phase-indicator">Phase 03: Discovery Calibration</div>
-              <h2>{isGoogle ? `Google ${googleSubStep?.toUpperCase()}` : provider.name}</h2>
-              <p className="status-badge live">Live Sensing...</p>
+              <h2>{isGoogle ? `Google ${googleSubStep?.toUpperCase() || 'WORKSPACE'}` : provider.name}</h2>
+              <p className="status-badge complete">Sensing Complete</p>
             </div>
           </div>
 
           <div className="spotlight-content">
-            <div className="hero-metrics">
-              <div className="metric">
-                <span className="value">{provider.metric}</span>
-                <span className="label">{provider.metricLabel}</span>
+              <div className="hero-metrics">
+                <div className="metric">
+                  <span className="value">{provider.metric}</span>
+                  <span className="label">{provider.metricLabel}</span>
+                </div>
+                <div className="metric-breakdown">
+                  {provider.breakdown?.map((item: any) => (
+                    <div key={item.label} className="breakdown-item">
+                      <span className="breakdown-value">{item.value}</span>
+                      <span className="breakdown-label">{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="data-pulse-animation">
+                  <div className="pulse-ring"></div>
+                  <Zap size={24} className="pulse-icon" />
+                </div>
               </div>
-              <div className="data-pulse-animation">
-                <div className="pulse-ring"></div>
-                <Zap size={24} className="pulse-icon" />
-              </div>
-            </div>
 
             <div className="ai-interpretation">
               <h3>
@@ -56,6 +69,35 @@ export const SensingCalibrationPhase: React.FC = () => {
                 Conductor Interpretation
               </h3>
               <p>{provider.insight}</p>
+
+              {isGoogle && googleSubStep === 'drive' && storageSuggestions.length > 0 && (
+                <div className="strategic-assets-discovery">
+                  <h4>Detected Strategic Assets</h4>
+                  <p className="assets-subtitle">I've identified these high-value files. Should I ingest them?</p>
+                  <div className="assets-list">
+                    {storageSuggestions.map((asset) => (
+                      <label key={asset.id} className={`asset-item ${selectedAssetIds.includes(asset.id) ? 'selected' : ''}`}>
+                        <input 
+                          type="checkbox" 
+                          checked={selectedAssetIds.includes(asset.id)}
+                          onChange={() => {
+                            setSelectedAssetIds(prev => 
+                              prev.includes(asset.id) 
+                                ? prev.filter(id => id !== asset.id)
+                                : [...prev, asset.id]
+                            );
+                          }}
+                        />
+                        <div className="asset-info">
+                          <span className="asset-name">{asset.name}</span>
+                          <span className="asset-meta">{new Date(asset.modifiedAt).toLocaleDateString()}</span>
+                        </div>
+                        <div className="asset-badge">Leverage</div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="strategic-calibration">

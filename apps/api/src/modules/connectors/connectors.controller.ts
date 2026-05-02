@@ -123,6 +123,12 @@ export class ConnectorsController {
     return this.connectorsService.syncEmail(user.id);
   }
 
+  @Get('storage/suggestions')
+  async getStorageSuggestions(@CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.getStorageSuggestions(user.id);
+  }
+
   @Post('storage/sync')
   async syncStorage(@CurrentUser() user?: AuthenticatedUser) {
     if (!user?.id) throw new UnauthorizedException('No authenticated user found');

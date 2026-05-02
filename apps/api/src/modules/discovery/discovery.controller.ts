@@ -21,6 +21,16 @@ import { UploadContentDto } from './dto/upload-content.dto';
 export class DiscoveryController {
   constructor(private readonly discoveryService: DiscoveryService) {}
 
+  @Get('stats')
+  async getStats(@CurrentUser() user?: AuthenticatedUser) {
+    const userId = user?.id;
+    if (!userId) {
+      throw new BadRequestException('No user context available for discovery stats');
+    }
+
+    return this.discoveryService.getDiscoveryStats(userId);
+  }
+
   @Get('test')
   async test(): Promise<any> {
     return { message: 'Discovery module is working!' };

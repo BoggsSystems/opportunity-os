@@ -1030,4 +1030,19 @@ export class DiscoveryService {
     if (value === undefined || value === null) return undefined;
     return value as Prisma.InputJsonValue;
   }
+
+  async getDiscoveryStats(userId: string) {
+    const [personCount, companyCount, threadCount] = await Promise.all([
+      prisma.person.count({ where: { userId } }),
+      prisma.company.count({ where: { userId } }),
+      prisma.conversationThread.count({ where: { userId } }),
+    ]);
+
+    return {
+      personCount,
+      companyCount,
+      threadCount,
+      totalNodes: personCount + companyCount + threadCount,
+    };
+  }
 }

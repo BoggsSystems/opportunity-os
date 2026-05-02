@@ -798,6 +798,25 @@ Values:
 * `daily_action`: Stage 4 action synthesis
 * `execution`: Stage 5 action performance
 * `verification`: Stage 6 outcome closing
+
+### `concept_category`
+
+Values:
+* `framework`
+* `methodology`
+* `stance`
+* `proof_point`
+* `story`
+* `metric`
+
+### `concept_source_type`
+
+Values:
+* `knowledge_asset`
+* `conversation_thread`
+* `email_message`
+* `manual_entry`
+* `linkedin_post`
 * `momentum`: Stage 7 re-engagement loops
 
 ### `workflow_stage`
@@ -5035,4 +5054,64 @@ After generating the Prisma schema, also provide:
 3. suggested first migration and seed strategy
 ```
 
-If you want, I can also generate the **Prisma schema draft** directly here.
+### `concepts`
+
+Stores the master strategic concepts in the user's Vault.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `uuid` | PK, Default: `gen_random_uuid()` | Unique identifier |
+| `user_id` | `uuid` | FK -> `user.id` | Owner |
+| `title` | `text` | NOT NULL | Concept name (e.g., "SDLC Velocity") |
+| `category` | `concept_category` | NOT NULL | Classification |
+| `description` | `text` | NOT NULL | Detailed explanation |
+| `is_promoted` | `boolean` | Default: `false` | True if user has confirmed this as a core concept |
+| `metadata_json` | `jsonb` | | Semantic embeddings, confidence scores |
+| `created_at` | `timestamp` | NOT NULL, Default: `now()` | Creation time |
+| `updated_at` | `timestamp` | NOT NULL, Default: `now()` | Last update |
+
+### `proof_points`
+
+Stores concrete evidence validating a concept.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `uuid` | PK, Default: `gen_random_uuid()` | Unique identifier |
+| `user_id` | `uuid` | FK -> `user.id` | Owner |
+| `title` | `text` | NOT NULL | Evidence name |
+| `content` | `text` | NOT NULL | The actual evidence or case study summary |
+| `is_promoted` | `boolean` | Default: `false` | True if confirmed |
+| `created_at` | `timestamp` | NOT NULL, Default: `now()` | |
+| `updated_at` | `timestamp` | NOT NULL, Default: `now()` | |
+
+### `intelligence_sources`
+
+Links concepts and proof points to their origin.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `uuid` | PK | |
+| `target_id` | `uuid` | NOT NULL | FK to `concept.id` or `proof_point.id` |
+| `target_type` | `text` | NOT NULL | 'concept' or 'proof_point' |
+| `source_type` | `concept_source_type` | NOT NULL | |
+| `source_id` | `uuid` | NOT NULL | FK to `knowledge_asset.id`, `conversation_thread.id`, etc. |
+| `created_at` | `timestamp` | NOT NULL | |
+
+### `concept_relationships`
+
+Relates concepts to each other.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `parent_id` | `uuid` | FK -> `concept.id` | |
+| `child_id` | `uuid` | FK -> `concept.id` | |
+| `relationship_type`| `text` | | e.g., "expands_on", "validates" |
+
+### `concept_proof_links`
+
+Links concepts to the evidence that validates them.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `concept_id` | `uuid` | FK -> `concept.id` | |
+| `proof_point_id` | `uuid` | FK -> `proof_point.id` | |

@@ -437,7 +437,7 @@ export class AuthService {
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("redirect_uri", this.getMicrosoftCallbackUrl());
     authUrl.searchParams.set("response_mode", "query");
-    authUrl.searchParams.set("scope", "openid profile email User.Read Calendars.Read Mail.Read Files.Read.All offline_access");
+    authUrl.searchParams.set("scope", "openid profile email User.Read Calendars.Read Mail.Read Mail.Send Files.Read.All offline_access");
 
     if (guestSessionId) {
       authUrl.searchParams.set("state", guestSessionId);
@@ -1400,7 +1400,7 @@ export class AuthService {
     const apiPublicUrl =
       this.config.API_PUBLIC_URL?.replace(/\/$/, "") || "http://localhost:3002";
 
-    return `${apiPublicUrl}/auth/microsoft/callback`;
+    return `${apiPublicUrl}/connectors/email/oauth/callback`;
   }
 
   private async exchangeMicrosoftCodeForProfile(

@@ -99,15 +99,15 @@ export const SensingHubPhase: React.FC = () => {
                   <h4>{provider.name}</h4>
                   {isSyncing ? (
                     <div className="provider-status-tag syncing">
-                      <Zap size={10} className="spin" /> <span>Sensing...</span>
+                      <Zap size={10} className="spin" /> <span>Connecting...</span>
                     </div>
                   ) : isCompleted ? (
                     <div className="provider-status-tag completed">
-                      <CheckCircle size={10} /> <span>Sensed</span>
+                      <CheckCircle size={10} /> <span>Connected</span>
                     </div>
                   ) : isSelected ? (
                     <div className="provider-status-tag pending">
-                      <Zap size={10} /> <span>Ready to sense</span>
+                      <Zap size={10} /> <span>Ready to Connect</span>
                     </div>
                   ) : null}
                 </div>

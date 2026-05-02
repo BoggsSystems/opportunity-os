@@ -32,6 +32,7 @@ At the conceptual level, the system has 19 domain areas:
 17. Coaching, Momentum, and Engagement
 18. Browser Execution
 19. Conversation Feedback and Campaign Memory
+20. Asset Intelligence and the Vault
 
 ---
 
@@ -794,9 +795,70 @@ Relationships:
 
 MVP: later
 
-**Connection Import Batch**
+### U. Asset Intelligence and the Vault
 
-A batch of LinkedIn connections imported from a CSV file.
+This domain is the platform's strategic "Director's Brain." 
+
+It answers:
+* What unique methodologies or frameworks does the user have?
+* What concrete evidence proves these frameworks work?
+* How does chat history with the Conductor inform the user's strategic stance?
+* How can we reuse a story from a chat in a new campaign?
+
+#### Main Entities
+
+**Concept**
+
+A fundamental strategic unit extracted from any interaction or document.
+
+Represents:
+* a proprietary framework (e.g., "SDLC Velocity")
+* a strategic stance (e.g., "Focus on Founders")
+* a recurring story or professional philosophy
+* a tactical heuristic
+
+Relationships:
+* belongs to one User
+* may originate from many Intelligence Sources
+* may be validated by many Proof Points
+* may relate to many other Concepts
+* may be used in many Campaigns and Action Lanes
+
+**Proof Point**
+
+Concrete, verifiable evidence that validates a Concept or Offering.
+
+Represents:
+* a specific metric (e.g., "30% growth")
+* a case study summary
+* a client name or logo
+* a quote or testimonial
+
+Relationships:
+* belongs to one User
+* validates one or more Concepts
+* originates from one or more Intelligence Sources
+
+**Intelligence Source**
+
+The origin of a Concept or Proof Point.
+
+Represents:
+* a Knowledge Asset (PDF/Doc)
+* a Conversation Thread (Chat with Conductor)
+* an Email Message
+* a LinkedIn Post
+
+Relationships:
+* links a Concept or Proof Point back to its source entity
+
+**Strategic Vault**
+
+The user's curated collection of intelligence.
+
+Represents:
+* the "Director's View" of all extracted and promoted concepts
+* the single source of truth for the Conductor's strategic context
 
 Represents:
 

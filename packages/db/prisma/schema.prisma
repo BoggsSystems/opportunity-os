@@ -621,6 +621,23 @@ enum EngagementRewardTrigger {
   ACTION_MILESTONE
 }
 
+enum ConceptCategory {
+  framework
+  methodology
+  stance
+  proof_point
+  story
+  metric
+}
+
+enum ConceptSourceType {
+  knowledge_asset
+  conversation_thread
+  email_message
+  manual_entry
+  linkedin_post
+}
+
 enum RewardRuleType {
   ACTION_THRESHOLD
   CAMPAIGN_GOAL
@@ -794,7 +811,9 @@ model User {
   externalMappings             ExternalMapping[]
   engagementLogs               UserEngagementLog[]
   engagementRewards            EngagementReward[]
-  notifications                Notification[]
+   notifications                Notification[]
+  concepts                     Concept[]
+  proofPoints                  ProofPoint[]
 
   @@map("users")
 }
@@ -3414,4 +3433,76 @@ model TechnicalProfile {
   @@index([userId])
   @@index([externalId])
   @@map("technical_profiles")
+}
+model Concept {
+  id           String          @id @default(uuid()) @db.Uuid
+  userId       String          @db.Uuid
+  title        String
+  category     ConceptCategory
+  description  String
+  isPromoted   Boolean         @default(false)
+  metadataJson Json?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  user         User            @relation(fields: [userId], references: [id])
+  sources      IntelligenceSource[] @relation("ConceptSources")
+  proofLinks   ConceptProofLink[]
+  parents      ConceptRelationship[] @relation("ConceptChildren")
+  children     ConceptRelationship[] @relation("ConceptParents")
+
+  @@map("concepts")
+}
+
+model ProofPoint {
+  id           String          @id @default(uuid()) @db.Uuid
+  userId       String          @db.Uuid
+  title        String
+  content      String
+  isPromoted   Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  user         User            @relation(fields: [userId], references: [id])
+  sources      IntelligenceSource[] @relation("ProofPointSources")
+  conceptLinks ConceptProofLink[]
+
+  @@map("proof_points")
+}
+
+model IntelligenceSource {
+  id           String            @id @default(uuid()) @db.Uuid
+  targetId     String            @db.Uuid
+  targetType   String            // "concept" | "proof_point"
+  sourceType   ConceptSourceType
+  sourceId     String            @db.Uuid
+  createdAt    DateTime          @default(now())
+
+  concept      Concept?          @relation("ConceptSources", fields: [targetId], references: [id], map: "intelligence_source_concept_fk")
+  proofPoint   ProofPoint?       @relation("ProofPointSources", fields: [targetId], references: [id], map: "intelligence_source_proof_point_fk")
+
+  @@map("intelligence_sources")
+}
+
+model ConceptRelationship {
+  parentId         String @db.Uuid
+  childId          String @db.Uuid
+  relationshipType String?
+
+  parent Concept @relation("ConceptParents", fields: [parentId], references: [id])
+  child  Concept @relation("ConceptChildren", fields: [childId], references: [id])
+
+  @@id([parentId, childId])
+  @@map("concept_relationships")
+}
+
+model ConceptProofLink {
+  conceptId    String @db.Uuid
+  proofPointId String @db.Uuid
+
+  concept    Concept    @relation(fields: [conceptId], references: [id])
+  proofPoint ProofPoint @relation(fields: [proofPointId], references: [id])
+
+  @@id([conceptId, proofPointId])
+  @@map("concept_proof_links")
 }

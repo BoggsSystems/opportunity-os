@@ -175,6 +175,99 @@ Use screenshots/images as evidence when provided. Do not invent names, outcomes,
     };
   }
 
+  async extractStrategicIntelligence(text: string): Promise<{ concepts: any[], proofPoints: any[] }> {
+    this.logger.log('Extracting strategic intelligence from text');
+    
+    const prompt = `
+You are a High-Signal Strategic Shredder. I am providing you with a chunk of text (a book excerpt, a resume, or a chat transcript).
+Your task is to extract "Strategic Concepts" and "Proof Points".
+
+STRATEGIC CONCEPTS:
+- Frameworks (The "How-To")
+- Methodologies (The process)
+- Stances (Strong professional opinions)
+- Heuristics (Rules of thumb)
+
+PROOF POINTS:
+- Metrics (Specific numbers)
+- Case Studies (Specific success stories)
+- Brand names/Clients mentioned
+
+TEXT:
+${text.substring(0, 10000)} // Bounded for context window
+
+INSTRUCTIONS:
+1. Return ONLY a valid JSON object with two arrays: "concepts" and "proofPoints".
+2. For each Concept, provide: "title", "description", "category" (framework, methodology, stance, story, metric), and "metadata" (object).
+3. For each Proof Point, provide: "title" and "content".
+4. If nothing is found, return empty arrays.
+5. Be surgical. Only extract high-value intelligence.
+
+JSON OUTPUT:`;
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.1,
+      maxTokens: 2000,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    try {
+      const parsed = JSON.parse(response.content.replace(/```json/gi, '').replace(/```/g, '').trim());
+      return {
+        concepts: Array.isArray(parsed.concepts) ? parsed.concepts : [],
+        proofPoints: Array.isArray(parsed.proofPoints) ? parsed.proofPoints : [],
+      };
+    } catch (e) {
+      this.logger.error('Failed to parse extractStrategicIntelligence JSON', e);
+      return { concepts: [], proofPoints: [] };
+    }
+  }
+
+  async identifyStrategicAssets(files: { id: string; name: string }[]): Promise<string[]> {
+    this.logger.log(`Identifying strategic assets from ${files.length} files`);
+    
+    const fileList = files.map(f => `- [${f.id}] ${f.name}`).join('\n');
+    const prompt = `
+You are a High-Signal Strategic Commander. I am providing you with a list of filenames from a user's cloud storage (Google Drive/OneDrive).
+Your task is to identify which files are likely to be "High-Value Strategic Assets". 
+
+STRATEGIC ASSET EXAMPLES:
+- Resumes or CVs
+- Book Manuscripts or Drafts
+- Business Plans or Pitch Decks
+- Strategic Theses or Whitepapers
+- Research Papers or Case Studies
+- Portfolios or Project Showcases
+
+FILE LIST:
+${fileList}
+
+INSTRUCTIONS:
+1. Identify the files that match the criteria above.
+2. Return ONLY a valid JSON array containing the IDs of the identified files.
+3. If no strategic assets are found, return an empty array [].
+4. Do not include folders, system files, or generic documents (like "Untitled document" or "Notes").
+5. Output ONLY the JSON array. No explanations.
+
+IDENTIFIED ASSET IDS:`;
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.1,
+      maxTokens: 500,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    try {
+      const parsed = JSON.parse(response.content.replace(/```json/gi, '').replace(/```/g, '').trim());
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      this.logger.error('Failed to parse identifyStrategicAssets JSON', e);
+      return [];
+    }
+  }
+
   async interpretOffering(offeringContext: any): Promise<any> {
     this.logger.log('Interpreting offering context with AI');
     
