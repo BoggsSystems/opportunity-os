@@ -761,7 +761,7 @@
 .progress-segment {
   flex: 1;
   height: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--os-gray-border);
   border-radius: 2px;
   position: relative;
   overflow: hidden;
@@ -784,12 +784,11 @@
 }
 
 .spotlight-card.interactive-calibration {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--os-white);
+  border: 1px solid var(--os-gray-border);
   border-radius: 24px;
   padding: 2.5rem;
-  backdrop-filter: blur(20px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 33, 71, 0.08);
 }
 
 .spotlight-header {
@@ -806,8 +805,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
-  color: #fff;
+  background: var(--os-gray-bg);
+  color: var(--os-blue);
 }
 
 .provider-icon.linkedin { background: #0077b5; }
@@ -816,9 +815,9 @@
 
 .header-meta h2 {
   font-size: 1.5rem;
-  font-weight: 600;
+  font-weight: 750;
   margin: 0;
-  color: #fff;
+  color: var(--os-navy);
 }
 
 .status-badge.live {
@@ -846,7 +845,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.03);
+  background: #f8fafc;
+  border: 1px solid var(--os-gray-border);
   border-radius: 20px;
   padding: 2rem;
   margin-bottom: 2rem;
@@ -861,12 +861,12 @@
   font-size: 3rem;
   font-weight: 800;
   letter-spacing: -1px;
-  color: #fff;
+  color: var(--os-navy);
 }
 
 .metric .label {
   font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--os-text-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -895,11 +895,12 @@
 }
 
 .ai-interpretation {
-  background: rgba(255, 255, 255, 0.05);
+  background: #f0f7ff;
   border-left: 4px solid var(--os-blue);
   padding: 1.5rem;
   border-radius: 0 12px 12px 0;
   margin-bottom: 2rem;
+  text-align: left;
 }
 
 .ai-interpretation h3 {
@@ -917,7 +918,7 @@
 .ai-interpretation p {
   font-size: 1.1rem;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--os-text-main);
   margin: 0;
 }
 
@@ -935,17 +936,17 @@
 
 .calibration-hint {
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--os-text-muted);
   margin-bottom: 1rem;
 }
 
 .calibration-input {
   width: 100%;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--os-white);
+  border: 1px solid var(--os-gray-border);
   border-radius: 12px;
   padding: 1.25rem;
-  color: #fff;
+  color: var(--os-text-main);
   font-family: inherit;
   font-size: 1rem;
   line-height: 1.5;
@@ -956,9 +957,9 @@
 
 .calibration-input:focus {
   outline: none;
-  border-color: var(--os-accent);
-  background: rgba(0, 0, 0, 0.3);
-  box-shadow: 0 0 20px rgba(0, 255, 255, 0.1);
+  border-color: var(--os-blue);
+  background: var(--os-white);
+  box-shadow: 0 0 10px rgba(0, 112, 186, 0.1);
 }
 
 /* Discovery Synthesis Styles */
@@ -978,24 +979,22 @@
 .synthesis-badge {
   display: inline-block;
   padding: 0.5rem 1rem;
-  background: rgba(0, 255, 255, 0.1);
-  color: var(--os-accent);
+  background: #f0fdf4;
+  color: #10b981;
   border-radius: 100px;
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
   margin-bottom: 1rem;
-  border: 1px solid rgba(0, 255, 255, 0.2);
+  border: 1px solid rgba(16, 185, 129, 0.2);
 }
 
 .synthesis-header h1 {
   font-size: 2.5rem;
   font-weight: 800;
   margin: 0 0 1rem 0;
-  background: linear-gradient(135deg, #fff 0%, rgba(255, 255, 255, 0.6) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--os-navy);
 }
 
 .synthesis-grid {
@@ -1005,11 +1004,12 @@
 }
 
 .synthesis-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--os-white);
+  border: 1px solid var(--os-gray-border);
   border-radius: 24px;
   padding: 2rem;
-  backdrop-filter: blur(20px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  text-align: left;
 }
 
 .synthesis-card h3 {
@@ -1017,7 +1017,7 @@
   align-items: center;
   gap: 0.75rem;
   font-size: 1rem;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--os-text-muted);
   margin: 0 0 2rem 0;
 }
 
@@ -1035,25 +1035,26 @@
 .synthesis-metric .val {
   font-size: 2.5rem;
   font-weight: 800;
-  color: #fff;
+  color: var(--os-navy);
 }
 
 .synthesis-metric .lab {
   font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--os-text-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 
 .synthesis-chart-placeholder {
   height: 200px;
-  background: rgba(0, 0, 0, 0.2);
+  background: #f8fafc;
   border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   overflow: hidden;
+  border: 1px solid var(--os-gray-border);
 }
 
 .density-map {
@@ -1066,7 +1067,7 @@
   position: absolute;
   border-radius: 50%;
   filter: blur(40px);
-  opacity: 0.4;
+  opacity: 0.15;
 }
 
 .density-node.primary {
@@ -1095,13 +1096,13 @@
 
 .saturation-item .sat-label {
   font-size: 0.9rem;
-  color: #fff;
+  color: var(--os-text-main);
   margin-bottom: 0.5rem;
 }
 
 .sat-bar {
   height: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: #f1f5f9;
   border-radius: 4px;
   overflow: hidden;
 }
@@ -1116,11 +1117,12 @@
 .synthesis-conductor-note {
   display: flex;
   gap: 2rem;
-  background: linear-gradient(135deg, rgba(0, 112, 186, 0.1) 0%, rgba(0, 255, 255, 0.05) 100%);
-  border: 1px solid rgba(0, 255, 255, 0.1);
+  background: #f0f7ff;
+  border: 1px solid rgba(0, 112, 186, 0.1);
   border-radius: 24px;
   padding: 2.5rem;
   align-items: center;
+  text-align: left;
 }
 
 .conductor-avatar {
@@ -1138,13 +1140,13 @@
 .note-content h4 {
   font-size: 1.2rem;
   margin: 0 0 0.5rem 0;
-  color: var(--os-accent);
+  color: var(--os-navy);
 }
 
 .note-content p {
   font-size: 1.1rem;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--os-text-main);
   margin: 0;
 }
 
@@ -1177,11 +1179,24 @@
 }
 
 .manual-upload-section .divider::before,
-.manual-upload-section .divider::after {
+.manual-upload-section .divider::after,
+.auth-divider::before,
+.auth-divider::after {
   content: '';
   flex: 1;
   height: 1px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--os-gray-border);
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--os-text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 12px 0;
 }
 
 .drop-zone.compact {
