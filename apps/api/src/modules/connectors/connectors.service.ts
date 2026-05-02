@@ -558,9 +558,70 @@ export class ConnectorsService {
     }
 
     if (providerName === "gmail") {
-      throw new BadRequestException(
-        "Gmail OAuth flow is pending configuration. Use Outlook for now.",
-      );
+      const clientId = this.configService.get<string>("GOOGLE_CLIENT_ID");
+      if (!clientId) {
+        throw new BadRequestException(
+          "Google OAuth is not configured. Set GOOGLE_CLIENT_ID first.",
+        );
+      }
+
+      const { capability, provider } = await this.ensureEmailProvider(providerName);
+      const state = randomBytes(24).toString("hex");
+      const codeVerifier = randomBytes(48).toString("base64url");
+      const codeChallenge = createHash("sha256")
+        .update(codeVerifier)
+        .digest("base64url");
+      const redirectUri = this.googleRedirectUri();
+      const scopes = [
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
+        "openid",
+      ];
+
+      await prisma.userConnector.upsert({
+        where: { userId_capabilityId: { userId, capabilityId: capability.id } },
+        create: {
+          userId,
+          capabilityId: capability.id,
+          capabilityProviderId: provider.id,
+          connectorName: provider.displayName,
+          status: ConnectorStatus.pending_setup,
+          enabledFeaturesJson: this.toJson(["send", "sync", "reply_detection", "thread_summary"]),
+          metadataJson: this.toJson({
+            oauthState: state,
+            oauthCodeVerifier: codeVerifier,
+            oauthReturnTo: returnTo,
+            oauthProvider: providerName,
+          }),
+        },
+        update: {
+          capabilityProviderId: provider.id,
+          connectorName: provider.displayName,
+          status: ConnectorStatus.pending_setup,
+          errorMessage: null,
+          metadataJson: this.toJson({
+            oauthState: state,
+            oauthCodeVerifier: codeVerifier,
+            oauthReturnTo: returnTo,
+            oauthProvider: providerName,
+          }),
+        },
+      });
+
+      const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+      authUrl.searchParams.set("client_id", clientId);
+      authUrl.searchParams.set("response_type", "code");
+      authUrl.searchParams.set("redirect_uri", redirectUri);
+      authUrl.searchParams.set("scope", scopes.join(" "));
+      authUrl.searchParams.set("state", state);
+      authUrl.searchParams.set("code_challenge", codeChallenge);
+      authUrl.searchParams.set("code_challenge_method", "S256");
+      authUrl.searchParams.set("access_type", "offline");
+      authUrl.searchParams.set("prompt", "consent");
+
+      return { providerName, authUrl: authUrl.toString(), state };
     }
 
     const clientId = this.configService.get<string>("MICROSOFT_CLIENT_ID");
@@ -645,6 +706,68 @@ export class ConnectorsService {
     return { providerName, authUrl: authUrl.toString(), state };
   }
 
+  async startSocialOAuth(
+    userId: string,
+    providerName: "linkedin" | "hubspot" | "shopify" | "salesforce",
+    returnTo?: string,
+  ) {
+    if (providerName === "linkedin") {
+      const clientId = this.configService.get<string>("LINKEDIN_CLIENT_ID");
+      if (!clientId) {
+        throw new BadRequestException(
+          "LinkedIn OAuth is not configured. Set LINKEDIN_CLIENT_ID first.",
+        );
+      }
+
+      const { capability, provider } = await this.ensureSocialProvider(providerName);
+      const state = randomBytes(24).toString("hex");
+      const redirectUri = this.linkedinRedirectUri();
+      const scopes = ["openid", "profile", "email"];
+
+      await prisma.userConnector.upsert({
+        where: { userId_capabilityId: { userId, capabilityId: capability.id } },
+        create: {
+          userId,
+          capabilityId: capability.id,
+          capabilityProviderId: provider.id,
+          connectorName: provider.displayName,
+          status: ConnectorStatus.pending_setup,
+          metadataJson: this.toJson({
+            oauthState: state,
+            oauthReturnTo: returnTo,
+            oauthProvider: providerName,
+          }),
+        },
+        update: {
+          capabilityProviderId: provider.id,
+          connectorName: provider.displayName,
+          status: ConnectorStatus.pending_setup,
+          errorMessage: null,
+          metadataJson: this.toJson({
+            oauthState: state,
+            oauthReturnTo: returnTo,
+            oauthProvider: providerName,
+          }),
+        },
+      });
+
+      const authUrl = new URL("https://www.linkedin.com/oauth/v2/authorization");
+      authUrl.searchParams.set("client_id", clientId);
+      authUrl.searchParams.set("response_type", "code");
+      authUrl.searchParams.set("redirect_uri", redirectUri);
+      authUrl.searchParams.set("scope", scopes.join(" "));
+      authUrl.searchParams.set("state", state);
+
+      return { providerName, authUrl: authUrl.toString(), state };
+    }
+
+    throw new BadRequestException(`Provider ${providerName} not yet supported for social OAuth.`);
+  }
+
+  private linkedinRedirectUri() {
+    return `${this.configService.get<string>("API_BASE_URL")}/connectors/callback/linkedin`;
+  }
+
   async completeEmailOAuth(input: {
     state?: string;
     code?: string;
@@ -694,21 +817,45 @@ export class ConnectorsService {
         typeof metadata["oauthReturnTo"] === "string"
           ? metadata["oauthReturnTo"]
           : undefined;
+      const providerName =
+        typeof metadata["oauthProvider"] === "string"
+          ? (metadata["oauthProvider"] as "outlook" | "gmail")
+          : "outlook";
+
       if (!codeVerifier) {
         throw new Error("Missing PKCE verifier for OAuth completion.");
       }
 
-      const tokenResult = await this.exchangeMicrosoftCode(
-        input.code,
-        codeVerifier,
-      );
-      const credentials = {
-        accessToken: tokenResult.access_token,
-        refreshToken: tokenResult.refresh_token,
-        expiresAt: tokenResult.expires_in
-          ? new Date(Date.now() + tokenResult.expires_in * 1000).toISOString()
-          : undefined,
-      };
+      let credentials;
+      let testResult;
+
+      if (providerName === "gmail") {
+        const tokenResult = await this.exchangeGoogleCode(input.code, codeVerifier);
+        credentials = {
+          accessToken: tokenResult.access_token,
+          refreshToken: tokenResult.refresh_token,
+          expiresAt: tokenResult.expires_in
+            ? new Date(Date.now() + tokenResult.expires_in * 1000).toISOString()
+            : undefined,
+        };
+        testResult = await this.gmailProvider.test({
+          accessToken: credentials.accessToken,
+          refreshToken: credentials.refreshToken,
+        });
+      } else {
+        const tokenResult = await this.exchangeMicrosoftCode(input.code, codeVerifier);
+        credentials = {
+          accessToken: tokenResult.access_token,
+          refreshToken: tokenResult.refresh_token,
+          expiresAt: tokenResult.expires_in
+            ? new Date(Date.now() + tokenResult.expires_in * 1000).toISOString()
+            : undefined,
+        };
+        testResult = await this.outlookProvider.test({
+          accessToken: credentials.accessToken,
+          refreshToken: credentials.refreshToken,
+        });
+      }
 
       await prisma.connectorCredential.upsert({
         where: { userConnectorId: connector.id },
@@ -716,24 +863,15 @@ export class ConnectorsService {
           userConnectorId: connector.id,
           credentialType: "oauth2_token",
           encryptedData: JSON.stringify(credentials),
-          expiresAt: credentials.expiresAt
-            ? new Date(credentials.expiresAt)
-            : null,
+          expiresAt: credentials.expiresAt ? new Date(credentials.expiresAt) : null,
           refreshStatus: "ready",
         },
         update: {
           encryptedData: JSON.stringify(credentials),
-          expiresAt: credentials.expiresAt
-            ? new Date(credentials.expiresAt)
-            : null,
+          expiresAt: credentials.expiresAt ? new Date(credentials.expiresAt) : null,
           lastRefreshedAt: new Date(),
           refreshStatus: "ready",
         },
-      });
-
-      const testResult = await this.outlookProvider.test({
-        accessToken: credentials.accessToken,
-        refreshToken: credentials.refreshToken,
       });
 
       await prisma.userConnector.update({
@@ -744,14 +882,14 @@ export class ConnectorsService {
           errorMessage: null,
           metadataJson: this.toJson({
             emailAddress: testResult.emailAddress,
-            oauthProvider: "outlook",
+            oauthProvider: providerName,
           }),
         },
       });
 
       return this.oauthResultHtml({
         success: true,
-        provider: "outlook",
+        provider: providerName,
         emailAddress: testResult.emailAddress ?? undefined,
         returnTo,
       });
@@ -775,6 +913,133 @@ export class ConnectorsService {
         provider: "outlook",
         error:
           error instanceof Error ? error.message : "OAuth completion failed",
+        returnTo:
+          typeof connectorMetadata["oauthReturnTo"] === "string"
+            ? connectorMetadata["oauthReturnTo"]
+            : undefined,
+      });
+    }
+  }
+
+  async completeSocialOAuth(input: {
+    provider: "linkedin" | "hubspot" | "shopify" | "salesforce";
+    state?: string;
+    code?: string;
+    error?: string;
+    errorDescription?: string;
+  }) {
+    if (input.error) {
+      return this.oauthResultHtml({
+        success: false,
+        provider: "outlook",
+        error: input.errorDescription || input.error,
+      });
+    }
+    if (!input.state || !input.code) {
+      return this.oauthResultHtml({
+        success: false,
+        provider: "outlook",
+        error: "Missing OAuth state or authorization code.",
+      });
+    }
+
+    const connector = await prisma.userConnector.findFirst({
+      where: {
+        metadataJson: { path: ["oauthState"], equals: input.state },
+      },
+      include: {
+        capabilityProvider: true,
+        connectorCredentials: true,
+      },
+    });
+
+    if (!connector) {
+      return this.oauthResultHtml({
+        success: false,
+        provider: "outlook",
+        error: "OAuth session was not found or has expired.",
+      });
+    }
+
+    const connectorMetadata = this.jsonObject(connector.metadataJson);
+
+    try {
+      let credentials;
+      let testResult;
+
+      if (input.provider === "linkedin") {
+        const tokenResult = await this.exchangeLinkedInCode(input.code);
+        credentials = {
+          accessToken: tokenResult.access_token,
+          refreshToken: tokenResult.refresh_token,
+          expiresAt: tokenResult.expires_in
+            ? new Date(Date.now() + tokenResult.expires_in * 1000).toISOString()
+            : undefined,
+        };
+        // LinkedIn Profile verification
+        const profileRes = await fetch("https://api.linkedin.com/v2/userinfo", {
+          headers: { Authorization: `Bearer ${credentials.accessToken}` },
+        });
+        const profile = await profileRes.json();
+        testResult = { 
+          emailAddress: profile.email || profile.sub,
+          fullName: profile.name || `${profile.given_name} ${profile.family_name}`.trim()
+        };
+
+        // Update User Profile with LinkedIn Name
+        if (testResult.fullName) {
+          await prisma.user.update({
+            where: { id: connector.userId },
+            data: { fullName: testResult.fullName },
+          });
+        }
+      } else {
+        throw new Error(`Provider ${input.provider} callback not yet implemented.`);
+      }
+
+      await this.saveCredentials(connector.id, credentials);
+
+      await prisma.userConnector.update({
+        where: { id: connector.id },
+        data: {
+          status: ConnectorStatus.connected,
+          lastSuccessAt: new Date(),
+          errorMessage: null,
+          metadataJson: this.toJson({
+            ...connectorMetadata,
+            emailAddress: testResult.emailAddress,
+          }),
+        },
+      });
+
+      return this.oauthResultHtml({
+        success: true,
+        provider: "outlook",
+        emailAddress: testResult.emailAddress,
+        fullName: testResult.fullName,
+        returnTo:
+          typeof connectorMetadata["oauthReturnTo"] === "string"
+            ? connectorMetadata["oauthReturnTo"]
+            : undefined,
+      });
+    } catch (error) {
+      console.error(`Social OAuth completion error (${input.provider}):`, error);
+
+      await prisma.userConnector
+        .update({
+          where: { id: connector.id },
+          data: {
+            status: ConnectorStatus.error,
+            errorMessage:
+              error instanceof Error ? error.message : "OAuth completion failed",
+          },
+        })
+        .catch(() => null);
+
+      return this.oauthResultHtml({
+        success: false,
+        provider: "outlook",
+        error: error instanceof Error ? error.message : "OAuth completion failed",
         returnTo:
           typeof connectorMetadata["oauthReturnTo"] === "string"
             ? connectorMetadata["oauthReturnTo"]
@@ -1380,14 +1645,19 @@ export class ConnectorsService {
     return { capability, provider };
   }
 
-  private async ensureSocialProvider(providerName: "github") {
+  private async ensureSocialProvider(providerName: "github" | "linkedin") {
     const capability = await prisma.capability.upsert({
       where: { capabilityType: CapabilityType.social },
       create: {
         capabilityType: CapabilityType.social,
-        name: "Social & Developer Networks",
-        description: "Ingest technical identity and engagement signals.",
-        supportedFeaturesJson: this.toJson(["profile_sync", "signal_sensing"]),
+        name: "Social & Professional Networks",
+        description: "Connect and sync professional network data.",
+        supportedFeaturesJson: this.toJson([
+          "sync",
+          "profile",
+          "connections",
+          "signal_sensing",
+        ]),
         workflowRoles: ["IDENTITY", "SIGNAL", "STRATEGIC"],
       },
       update: {
@@ -1404,14 +1674,16 @@ export class ConnectorsService {
       create: {
         capabilityId: capability.id,
         providerName,
-        displayName: providerName === "github" ? "GitHub" : "Social Provider",
+        displayName: providerName === "github" ? "GitHub" : "LinkedIn",
         description:
           providerName === "github"
             ? "GitHub developer network integration"
-            : "Social integration",
+            : "LinkedIn professional network integration",
         authType: "oauth2",
         requiredScopesJson: this.toJson(
-          providerName === "github" ? ["read:user", "repo"] : [],
+          providerName === "github"
+            ? ["read:user", "repo"]
+            : ["openid", "profile", "email"],
         ),
       },
       update: { isActive: true },
@@ -1578,6 +1850,39 @@ export class ConnectorsService {
     return `${baseUrl.replace(/\/$/, "")}/connectors/email/oauth/callback`;
   }
 
+  private async exchangeGoogleCode(code: string, codeVerifier: string) {
+    const clientId = this.configService.get<string>("GOOGLE_CLIENT_ID");
+    if (!clientId) {
+      throw new Error("Google OAuth is not configured. Set GOOGLE_CLIENT_ID first.");
+    }
+    const clientSecret = this.configService.get<string>("GOOGLE_CLIENT_SECRET");
+    if (!clientSecret) {
+      throw new Error("Google OAuth secret is not configured. Set GOOGLE_CLIENT_SECRET first.");
+    }
+
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: this.googleRedirectUri(),
+      code_verifier: codeVerifier,
+    });
+
+    const response = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+
+    const payload = (await response.json().catch(() => null)) as Record<string, any> | null;
+    if (!response.ok) {
+      throw new Error(payload?.error_description || payload?.error || "Google code exchange failed");
+    }
+
+    return payload as { access_token: string; refresh_token: string; expires_in: number };
+  }
+
   private async exchangeMicrosoftCode(code: string, codeVerifier: string) {
     const clientId = this.configService.get<string>("MICROSOFT_CLIENT_ID");
     if (!clientId) {
@@ -1630,10 +1935,43 @@ export class ConnectorsService {
     };
   }
 
+  private async exchangeLinkedInCode(code: string) {
+    const clientId = this.configService.get<string>("LINKEDIN_CLIENT_ID");
+    if (!clientId) {
+      throw new Error("LinkedIn OAuth is not configured. Set LINKEDIN_CLIENT_ID first.");
+    }
+    const clientSecret = this.configService.get<string>("LINKEDIN_CLIENT_SECRET");
+    if (!clientSecret) {
+      throw new Error("LinkedIn OAuth secret is not configured. Set LINKEDIN_CLIENT_SECRET first.");
+    }
+
+    const body = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: this.linkedinRedirectUri(),
+    });
+
+    const response = await fetch("https://www.linkedin.com/oauth/v2/accessToken", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+
+    const payload = (await response.json().catch(() => null)) as Record<string, any> | null;
+    if (!response.ok) {
+      throw new Error(payload?.error_description || payload?.error || "LinkedIn code exchange failed");
+    }
+
+    return payload as { access_token: string; refresh_token: string; expires_in: number };
+  }
+
   private oauthResultHtml(input: {
     success: boolean;
     provider: "outlook";
     emailAddress?: string;
+    fullName?: string;
     error?: string;
     returnTo?: string;
   }) {
@@ -1642,6 +1980,7 @@ export class ConnectorsService {
       provider: input.provider,
       success: input.success,
       emailAddress: input.emailAddress ?? null,
+      fullName: input.fullName ?? null,
       error: input.error ?? null,
     });
 

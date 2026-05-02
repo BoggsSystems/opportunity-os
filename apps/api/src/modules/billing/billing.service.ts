@@ -62,13 +62,13 @@ export class BillingService {
   private readonly stripeApiBase = "https://api.stripe.com/v1";
   private readonly defaultSuccessUrl =
     process.env["BILLING_SUCCESS_URL"] ||
-    "http://localhost:5174/?billing=success";
+    "http://localhost:5173/?billing=success";
   private readonly defaultCancelUrl =
     process.env["BILLING_CANCEL_URL"] ||
-    "http://localhost:5174/?billing=cancelled";
+    "http://localhost:5173/?billing=cancelled";
   private readonly defaultPortalReturnUrl =
     process.env["BILLING_PORTAL_RETURN_URL"] ||
-    "http://localhost:5174/?billing=portal";
+    "http://localhost:5173/?billing=portal";
 
   constructor(
     private readonly commercialService: CommercialService,
@@ -216,7 +216,7 @@ export class BillingService {
           : "missing_stripe_secret_key",
         checkoutUrl: this.withQuery(
           process.env["BILLING_LOCAL_CHECKOUT_URL"] ||
-            "http://localhost:5174/billing/local-checkout",
+            "http://localhost:5173/billing/local-checkout",
           {
             plan: plan.code,
             interval,
@@ -277,7 +277,7 @@ export class BillingService {
         reason: "missing_stripe_secret_key",
         portalUrl: this.withQuery(
           process.env["BILLING_LOCAL_PORTAL_URL"] ||
-            "http://localhost:5174/billing/local-portal",
+            "http://localhost:5173/billing/local-portal",
           {
             customer: billingCustomer.providerCustomerId,
           },

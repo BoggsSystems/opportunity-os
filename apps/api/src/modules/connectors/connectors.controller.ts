@@ -81,6 +81,36 @@ export class ConnectorsController {
     res.send(html);
   }
 
+  @Get('social/oauth/start')
+  async startSocialOAuth(
+    @Query('provider') provider: 'linkedin' | 'hubspot' | 'shopify' | 'salesforce',
+    @Query('returnTo') returnTo: string | undefined,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.startSocialOAuth(user.id, provider, returnTo);
+  }
+
+  @Get('callback/linkedin')
+  async completeLinkedInOAuth(
+    @Query('state') state: string | undefined,
+    @Query('code') code: string | undefined,
+    @Query('error') error: string | undefined,
+    @Query('error_description') errorDescription: string | undefined,
+    @Res() res: Response,
+  ) {
+    // We'll reuse the completeEmailOAuth logic style but for LinkedIn
+    const html = await this.connectorsService.completeSocialOAuth({
+      provider: 'linkedin',
+      state,
+      code,
+      error,
+      errorDescription,
+    });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  }
+
   @Post(':id/test')
   async test(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
     if (!user?.id) throw new UnauthorizedException('No authenticated user found');

@@ -17,10 +17,17 @@ export class RetentionOrchestrator {
   ) {}
 
   /**
-   * Scans the database for users who have stalled in their onboarding
-   * and generates personalized nudges for them.
+   * Main entry point for engagement scans.
    */
-  async processRetentionQueue() {
+  async processAllRetentionQueues() {
+    await this.processOnboardingRetention();
+    await this.processChurnDeflection();
+  }
+
+  /**
+   * Scans for users who have stalled in their onboarding.
+   */
+  async processOnboardingRetention() {
     this.logger.log('Scanning for retention opportunities...');
 
     // 1. Trigger: Campaign created but no CRM/Email connected (Stalled)
@@ -106,6 +113,90 @@ export class RetentionOrchestrator {
       sourceType: 'retention_nudge',
       sourceId: campaign.id,
       metadata: { campaignId: campaign.id }
+    });
+  }
+
+  /**
+   * 🛡️ CHURN DEFLECTOR: Detects trials nearing expiration and offers incentives.
+   */
+  async processChurnDeflection() {
+    this.logger.log('Scanning for churn deflection opportunities...');
+    const now = this.systemDateService.now();
+    const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    const fourDaysFromNow = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000);
+
+    const expiringTrials = await prisma.subscription.findMany({
+      where: {
+        status: 'trialing',
+        currentPeriodEnd: {
+          gte: threeDaysFromNow,
+          lte: fourDaysFromNow,
+        },
+        user: {
+          engagementLogs: {
+            none: {
+              nudgeType: 'churn_deflector_save_offer',
+            }
+          }
+        }
+      },
+      include: {
+        user: true,
+        plan: true,
+      },
+    });
+
+    this.logger.log(`Found ${expiringTrials.length} trials expiring in ~3 days.`);
+
+    for (const sub of expiringTrials) {
+      try {
+        await this.nudgeExpiringTrial(sub);
+      } catch (error) {
+        this.logger.error(`Failed to nudge expiring trial for user ${sub.userId}:`, error);
+      }
+    }
+  }
+
+  private async nudgeExpiringTrial(sub: any) {
+    const user = sub.user;
+    const plan = sub.plan;
+
+    const prompt = `
+      A user named ${user.fullName || 'there'} is on a 14-day trial of our '${plan.name}' plan, which expires in 3 days.
+      They haven't upgraded to a paid plan yet.
+      Write a 2-sentence "Save" offer to prevent them from churning.
+      The offer should include a simulated 50% discount for their first month if they upgrade in the next 48 hours.
+      Tone: Urgent, generous, and value-driven.
+    `.trim();
+
+    const offerContent = await this.aiService.generateText(prompt, {
+      temperature: 0.7,
+      maxTokens: 150,
+    }, user.id);
+
+    this.logger.log(`Generated Churn Deflector offer for ${user.email}: "${offerContent}"`);
+
+    await this.notificationOrchestrator.notify({
+      userId: user.id,
+      eventKey: 'billing.trial_expiring_offer',
+      subject: `Exclusive offer: Stay with ${plan.name} for 50% off`,
+      body: offerContent,
+      metadata: { 
+        planId: plan.id, 
+        expirationDate: sub.currentPeriodEnd 
+      }
+    });
+
+    await prisma.userEngagementLog.create({
+      data: {
+        userId: user.id,
+        nudgeType: 'churn_deflector_save_offer',
+        strategyVersion: 'v1-discount-offer',
+        metadataJson: { 
+          planId: plan.id,
+          generatedContent: offerContent
+        },
+      },
     });
   }
 }

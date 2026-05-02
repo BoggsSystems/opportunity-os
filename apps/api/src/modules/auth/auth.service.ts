@@ -54,6 +54,7 @@ export class AuthService {
     providerId: string;
     accessToken?: string;
     refreshToken?: string;
+    picture?: string;
     guestSessionId?: string;
     initialStrategy?: any;
   }) {
@@ -83,6 +84,14 @@ export class AuthService {
           refreshToken: profile.refreshToken || credential.refreshToken,
         }
       });
+      
+      // Update user avatar if provided
+      if (profile.picture) {
+        await prisma.user.update({
+          where: { id: credential.authenticationIdentity.userId },
+          data: { avatarUrl: profile.picture }
+        });
+      }
       
       // User exists, log them in
       const refreshToken = this.tokenService.generateOpaqueToken();
@@ -123,6 +132,7 @@ export class AuthService {
             fullName:
               `${profile.firstName || ""} ${profile.lastName || ""}`.trim() ||
               null,
+            avatarUrl: profile.picture || null,
             emailVerifiedAt: new Date(), // Google emails are verified
           },
         });
@@ -1300,6 +1310,7 @@ export class AuthService {
       id: string;
       email: string;
       fullName: string | null;
+      avatarUrl: string | null;
       timezone: string | null;
       emailVerifiedAt: Date | null;
       isActive: boolean;
@@ -1334,6 +1345,7 @@ export class AuthService {
     id: string;
     email: string;
     fullName: string | null;
+    avatarUrl: string | null;
     timezone: string | null;
     emailVerifiedAt?: Date | null;
     isActive: boolean;
@@ -1342,6 +1354,7 @@ export class AuthService {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
+      avatarUrl: user.avatarUrl,
       timezone: user.timezone,
       emailVerifiedAt: user.emailVerifiedAt ?? null,
       isActive: user.isActive,

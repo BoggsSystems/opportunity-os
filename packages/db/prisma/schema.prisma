@@ -722,6 +722,7 @@ model User {
   id              String    @id @default(uuid()) @db.Uuid
   email           String    @unique
   fullName        String?
+  avatarUrl       String?
   timezone        String?
   emailVerifiedAt DateTime?
   lastLoginAt     DateTime?

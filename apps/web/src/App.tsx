@@ -1243,6 +1243,73 @@ export function App() {
     }
   }
 
+  async function connectHubSpot(token: string) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      await api.setupSocialConnector({
+        providerName: 'hubspot' as any,
+        accessToken: token
+      });
+      setNotice({ title: 'HubSpot connected', detail: 'CRM data is being synchronized.', tone: 'success' });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'HubSpot connect failed',
+        detail: error instanceof Error ? error.message : 'Failed to connect HubSpot.',
+        tone: 'error'
+      });
+      throw error;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function connectShopify(storeName: string, token: string) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      await api.setupCommerceConnector({
+        providerName: 'shopify',
+        storeName,
+        accessToken: token
+      });
+      setNotice({ title: 'Shopify connected', detail: 'Commerce data is being synchronized.', tone: 'success' });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Shopify connect failed',
+        detail: error instanceof Error ? error.message : 'Failed to connect Shopify.',
+        tone: 'error'
+      });
+      throw error;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function connectSalesforce(token: string) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      await api.setupSocialConnector({
+        providerName: 'salesforce' as any,
+        accessToken: token
+      });
+      setNotice({ title: 'Salesforce connected', detail: 'Salesforce data is being synchronized.', tone: 'success' });
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'Salesforce connect failed',
+        detail: error instanceof Error ? error.message : 'Failed to connect Salesforce.',
+        tone: 'error'
+      });
+      throw error;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   async function startGmailOAuth() {
     setIsWorking(true);
     setNotice(null);
@@ -1301,6 +1368,78 @@ export function App() {
       setNotice({
         title: 'Gmail connect failed',
         detail: error instanceof Error ? error.message : 'The Google login flow could not be completed.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function startLinkedInOAuth() {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      // For social OAuth, we use a slightly different endpoint pattern
+      const start = await api.get(`/connectors/social/oauth/start?provider=linkedin&returnTo=${encodeURIComponent(window.location.origin)}`);
+      const callbackOrigin = new URL(api.baseUrl).origin;
+      const popup = window.open(start.authUrl, 'opportunity-os-linkedin-oauth', 'width=560,height=760');
+      if (!popup) {
+        throw new Error('The OAuth popup was blocked by the browser.');
+      }
+
+      const result = await new Promise<{ success: boolean; emailAddress?: string | null; fullName?: string | null; error?: string | null }>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          cleanup();
+          reject(new Error('Timed out waiting for LinkedIn login to complete.'));
+        }, 120000);
+
+        function cleanup() {
+          window.clearTimeout(timeout);
+          window.removeEventListener('message', onMessage);
+          popup?.close();
+        }
+
+        function onMessage(event: MessageEvent) {
+          if (event.origin !== callbackOrigin) return;
+          const data = event.data as { type?: string; provider?: string; success?: boolean; emailAddress?: string | null; fullName?: string | null; error?: string | null };
+          // For now, the backend might be sending 'outlook' as a default provider in the response HTML, but the type 'opportunity-os-oauth' is key
+          if (data?.type !== 'opportunity-os-oauth') return;
+
+          cleanup();
+          const resolved: { success: boolean; emailAddress?: string | null; fullName?: string | null; error?: string | null } = {
+            success: data.success === true,
+          };
+          if (data.emailAddress !== undefined) resolved.emailAddress = data.emailAddress;
+          if (data.fullName !== undefined) resolved.fullName = data.fullName;
+          if (data.error !== undefined) resolved.error = data.error;
+          resolve(resolved);
+        }
+
+        window.addEventListener('message', onMessage);
+      });
+
+      if (!result.success) {
+        throw new Error(result.error ?? 'LinkedIn login did not complete successfully.');
+      }
+
+      setNotice({
+        title: 'LinkedIn connected',
+        detail: 'Your professional identity has been verified.',
+        tone: 'success',
+      });
+
+      if (result.fullName && session?.user) {
+        setSession({
+          ...session,
+          user: { ...session.user, fullName: result.fullName }
+        });
+      }
+
+      await loadWorkspace();
+    } catch (error) {
+      setNotice({
+        title: 'LinkedIn connect failed',
+        detail: error instanceof Error ? error.message : 'The LinkedIn login flow could not be completed.',
         tone: 'error',
       });
     } finally {
@@ -1457,6 +1596,10 @@ export function App() {
           onAuth={handleAuth}
           onConnectOutlook={startOutlookOAuth}
           onConnectGmail={startGmailOAuth}
+          onConnectLinkedIn={startLinkedInOAuth}
+          onConnectHubSpot={connectHubSpot}
+          onConnectShopify={connectShopify}
+          onConnectSalesforce={connectSalesforce}
           onSyncEmail={syncEmail}
         />
       );
@@ -1589,6 +1732,11 @@ export function App() {
           emailReadiness={emailReadiness}
           onComplete={handleOnboardingComplete} 
           onConnectOutlook={startOutlookOAuth}
+          onConnectGmail={startGmailOAuth}
+          onConnectLinkedIn={startLinkedInOAuth}
+          onConnectHubSpot={connectHubSpot}
+          onConnectShopify={connectShopify}
+          onConnectSalesforce={connectSalesforce}
           onSyncEmail={syncEmail}
           isWorking={isWorking}
           notice={notice}

@@ -1057,7 +1057,7 @@ export class CommercialService {
     if (milestoneType === ReferralMilestoneType.paid_conversion) {
       return {
         rewardType: RewardType.ai_usage_credit,
-        featureKey: "ai_requests",
+        featureKey: "AI_CREDITS_MONTHLY",
         quantity: 100, // High-value reward for real revenue
         expiresAt,
       };
