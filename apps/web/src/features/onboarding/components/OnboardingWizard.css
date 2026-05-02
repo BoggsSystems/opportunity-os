@@ -587,6 +587,88 @@
   width: 100%;
 }
 
+/* Social Auth in Identity Phase */
+.auth-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--os-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin: 8px 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--os-gray-border);
+}
+
+.social-auth-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.google-button,
+.microsoft-button,
+.linkedin-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 44px;
+  width: 100%;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--os-gray-border);
+  background: white;
+  color: var(--os-navy);
+}
+
+.google-button:hover,
+.microsoft-button:hover,
+.linkedin-button:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.google-button img,
+.linkedin-button img {
+  width: 18px;
+  height: 18px;
+}
+
+.microsoft-mark {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px;
+  width: 16px;
+}
+
+.microsoft-mark span {
+  width: 7px;
+  height: 7px;
+}
+
+.microsoft-mark span:nth-child(1) { background: #f25022; }
+.microsoft-mark span:nth-child(2) { background: #7fbb00; }
+.microsoft-mark span:nth-child(3) { background: #00a1f1; }
+.microsoft-mark span:nth-child(4) { background: #ffbb00; }
+
 .provider-selection-container {
   display: flex;
   flex-direction: column;
@@ -641,6 +723,23 @@
   flex-shrink: 0;
   background: #fff;
   border: 1px solid #e2e8f0;
+  overflow: visible; /* Allow check to pop out */
+}
+
+.provider-brand-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.microsoft-mark.compact {
+  width: 14px;
+  gap: 1.5px;
+}
+
+.microsoft-mark.compact span {
+  width: 6px;
+  height: 6px;
 }
 
 .provider-check {

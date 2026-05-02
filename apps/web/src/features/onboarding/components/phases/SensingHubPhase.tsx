@@ -4,9 +4,11 @@ import { useOnboarding } from '../OnboardingContext';
 
 export const SensingHubPhase: React.FC = () => {
   const { 
-    connectedProviders, setConnectedProviders, 
+    connectedProviders, setConnectedProviders, providerStatuses,
     setCurrentStep, startSequentialSensing, uploadStatus, 
-    onConnectLinkedIn, nextStep 
+    onConnectLinkedIn, onConnectGmail, onConnectOutlook,
+    onConnectHubSpot, onConnectShopify, onConnectSalesforce,
+    nextStep 
   } = useOnboarding();
 
   const handleToggle = (id: string) => {
@@ -16,9 +18,43 @@ export const SensingHubPhase: React.FC = () => {
   };
 
   const PROVIDERS = [
-    { id: 'linkedin', name: 'LinkedIn', icon: Users },
-    { id: 'google', name: 'Google', icon: Globe },
-    { id: 'microsoft', name: 'Outlook', icon: Network },
+    { 
+      id: 'linkedin', 
+      name: 'LinkedIn', 
+      icon: 'https://cdn-icons-png.flaticon.com/512/174/174857.png',
+      onConnect: onConnectLinkedIn 
+    },
+    { 
+      id: 'google', 
+      name: 'Google', 
+      icon: 'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
+      onConnect: onConnectGmail 
+    },
+    { 
+      id: 'microsoft', 
+      name: 'Outlook', 
+      icon: 'https://upload.wikimedia.org/wikipedia/commons/4/44/Microsoft_logo.svg', // Placeholder for branded mark
+      isMicrosoft: true,
+      onConnect: onConnectOutlook 
+    },
+    { 
+      id: 'hubspot', 
+      name: 'HubSpot', 
+      icon: 'https://upload.wikimedia.org/wikipedia/commons/3/3f/HubSpot_Logo.svg',
+      onConnect: () => onConnectHubSpot?.('') 
+    },
+    { 
+      id: 'shopify', 
+      name: 'Shopify', 
+      icon: 'https://upload.wikimedia.org/wikipedia/commons/0/0e/Shopify_logo_2018.svg',
+      onConnect: () => onConnectShopify?.('', '') 
+    },
+    { 
+      id: 'salesforce', 
+      name: 'Salesforce', 
+      icon: 'https://upload.wikimedia.org/wikipedia/commons/f/f9/Salesforce.com_logo.svg',
+      onConnect: () => onConnectSalesforce?.('') 
+    },
   ];
 
   return (
@@ -31,27 +67,49 @@ export const SensingHubPhase: React.FC = () => {
 
       <div className="provider-selection-container">
         <div className="provider-grid">
-          {PROVIDERS.map((provider) => {
+          {PROVIDERS.map((provider: any) => {
             const isSelected = connectedProviders.includes(provider.id);
-            const Icon = provider.icon;
+            const status = providerStatuses[provider.id];
+            const isSyncing = status?.status === 'syncing';
+            const isCompleted = status?.status === 'completed';
             
             return (
               <div 
                 key={provider.id} 
-                className={`provider-card ${isSelected ? 'selected' : ''}`}
-                onClick={() => handleToggle(provider.id)}
+                className={`provider-card ${isSelected ? 'selected' : ''} ${isSyncing ? 'syncing' : ''} ${isCompleted ? 'completed' : ''}`}
+                onClick={() => {
+                  if (provider.onConnect) {
+                    void provider.onConnect();
+                  } else {
+                    handleToggle(provider.id);
+                  }
+                }}
               >
                 <div className="provider-icon-wrapper">
-                  <Icon size={20} />
+                  {provider.isMicrosoft ? (
+                    <span aria-hidden="true" className="microsoft-mark compact">
+                      <span /><span /><span /><span />
+                    </span>
+                  ) : (
+                    <img src={provider.icon} alt="" className="provider-brand-icon" />
+                  )}
                   {isSelected && <div className="provider-check"><CheckCircle size={10} /></div>}
                 </div>
                 <div className="provider-info">
                   <h4>{provider.name}</h4>
-                  {isSelected && (
+                  {isSyncing ? (
+                    <div className="provider-status-tag syncing">
+                      <Zap size={10} className="spin" /> <span>Sensing...</span>
+                    </div>
+                  ) : isCompleted ? (
+                    <div className="provider-status-tag completed">
+                      <CheckCircle size={10} /> <span>Sensed</span>
+                    </div>
+                  ) : isSelected ? (
                     <div className="provider-status-tag pending">
                       <Zap size={10} /> <span>Ready to sense</span>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
             );

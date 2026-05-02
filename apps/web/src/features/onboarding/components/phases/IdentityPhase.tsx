@@ -85,12 +85,63 @@ export const IdentityPhase: React.FC = () => {
                 Password
                 <input value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} type="password" />
               </label>
-              <button className="onboarding-btn-primary account-submit" disabled={isAnyWorking || !accountEmail || !accountPassword} type="submit">
-                {isAnyWorking ? 'Creating Workspace...' : 'Create Account and Continue'} <ArrowRight size={18} />
-              </button>
-              <button className="onboarding-btn-secondary account-test-user" disabled={isAnyWorking} onClick={useGeneratedAccount} type="button">
-                Generate Test User
-              </button>
+              <div className="auth-actions">
+                <button className="onboarding-btn-primary account-submit" disabled={isAnyWorking || !accountEmail || !accountPassword} type="submit">
+                  {isAnyWorking ? 'Creating Workspace...' : 'Create Account and Continue'} <ArrowRight size={18} />
+                </button>
+                <div className="auth-divider">
+                  <span>or</span>
+                </div>
+                <div className="social-auth-grid">
+                  <button 
+                    className="google-button" 
+                    type="button"
+                    onClick={() => {
+                      const url = new URL(`${api.baseUrl}/auth/google`);
+                      const guestId = localStorage.getItem('guestSessionId');
+                      if (guestId) url.searchParams.append('guestSessionId', guestId);
+                      window.location.href = url.toString();
+                    }}
+                  >
+                    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" />
+                    Continue with Google
+                  </button>
+                  <button 
+                    className="linkedin-button" 
+                    type="button"
+                    onClick={() => {
+                      const url = new URL(`${api.baseUrl}/auth/linkedin`);
+                      const guestId = localStorage.getItem('guestSessionId');
+                      if (guestId) url.searchParams.append('guestSessionId', guestId);
+                      window.location.href = url.toString();
+                    }}
+                  >
+                    <img src="https://cdn-icons-png.flaticon.com/512/174/174857.png" alt="" />
+                    Continue with LinkedIn
+                  </button>
+                  <button
+                    className="microsoft-button"
+                    type="button"
+                    onClick={() => {
+                      const url = new URL(`${api.baseUrl}/auth/microsoft`);
+                      const guestId = localStorage.getItem('guestSessionId');
+                      if (guestId) url.searchParams.append('guestSessionId', guestId);
+                      window.location.href = url.toString();
+                    }}
+                  >
+                    <span aria-hidden="true" className="microsoft-mark">
+                      <span />
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    Continue with Microsoft
+                  </button>
+                </div>
+                <button className="onboarding-btn-secondary account-test-user" disabled={isAnyWorking} onClick={useGeneratedAccount} type="button">
+                  Generate Test User
+                </button>
+              </div>
             </form>
           </>
         )}
