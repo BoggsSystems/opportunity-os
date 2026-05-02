@@ -1380,7 +1380,7 @@ export function App() {
     setNotice(null);
     try {
       // For social OAuth, we use a slightly different endpoint pattern
-      const start = await api.get(`/connectors/social/oauth/start?provider=linkedin&returnTo=${encodeURIComponent(window.location.origin)}`);
+      const start = await api.get<{ authUrl: string }>(`/connectors/social/oauth/start?provider=linkedin&returnTo=${encodeURIComponent(window.location.origin)}`);
       const callbackOrigin = new URL(api.baseUrl).origin;
       const popup = window.open(start.authUrl, 'opportunity-os-linkedin-oauth', 'width=560,height=760');
       if (!popup) {

@@ -529,7 +529,29 @@ export class ApiClient {
     refreshToken?: string;
     expiresAt?: string;
   }) {
-    return this.request<EmailReadiness>('/connectors/email/setup', {
+    return this.request<any>('/connectors/email/setup', {
+      method: 'POST',
+      body: input,
+    });
+  }
+
+  async setupSocialConnector(input: {
+    providerName: 'linkedin' | 'hubspot' | 'salesforce';
+    accessToken: string;
+    refreshToken?: string;
+  }) {
+    return this.request<{ success: boolean }>('/connections/social/setup', {
+      method: 'POST',
+      body: input,
+    });
+  }
+
+  async setupCommerceConnector(input: {
+    providerName: 'shopify' | 'stripe';
+    storeName?: string;
+    accessToken: string;
+  }) {
+    return this.request<{ success: boolean }>('/connections/commerce/setup', {
       method: 'POST',
       body: input,
     });
@@ -744,6 +766,10 @@ export class ApiClient {
         createdAt: string;
       }>;
     }>(`/connections/imports/${encodeURIComponent(importId)}/connections`);
+  }
+
+  async get<T>(path: string): Promise<T> {
+    return this.request<T>(path, { method: 'GET' });
   }
 
   private async request<T>(
