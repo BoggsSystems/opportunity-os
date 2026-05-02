@@ -177,6 +177,48 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
 
   const [guestSessionId] = useState(() => crypto.randomUUID());
 
+  // --- Sync with Real Connectors ---
+  useEffect(() => {
+    if (user?.id) {
+      api.getWorkspace().then(ws => {
+        // Assuming workspace or another endpoint has connectors. 
+        // Actually, let's use listConnectors if available or just check emailReadiness
+        api.get<any[]>('/connectors').then(connectors => {
+          if (Array.isArray(connectors)) {
+            const active = connectors
+              .filter(c => c.status === 'connected' || c.status === 'syncing')
+              .map(c => {
+                const name = c.providerName;
+                if (name === 'google_oauth' || name === 'gmail' || name === 'google_calendar') return 'google';
+                if (name === 'microsoft' || name === 'outlook') return 'microsoft';
+                return name;
+              });
+            
+            setConnectedProviders(prev => {
+              const next = new Set([...prev, ...active]);
+              return Array.from(next);
+            });
+
+            const statuses: Record<string, any> = {};
+            connectors.forEach(c => {
+              const name = c.providerName;
+              let id = name;
+              if (name === 'google_oauth' || name === 'gmail' || name === 'google_calendar') id = 'google';
+              else if (name === 'microsoft' || name === 'outlook') id = 'microsoft';
+              
+              if (c.status === 'connected') {
+                statuses[id] = { status: 'completed', result: 'Verified' };
+              } else if (c.status === 'syncing') {
+                statuses[id] = { status: 'syncing', message: 'Sensing...' };
+              }
+            });
+            setProviderStatuses(prev => ({ ...prev, ...statuses }));
+          }
+        }).catch(() => null);
+      }).catch(() => null);
+    }
+  }, [user?.id, api]);
+
   // --- Persistence ---
   useEffect(() => {
     if (currentStep === 'welcome') return;
@@ -396,9 +438,31 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     handleConductorSend, seedState, setConnectedProviders, setDiscoveryCalibration, setUploadStatus,
     setActiveImportId, setWizardMessages, setSelectedCampaigns, setSelectedActionLanes,
     setCurrentActionLaneCampaignIndex, setSpotlightIndex, setGoogleSubStep, api, user,
-    onAuth, onConnectOutlook, onConnectGmail, onConnectLinkedIn,
-    onConnectHubSpot, onConnectShopify, onConnectSalesforce, onSyncEmail,
-    onComplete, setSelectedLanes, isWorking, isConductorExpanded, setIsConductorExpanded
+    onComplete, setSelectedLanes, isWorking, isConductorExpanded, setIsConductorExpanded,
+    onConnectLinkedIn: onConnectLinkedIn ? async () => {
+      await onConnectLinkedIn();
+      setConnectedProviders(prev => prev.includes('linkedin') ? prev : [...prev, 'linkedin']);
+    } : undefined,
+    onConnectGmail: onConnectGmail ? async () => {
+      await onConnectGmail();
+      setConnectedProviders(prev => prev.includes('google') ? prev : [...prev, 'google']);
+    } : undefined,
+    onConnectOutlook: onConnectOutlook ? async () => {
+      await onConnectOutlook();
+      setConnectedProviders(prev => prev.includes('microsoft') ? prev : [...prev, 'microsoft']);
+    } : undefined,
+    onConnectHubSpot: onConnectHubSpot ? async (token: string) => {
+      await onConnectHubSpot(token);
+      setConnectedProviders(prev => prev.includes('hubspot') ? prev : [...prev, 'hubspot']);
+    } : undefined,
+    onConnectShopify: onConnectShopify ? async (store: string, token: string) => {
+      await onConnectShopify(store, token);
+      setConnectedProviders(prev => prev.includes('shopify') ? prev : [...prev, 'shopify']);
+    } : undefined,
+    onConnectSalesforce: onConnectSalesforce ? async (token: string) => {
+      await onConnectSalesforce(token);
+      setConnectedProviders(prev => prev.includes('salesforce') ? prev : [...prev, 'salesforce']);
+    } : undefined,
   };
 
   return <OnboardingContext.Provider value={value}>{children}</OnboardingContext.Provider>;

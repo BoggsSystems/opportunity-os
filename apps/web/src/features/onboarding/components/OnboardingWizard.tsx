@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2, RotateCcw } from 'lucide-react';
 import { OnboardingProvider, useOnboarding, Step } from './OnboardingContext';
 import { PhaseSwitcher } from './PhaseSwitcher';
 import { ConductorChat } from '../../../components/conductor/ConductorChat';
@@ -31,13 +31,32 @@ export const OnboardingWizardContent: React.FC = () => {
   } = useOnboarding();
 
   const renderSignedInIndicator = () => {
-    if (!user) return null;
+    if (!user) {
+      return (
+        <button 
+          className="dev-reset-btn" 
+          onClick={() => { localStorage.clear(); sessionStorage.clear(); window.location.reload(); }}
+          title="Reset Onboarding State"
+        >
+          <RotateCcw size={14} /> <span>Reset</span>
+        </button>
+      );
+    }
     return (
-      <div className="signed-in-indicator">
-        <div className="signed-in-status-dot" />
-        <span className="signed-in-label">
-          Signed in as <strong>{user.fullName || user.email}</strong>
-        </span>
+      <div className="indicator-group">
+        <div className="signed-in-indicator">
+          <div className="signed-in-status-dot" />
+          <span className="signed-in-label">
+            Signed in as <strong>{user.fullName || user.email}</strong>
+          </span>
+        </div>
+        <button 
+          className="dev-reset-btn" 
+          onClick={() => { localStorage.clear(); sessionStorage.clear(); window.location.reload(); }}
+          title="Reset Onboarding State"
+        >
+          <RotateCcw size={14} /> <span>Reset</span>
+        </button>
       </div>
     );
   };

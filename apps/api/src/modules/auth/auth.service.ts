@@ -58,50 +58,189 @@ export class AuthService {
     guestSessionId?: string;
     initialStrategy?: any;
   }) {
-    const email = this.normalizeEmail(profile.email);
+    try {
+      if (!profile.email) {
+        throw new UnauthorizedException("Google profile is missing an email address");
+      }
+      const email = this.normalizeEmail(profile.email);
 
-    // 1. Check for existing Google credential
-    let credential = await prisma.credential.findUnique({
-      where: {
-        providerName_providerAccountId: {
-          providerName: "google",
-          providerAccountId: profile.providerId,
+      // 1. Check for existing Google credential
+      let credential = await prisma.credential.findUnique({
+        where: {
+          providerName_providerAccountId: {
+            providerName: "google",
+            providerAccountId: profile.providerId,
+          },
         },
-      },
-      include: {
-        authenticationIdentity: {
-          include: { user: true },
+        include: {
+          authenticationIdentity: {
+            include: { user: true },
+          },
         },
-      },
-    });
-
-    if (credential) {
-      // Update tokens
-      await prisma.credential.update({
-        where: { id: credential.id },
-        data: {
-          accessToken: profile.accessToken,
-          refreshToken: profile.refreshToken || credential.refreshToken,
-        }
       });
-      
-      // Update user avatar if provided
-      if (profile.picture) {
-        await prisma.user.update({
-          where: { id: credential.authenticationIdentity.userId },
-          data: { avatarUrl: profile.picture }
+
+      if (credential) {
+        // Update tokens
+        await prisma.credential.update({
+          where: { id: credential.id },
+          data: {
+            accessToken: profile.accessToken,
+            refreshToken: profile.refreshToken || credential.refreshToken,
+          }
+        });
+        
+        // Update user avatar if provided
+        if (profile.picture) {
+          await prisma.user.update({
+            where: { id: credential.authenticationIdentity.userId },
+            data: { avatarUrl: profile.picture }
+          });
+        }
+        
+        // User exists, log them in
+        const refreshToken = this.tokenService.generateOpaqueToken();
+        const refreshTokenHash = this.tokenService.hashOpaqueToken(refreshToken);
+        const sessionExpiresAt = this.addDays(REFRESH_TOKEN_TTL_DAYS);
+
+        const session = await prisma.authenticationSession.create({
+          data: {
+            userId: credential.authenticationIdentity.userId,
+            authenticationIdentityId: credential.authenticationIdentityId,
+            clientType: "api",
+            refreshTokenHash,
+            expiresAt: sessionExpiresAt,
+            lastUsedAt: new Date(),
+          },
+        });
+
+        return this.buildAuthResponse(
+          credential.authenticationIdentity.user,
+          credential.authenticationIdentityId,
+          session.id,
+          refreshToken,
+        );
+      }
+
+      // 2. Check if identity exists by email
+      let identity = await prisma.authenticationIdentity.findUnique({
+        where: { emailNormalized: email },
+        include: { user: true },
+      });
+
+      if (!identity) {
+        // 3. Create new user and identity if none exists
+        const result = await prisma.$transaction(async (tx) => {
+          const user = await tx.user.create({
+            data: {
+              email,
+              fullName:
+                `${profile.firstName || ""} ${profile.lastName || ""}`.trim() ||
+                null,
+              avatarUrl: profile.picture || null,
+              emailVerifiedAt: new Date(), // Google emails are verified
+            },
+          });
+
+          const newIdentity = await tx.authenticationIdentity.create({
+            data: {
+              userId: user.id,
+              email,
+              emailNormalized: email,
+              isVerified: true,
+              verifiedAt: new Date(),
+            },
+          });
+
+          // Add Google credential
+          await tx.credential.create({
+            data: {
+              authenticationIdentityId: newIdentity.id,
+              credentialType: "google_oauth" as AuthenticationCredentialType,
+              providerName: "google",
+              providerAccountId: profile.providerId,
+              accessToken: profile.accessToken,
+              refreshToken: profile.refreshToken,
+            },
+          });
+
+          // Initialize free plan
+          const freePlan = await tx.plan.findUnique({
+            where: { code: "free_explorer" },
+            include: { planFeatures: true },
+          });
+
+          if (freePlan) {
+            const now = new Date();
+            await tx.subscription.create({
+              data: {
+                userId: user.id,
+                planId: freePlan.id,
+                status: "active",
+                startedAt: now,
+                currentPeriodStart: new Date(
+                  Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+                ),
+                currentPeriodEnd: new Date(
+                  Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+                ),
+              },
+            });
+          }
+
+          // Migrate guest data if present
+          if (profile.guestSessionId) {
+            await tx.goal.updateMany({
+              where: { guestSessionId: profile.guestSessionId, userId: null },
+              data: { userId: user.id },
+            });
+            await tx.campaign.updateMany({
+              where: { guestSessionId: profile.guestSessionId, userId: null },
+              data: { userId: user.id },
+            });
+            await tx.aIConversation.updateMany({
+              where: { guestSessionId: profile.guestSessionId, userId: null },
+              data: { userId: user.id },
+            });
+          }
+
+          return { user, identity: newIdentity };
+        });
+
+        identity = { ...result.identity, user: result.user } as any;
+      } else {
+        // 4. Identity exists by email - link or update Google credential
+        await prisma.credential.upsert({
+          where: {
+            providerName_providerAccountId: {
+              providerName: "google",
+              providerAccountId: profile.providerId,
+            },
+          },
+          create: {
+            authenticationIdentityId: identity.id,
+            credentialType: "google_oauth" as AuthenticationCredentialType,
+            providerName: "google",
+            providerAccountId: profile.providerId,
+            accessToken: profile.accessToken,
+            refreshToken: profile.refreshToken,
+          },
+          update: {
+            authenticationIdentityId: identity.id,
+            accessToken: profile.accessToken,
+            refreshToken: profile.refreshToken || undefined,
+          }
         });
       }
-      
-      // User exists, log them in
+
+      // 5. Build final auth response for new or newly linked user
       const refreshToken = this.tokenService.generateOpaqueToken();
       const refreshTokenHash = this.tokenService.hashOpaqueToken(refreshToken);
       const sessionExpiresAt = this.addDays(REFRESH_TOKEN_TTL_DAYS);
 
       const session = await prisma.authenticationSession.create({
         data: {
-          userId: credential.authenticationIdentity.userId,
-          authenticationIdentityId: credential.authenticationIdentityId,
+          userId: identity.userId,
+          authenticationIdentityId: identity.id,
           clientType: "api",
           refreshTokenHash,
           expiresAt: sessionExpiresAt,
@@ -110,135 +249,15 @@ export class AuthService {
       });
 
       return this.buildAuthResponse(
-        credential.authenticationIdentity.user,
-        credential.authenticationIdentityId,
+        identity.user,
+        identity.id,
         session.id,
         refreshToken,
       );
+    } catch (error) {
+      console.error("Error in validateGoogleUser:", error);
+      throw error;
     }
-
-    // 2. Check if identity exists by email
-    let identity = await prisma.authenticationIdentity.findUnique({
-      where: { emailNormalized: email },
-      include: { user: true },
-    });
-
-    if (!identity) {
-      // 3. Create new user and identity if none exists
-      const result = await prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            email,
-            fullName:
-              `${profile.firstName || ""} ${profile.lastName || ""}`.trim() ||
-              null,
-            avatarUrl: profile.picture || null,
-            emailVerifiedAt: new Date(), // Google emails are verified
-          },
-        });
-
-        const newIdentity = await tx.authenticationIdentity.create({
-          data: {
-            userId: user.id,
-            email,
-            emailNormalized: email,
-            isVerified: true,
-            verifiedAt: new Date(),
-          },
-        });
-
-        // Add Google credential
-        await tx.credential.create({
-          data: {
-            authenticationIdentityId: newIdentity.id,
-            credentialType: "google_oauth" as AuthenticationCredentialType,
-            providerName: "google",
-            providerAccountId: profile.providerId,
-            accessToken: profile.accessToken,
-            refreshToken: profile.refreshToken,
-          },
-        });
-
-        // Initialize free plan
-        const freePlan = await tx.plan.findUnique({
-          where: { code: "free_explorer" },
-          include: { planFeatures: true },
-        });
-
-        if (freePlan) {
-          const now = new Date();
-          await tx.subscription.create({
-            data: {
-              userId: user.id,
-              planId: freePlan.id,
-              status: "active",
-              startedAt: now,
-              currentPeriodStart: new Date(
-                Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-              ),
-              currentPeriodEnd: new Date(
-                Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
-              ),
-            },
-          });
-        }
-
-        // Migrate guest data if present
-        if (profile.guestSessionId) {
-          await tx.goal.updateMany({
-            where: { guestSessionId: profile.guestSessionId, userId: null },
-            data: { userId: user.id },
-          });
-          await tx.campaign.updateMany({
-            where: { guestSessionId: profile.guestSessionId, userId: null },
-            data: { userId: user.id },
-          });
-          await tx.aIConversation.updateMany({
-            where: { guestSessionId: profile.guestSessionId, userId: null },
-            data: { userId: user.id },
-          });
-        }
-
-        return { user, identity: newIdentity };
-      });
-
-      identity = { ...result.identity, user: result.user };
-    } else {
-      // 4. Identity exists by email but no Google credential yet - link it
-      await prisma.credential.create({
-        data: {
-          authenticationIdentityId: identity.id,
-          credentialType: "google_oauth" as AuthenticationCredentialType,
-          providerName: "google",
-          providerAccountId: profile.providerId,
-          accessToken: profile.accessToken,
-          refreshToken: profile.refreshToken,
-        },
-      });
-    }
-
-    // 5. Build final auth response for new or newly linked user
-    const refreshToken = this.tokenService.generateOpaqueToken();
-    const refreshTokenHash = this.tokenService.hashOpaqueToken(refreshToken);
-    const sessionExpiresAt = this.addDays(REFRESH_TOKEN_TTL_DAYS);
-
-    const session = await prisma.authenticationSession.create({
-      data: {
-        userId: identity.userId,
-        authenticationIdentityId: identity.id,
-        clientType: "api",
-        refreshTokenHash,
-        expiresAt: sessionExpiresAt,
-        lastUsedAt: new Date(),
-      },
-    });
-
-    return this.buildAuthResponse(
-      identity.user,
-      identity.id,
-      session.id,
-      refreshToken,
-    );
   }
 
   async validateLinkedInUser(profile: {
@@ -418,7 +437,7 @@ export class AuthService {
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("redirect_uri", this.getMicrosoftCallbackUrl());
     authUrl.searchParams.set("response_mode", "query");
-    authUrl.searchParams.set("scope", "openid profile email User.Read");
+    authUrl.searchParams.set("scope", "openid profile email User.Read Calendars.Read Mail.Read Files.Read.All offline_access");
 
     if (guestSessionId) {
       authUrl.searchParams.set("state", guestSessionId);
@@ -1362,7 +1381,7 @@ export class AuthService {
   }
 
   private normalizeEmail(email: string): string {
-    return email.trim().toLowerCase();
+    return (email || "").trim().toLowerCase();
   }
 
   private addDays(days: number): Date {

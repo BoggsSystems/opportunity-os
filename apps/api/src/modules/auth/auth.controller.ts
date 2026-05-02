@@ -24,14 +24,14 @@ export class AuthController {
 
   @Public()
   @Get('google')
-  @UseGuards(PassportAuthGuard('google'))
+  @UseGuards(PassportAuthGuard('google', { session: false }))
   async googleAuth() {
     // Guards handles redirect
   }
 
   @Public()
   @Get('google/callback')
-  @UseGuards(PassportAuthGuard('google'))
+  @UseGuards(PassportAuthGuard('google', { session: false }))
   async googleAuthRedirect(@Req() req: any, @Res() res: Response) {
     const result = await this.authService.validateGoogleUser(req.user);
     
@@ -44,14 +44,14 @@ export class AuthController {
 
   @Public()
   @Get('linkedin')
-  @UseGuards(PassportAuthGuard('linkedin'))
+  @UseGuards(PassportAuthGuard('linkedin', { session: false }))
   async linkedinAuth() {
     // Guards handles redirect
   }
 
   @Public()
   @Get('linkedin/callback')
-  @UseGuards(PassportAuthGuard('linkedin'))
+  @UseGuards(PassportAuthGuard('linkedin', { session: false }))
   async linkedinAuthRedirect(@Req() req: any, @Res() res: Response) {
     const result = await this.authService.validateLinkedInUser(req.user);
     

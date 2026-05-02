@@ -55,7 +55,8 @@ export class ConnectorsService {
   ) {}
 
   async listConnectors(userId: string) {
-    const connectors = await prisma.userConnector.findMany({
+    // 1. Get existing UserConnectors
+    const existingConnectors = await prisma.userConnector.findMany({
       where: { userId },
       include: {
         capability: true,
@@ -71,7 +72,63 @@ export class ConnectorsService {
       orderBy: { updatedAt: "desc" },
     });
 
-    return connectors.map((connector) => this.toConnectorSummary(connector));
+    // 2. Check for "Login Credentials" that could be bridged (Google/Microsoft)
+    const existingProviders = new Set(existingConnectors.map(c => c.capabilityProvider.providerName));
+    
+    // Find auth credentials for this user
+    const authCredentials = await prisma.credential.findMany({
+      where: {
+        authenticationIdentity: { userId },
+        providerName: { in: ['google', 'microsoft'] },
+        accessToken: { not: null }
+      }
+    });
+
+    for (const cred of authCredentials) {
+      const providerName = cred.providerName === 'google' ? 'gmail' : 'outlook';
+      if (existingProviders.has(providerName)) continue;
+
+      // Auto-bridge: Create a UserConnector for this login
+      try {
+        const capabilityType = cred.providerName === 'google' ? CapabilityType.email : CapabilityType.email; // Simplified
+        const capability = await prisma.capability.findFirst({ where: { capabilityType } });
+        const provider = await prisma.capabilityProvider.findFirst({ 
+          where: { providerName, capabilityId: capability?.id } 
+        });
+
+        if (capability && provider) {
+          const connector = await prisma.userConnector.create({
+            data: {
+              userId,
+              capabilityId: capability.id,
+              capabilityProviderId: provider.id,
+              status: ConnectorStatus.connected,
+              connectorName: provider.displayName,
+              enabledFeaturesJson: this.toJson(["send", "sync", "reply_detection"]),
+              enabledRoles: ["IDENTITY", "SIGNAL"],
+              lastSuccessAt: new Date(),
+            }
+          });
+
+          await this.saveCredentials(connector.id, {
+            accessToken: cred.accessToken,
+            refreshToken: cred.refreshToken,
+            expiresAt: cred.expiresAt
+          });
+
+          // Add to the list we return
+          const refreshed = await prisma.userConnector.findUnique({
+            where: { id: connector.id },
+            include: { capability: true, capabilityProvider: true, connectorCredentials: true }
+          });
+          if (refreshed) existingConnectors.push(refreshed);
+        }
+      } catch (e) {
+        console.error(`Failed to auto-bridge ${cred.providerName} connector:`, e);
+      }
+    }
+
+    return existingConnectors.map((connector) => this.toConnectorSummary(connector));
   }
 
   async getEmailReadiness(userId: string) {
@@ -980,18 +1037,26 @@ export class ConnectorsService {
         const profileRes = await fetch("https://api.linkedin.com/v2/userinfo", {
           headers: { Authorization: `Bearer ${credentials.accessToken}` },
         });
-        const profile = await profileRes.json();
+        const profile = (await profileRes.json()) as any;
         testResult = { 
           emailAddress: profile.email || profile.sub,
           fullName: profile.name || `${profile.given_name} ${profile.family_name}`.trim()
         };
 
         // Update User Profile with LinkedIn Name
+        // Update User Profile with LinkedIn Name ONLY if not already set
         if (testResult.fullName) {
-          await prisma.user.update({
+          const currentUser = await prisma.user.findUnique({
             where: { id: connector.userId },
-            data: { fullName: testResult.fullName },
+            select: { fullName: true }
           });
+          
+          if (!currentUser?.fullName) {
+            await prisma.user.update({
+              where: { id: connector.userId },
+              data: { fullName: testResult.fullName },
+            });
+          }
         }
       } else {
         throw new Error(`Provider ${input.provider} callback not yet implemented.`);
@@ -1837,6 +1902,29 @@ export class ConnectorsService {
     }
   }
 
+  private async saveCredentials(userConnectorId: string, credentials: any) {
+    const expiresAt = credentials.expires_in 
+      ? new Date(Date.now() + credentials.expires_in * 1000)
+      : (credentials.expiresAt ? new Date(credentials.expiresAt) : null);
+
+    await prisma.connectorCredential.upsert({
+      where: { userConnectorId },
+      create: {
+        userConnectorId,
+        credentialType: "oauth2_token",
+        encryptedData: JSON.stringify(credentials),
+        expiresAt,
+        refreshStatus: "ready",
+      },
+      update: {
+        encryptedData: JSON.stringify(credentials),
+        expiresAt,
+        lastRefreshedAt: new Date(),
+        refreshStatus: "ready",
+      },
+    });
+  }
+
   private jsonObject(value: unknown): Record<string, unknown> {
     if (value && typeof value === "object" && !Array.isArray(value)) {
       return value as Record<string, unknown>;
@@ -1844,10 +1932,20 @@ export class ConnectorsService {
     return {};
   }
 
+  private googleRedirectUri() {
+    const configured = this.configService.get<string>("GOOGLE_CALLBACK_URL");
+    if (configured) return configured;
+    
+    const base = this.configService.get<string>("API_BASE_URL") || "http://localhost:3002";
+    return `${base.replace(/\/$/, "")}/connectors/callback/linkedin`; // Use an authorized one if we can
+  }
+
   private microsoftRedirectUri() {
-    const configured = this.configService.get<string>("API_PUBLIC_URL");
-    const baseUrl = configured || "http://localhost:3002";
-    return `${baseUrl.replace(/\/$/, "")}/connectors/email/oauth/callback`;
+    const configured = this.configService.get<string>("MICROSOFT_CALLBACK_URL");
+    if (configured) return configured;
+    
+    const base = this.configService.get<string>("API_BASE_URL") || "http://localhost:3002";
+    return `${base.replace(/\/$/, "")}/auth/microsoft/callback`;
   }
 
   private async exchangeGoogleCode(code: string, codeVerifier: string) {
@@ -1877,7 +1975,7 @@ export class ConnectorsService {
 
     const payload = (await response.json().catch(() => null)) as Record<string, any> | null;
     if (!response.ok) {
-      throw new Error(payload?.error_description || payload?.error || "Google code exchange failed");
+      throw new Error((payload as any)?.error_description || (payload as any)?.error || "Google code exchange failed");
     }
 
     return payload as { access_token: string; refresh_token: string; expires_in: number };
@@ -1961,7 +2059,7 @@ export class ConnectorsService {
 
     const payload = (await response.json().catch(() => null)) as Record<string, any> | null;
     if (!response.ok) {
-      throw new Error(payload?.error_description || payload?.error || "LinkedIn code exchange failed");
+      throw new Error((payload as any)?.error_description || (payload as any)?.error || "LinkedIn code exchange failed");
     }
 
     return payload as { access_token: string; refresh_token: string; expires_in: number };
@@ -1969,7 +2067,7 @@ export class ConnectorsService {
 
   private oauthResultHtml(input: {
     success: boolean;
-    provider: "outlook";
+    provider: "outlook" | "gmail" | "linkedin" | "hubspot" | "shopify" | "salesforce";
     emailAddress?: string;
     fullName?: string;
     error?: string;
