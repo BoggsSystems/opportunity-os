@@ -521,6 +521,25 @@ export class ApiClient {
     return this.request<EmailReadiness>('/connectors/email/readiness');
   }
 
+  async listStorageFiles(input: { provider?: string; query?: string } = {}) {
+    const params = new URLSearchParams();
+    if (input.provider) params.set('provider', input.provider);
+    if (input.query) params.set('q', input.query);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return this.request<any[]>(`/connectors/storage/files${suffix}`);
+  }
+
+  async getStorageSuggestions(provider?: string) {
+    const suffix = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+    return this.request<any[]>(`/connectors/storage/suggestions${suffix}`);
+  }
+
+  async searchStorage(query: string, provider?: string) {
+    const params = new URLSearchParams({ q: query });
+    if (provider) params.set('provider', provider);
+    return this.request<any[]>(`/connectors/storage/search?${params.toString()}`);
+  }
+
   async setupEmailConnector(input: {
     providerName: 'gmail' | 'outlook';
     connectorName?: string;
@@ -770,6 +789,10 @@ export class ApiClient {
 
   async get<T>(path: string): Promise<T> {
     return this.request<T>(path, { method: 'GET' });
+  }
+
+  async post<T>(path: string, body: any = {}): Promise<T> {
+    return this.request<T>(path, { method: 'POST', body });
   }
 
   private async request<T>(

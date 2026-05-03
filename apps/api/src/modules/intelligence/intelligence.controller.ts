@@ -1,8 +1,8 @@
-import { Controller, Get, Post, Body, UseGuards, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Body, UnauthorizedException } from '@nestjs/common';
 import { IntelligenceService } from './intelligence.service';
 import { UserPostureService } from './user-posture.service';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { AuthenticatedUser } from '../auth/auth.types';
 import { ConceptSourceType } from '@opportunity-os/db';
 
 @Controller('intelligence')
@@ -21,10 +21,10 @@ export class IntelligenceController {
   @Post('shred')
   async shredAssets(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() data: { assetIds: string[]; sourceType: ConceptSourceType }
+    @Body() data: { assetIds: string[]; sourceType: ConceptSourceType; providerName?: string; connectorId?: string }
   ) {
     if (!user?.id) throw new UnauthorizedException();
-    return this.intelligenceService.shredAssets(user.id, data.assetIds, data.sourceType);
+    return this.intelligenceService.shredAssets(user.id, data.assetIds, data.sourceType, data.providerName, data.connectorId);
   }
 
   @Post('link-proof')

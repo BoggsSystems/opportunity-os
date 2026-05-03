@@ -37,6 +37,32 @@ export class GoogleDriveProvider implements StorageProvider {
     }));
   }
 
+  async searchFiles(credentials: StorageConnectorCredentials, query: string): Promise<SyncedFile[]> {
+    const accessToken = this.requireAccessToken(credentials);
+    const driveQuery = `name contains '${query.replace(/'/g, "\\'")}' and trashed = false and mimeType != 'application/vnd.google-apps.folder'`;
+
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(driveQuery)}&fields=files(id,name,mimeType,size,webViewLink,headRevisionId,modifiedTime)&pageSize=20`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+
+    const payload = await this.readJson(response);
+    if (!response.ok) {
+      throw new Error(this.errorMessage('Google Drive search failed', response.status, payload));
+    }
+
+    return (payload?.files ?? []).map((file: any) => ({
+      externalId: file.id,
+      displayName: file.name,
+      fileName: file.name,
+      mimeType: file.mimeType,
+      sizeBytes: file.size ? Number(file.size) : undefined,
+      webViewLink: file.webViewLink,
+      versionToken: file.headRevisionId,
+      modifiedAt: new Date(file.modifiedTime),
+    }));
+  }
+
   async downloadFile(credentials: StorageConnectorCredentials, externalId: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
     const accessToken = this.requireAccessToken(credentials);
     

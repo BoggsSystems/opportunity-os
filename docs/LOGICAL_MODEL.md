@@ -817,6 +817,7 @@ Values:
 * `email_message`
 * `manual_entry`
 * `linkedin_post`
+* `connector_asset`
 * `momentum`: Stage 7 re-engagement loops
 
 ### `workflow_stage`
@@ -5009,6 +5010,114 @@ Purpose: strategic knowledge assets (resumes, bios, case studies) owned by the u
 
 ---
 
+### `connector_assets`
+
+Purpose: provider-scoped discovered file inventory used by import selection UX before durable ingest.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `user_connector_id` UUID NOT NULL FK -> `user_connectors.id`
+* `external_provider` VARCHAR NOT NULL // `google_drive`, `onedrive`, `dropbox`
+* `external_id` VARCHAR NOT NULL       // provider file identifier
+* `display_name` VARCHAR NOT NULL
+* `file_name` VARCHAR NOT NULL
+* `mime_type` VARCHAR NULL
+* `size_bytes` BIGINT NULL
+* `web_view_link` VARCHAR NULL
+* `version_token` VARCHAR NULL
+* `modified_at` TIMESTAMP NULL
+* `discovered_at` TIMESTAMP NOT NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on (`user_connector_id`, `external_id`)
+* index on (`user_id`, `user_connector_id`)
+* index on (`user_id`, `external_provider`)
+* index on (`user_id`, `discovered_at`)
+
+#### Notes
+
+* This table stores the provider-by-provider file universe for selection/checklist UX.
+* It is intentionally distinct from `user_assets`, which represents durable imported knowledge assets.
+
+---
+
+### `asset_ingestion_batches`
+
+Purpose: audit and state tracking for each multi-asset import run into intelligence.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `user_connector_id` UUID NULL FK -> `user_connectors.id`
+* `source_type` `concept_source_type` NOT NULL
+* `status` VARCHAR NOT NULL // pending, running, completed, partial, failed, cancelled
+* `provider_name` VARCHAR NULL
+* `requested_asset_count` INTEGER NOT NULL DEFAULT 0
+* `imported_count` INTEGER NOT NULL DEFAULT 0
+* `failed_count` INTEGER NOT NULL DEFAULT 0
+* `summary` TEXT NULL
+* `started_at` TIMESTAMP NULL
+* `completed_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on (`user_id`, `created_at`)
+* index on `user_connector_id`
+* index on (`status`, `created_at`)
+
+#### Notes
+
+* Batch rows make imports resumable and observable by provider and onboarding step.
+
+---
+
+### `asset_ingestion_items`
+
+Purpose: per-asset state and outcome tracking for each ingestion batch.
+
+#### Columns
+
+* `id` UUID PK
+* `batch_id` UUID NOT NULL FK -> `asset_ingestion_batches.id`
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `connector_asset_id` UUID NULL FK -> `connector_assets.id`
+* `user_asset_id` UUID NULL FK -> `user_assets.id`
+* `external_id` VARCHAR NOT NULL
+* `display_name` VARCHAR NULL
+* `status` VARCHAR NOT NULL // selected, queued, processing, imported, failed, skipped
+* `error_message` TEXT NULL
+* `concept_count` INTEGER NOT NULL DEFAULT 0
+* `proof_point_count` INTEGER NOT NULL DEFAULT 0
+* `imported_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `batch_id`
+* index on (`user_id`, `status`)
+* index on `connector_asset_id`
+* index on `user_asset_id`
+* index on `external_id`
+
+#### Notes
+
+* Item-level statuses prevent double import and make retries explicit.
+* `user_asset_id` links to durable imported assets when available.
+
+---
+
 ### `calendar_events`
 
 Purpose: future-facing scheduled outcomes linked to opportunities and providers.
@@ -5094,7 +5203,7 @@ Links concepts and proof points to their origin.
 | `target_id` | `uuid` | NOT NULL | FK to `concept.id` or `proof_point.id` |
 | `target_type` | `text` | NOT NULL | 'concept' or 'proof_point' |
 | `source_type` | `concept_source_type` | NOT NULL | |
-| `source_id` | `uuid` | NOT NULL | FK to `knowledge_asset.id`, `conversation_thread.id`, etc. |
+| `source_id` | `text` | NOT NULL | Provider IDs are not guaranteed UUID (e.g., Google Drive IDs) |
 | `created_at` | `timestamp` | NOT NULL | |
 
 ### `concept_relationships`

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { prisma } from '@opportunity-os/db';
-import { AiService } from '../../ai/ai.service';
+import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class UserPostureService {

@@ -141,27 +141,94 @@ export class IntelligenceService {
   /**
    * BULK SHREDDER: Downloads and shreds multiple assets
    */
-  async shredAssets(userId: string, assetIds: string[], sourceType: ConceptSourceType) {
+  async shredAssets(
+    userId: string,
+    assetIds: string[],
+    sourceType: ConceptSourceType,
+    providerName?: string,
+    connectorId?: string,
+  ) {
     this.logger.log(`Bulk shredding ${assetIds.length} assets for user ${userId}`);
     
+    const allFindings = { concepts: [], proofPoints: [] };
     const results = [];
+    const batch = await prisma.assetIngestionBatch.create({
+      data: {
+        userId,
+        userConnectorId: connectorId ?? null,
+        sourceType,
+        status: 'running',
+        providerName: providerName ?? null,
+        requestedAssetCount: assetIds.length,
+        startedAt: new Date(),
+      },
+    });
+
+    await prisma.assetIngestionItem.createMany({
+      data: assetIds.map((id) => ({
+        batchId: batch.id,
+        userId,
+        externalId: id,
+        status: 'queued',
+      })),
+    });
+    
     for (const id of assetIds) {
       try {
-        const { buffer, fileName, mimeType } = await this.connectorsService.downloadFile(userId, id);
-        
-        // Simple text extraction for now (we'd use a real PDF parser in prod)
-        // For demonstration, we'll assume the buffer can be converted to text if it's text-based
-        // or just pass a snippet if it's a binary (mocking the extraction)
-        const text = buffer.toString('utf8').substring(0, 10000); 
+        await prisma.assetIngestionItem.updateMany({
+          where: { batchId: batch.id, externalId: id },
+          data: { status: 'processing' },
+        });
+        const { buffer } = await this.connectorsService.downloadFile(userId, id);
+        const text = buffer.toString('utf8').substring(0, 15000); 
         
         const shredResult = await this.shredText(userId, text, { type: sourceType, id });
+        
+        allFindings.concepts.push(...shredResult.concepts);
+        allFindings.proofPoints.push(...shredResult.proofPoints);
+        
         results.push({ id, status: 'success', ...shredResult });
-      } catch (e) {
+        await prisma.assetIngestionItem.updateMany({
+          where: { batchId: batch.id, externalId: id },
+          data: {
+            status: 'imported',
+            conceptCount: shredResult.concepts.length,
+            proofPointCount: shredResult.proofPoints.length,
+            importedAt: new Date(),
+          },
+        });
+      } catch (e: any) {
         this.logger.error(`Failed to shred asset ${id}`, e);
         results.push({ id, status: 'failed', error: e.message });
+        await prisma.assetIngestionItem.updateMany({
+          where: { batchId: batch.id, externalId: id },
+          data: {
+            status: 'failed',
+            errorMessage: e.message ?? 'Unknown ingestion error',
+          },
+        });
       }
     }
-    return results;
+
+    let summary = "Assets ingested. No specific strategic concepts were extracted.";
+    if (allFindings.concepts.length > 0 || allFindings.proofPoints.length > 0) {
+      summary = await this.aiService.summarizeStrategicFindings(allFindings);
+    }
+
+    const importedCount = results.filter((r: any) => r.status === 'success').length;
+    const failedCount = results.length - importedCount;
+    await prisma.assetIngestionBatch.update({
+      where: { id: batch.id },
+      data: {
+        status: failedCount === 0 ? 'completed' : importedCount > 0 ? 'partial' : 'failed',
+        importedCount,
+        failedCount,
+        summary,
+        completedAt: new Date(),
+      },
+    });
+
+    return { batchId: batch.id, results, summary };
   }
 
   async linkConceptToProof(conceptId: string, proofPointId: string) {
@@ -184,7 +251,7 @@ export class IntelligenceService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const chatLog = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
+    const chatLog = messages.map(m => `${m.direction.toUpperCase()}: ${m.bodyText || ''}`).join('\n');
     
     // We use the same shredder logic but with a conversation source type
     return this.shredText(userId, chatLog, { 

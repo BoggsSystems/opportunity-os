@@ -124,9 +124,32 @@ export class ConnectorsController {
   }
 
   @Get('storage/suggestions')
-  async getStorageSuggestions(@CurrentUser() user?: AuthenticatedUser) {
+  async getStorageSuggestions(
+    @Query('provider') provider: string | undefined,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
     if (!user?.id) throw new UnauthorizedException('No authenticated user found');
-    return this.connectorsService.getStorageSuggestions(user.id);
+    return this.connectorsService.getStorageSuggestions(user.id, provider);
+  }
+
+  @Get('storage/files')
+  async listStorageFiles(
+    @Query('provider') provider: string | undefined,
+    @Query('q') q: string | undefined,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.listStorageFiles(user.id, provider, q);
+  }
+
+  @Get('storage/search')
+  async searchStorage(
+    @Query('q') q: string,
+    @Query('provider') provider: string | undefined,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.connectorsService.searchStorage(user.id, q, provider);
   }
 
   @Post('storage/sync')

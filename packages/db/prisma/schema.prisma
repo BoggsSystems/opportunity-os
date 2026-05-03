@@ -636,6 +636,25 @@ enum ConceptSourceType {
   email_message
   manual_entry
   linkedin_post
+  connector_asset
+}
+
+enum AssetIngestionBatchStatus {
+  pending
+  running
+  completed
+  partial
+  failed
+  cancelled
+}
+
+enum AssetIngestionItemStatus {
+  selected
+  queued
+  processing
+  imported
+  failed
+  skipped
 }
 
 enum RewardRuleType {
@@ -815,6 +834,9 @@ model User {
   concepts                     Concept[]
   proofPoints                  ProofPoint[]
   intelligenceUsage            IntelligenceUsage[]
+  connectorAssets              ConnectorAsset[]
+  assetIngestionBatches        AssetIngestionBatch[]
+  assetIngestionItems          AssetIngestionItem[]
 
   @@map("users")
 }
@@ -1212,6 +1234,7 @@ model Company {
   @@index([name])
   @@index([companyType])
   @@index([userId, companyType])
+  @@unique([userId, domain])
   @@map("companies")
 }
 
@@ -1252,6 +1275,7 @@ model Person {
   @@index([fullName])
   @@index([email])
   @@index([userId, companyId])
+  @@unique([userId, email])
   @@map("people")
 }
 
@@ -2196,10 +2220,97 @@ model UserAsset {
   rules         AssetDeploymentRule[]
   interactions  AssetInteraction[]
   campaigns     CampaignAsset[]
+  ingestionItems AssetIngestionItem[]
 
   @@index([userId])
   @@index([category])
   @@map("user_assets")
+}
+
+model ConnectorAsset {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  userConnectorId String   @db.Uuid
+  externalProvider String
+  externalId      String
+  displayName     String
+  fileName        String
+  mimeType        String?
+  sizeBytes       BigInt?
+  webViewLink     String?
+  versionToken    String?
+  modifiedAt      DateTime?
+  discoveredAt    DateTime @default(now())
+  metadataJson    Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userConnector UserConnector        @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
+  ingestionItems AssetIngestionItem[]
+
+  @@unique([userConnectorId, externalId])
+  @@index([userId, userConnectorId])
+  @@index([userId, externalProvider])
+  @@index([userId, discoveredAt])
+  @@map("connector_assets")
+}
+
+model AssetIngestionBatch {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  userId              String                   @db.Uuid
+  userConnectorId     String?                  @db.Uuid
+  sourceType          ConceptSourceType
+  status              AssetIngestionBatchStatus @default(pending)
+  providerName        String?
+  requestedAssetCount Int                      @default(0)
+  importedCount       Int                      @default(0)
+  failedCount         Int                      @default(0)
+  summary             String?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  metadataJson        Json?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userConnector UserConnector?     @relation(fields: [userConnectorId], references: [id], onDelete: SetNull)
+  items         AssetIngestionItem[]
+
+  @@index([userId, createdAt])
+  @@index([userConnectorId])
+  @@index([status, createdAt])
+  @@map("asset_ingestion_batches")
+}
+
+model AssetIngestionItem {
+  id              String                  @id @default(uuid()) @db.Uuid
+  batchId         String                  @db.Uuid
+  userId          String                  @db.Uuid
+  connectorAssetId String?                @db.Uuid
+  userAssetId     String?                 @db.Uuid
+  externalId      String
+  displayName     String?
+  status          AssetIngestionItemStatus @default(selected)
+  errorMessage    String?
+  conceptCount    Int                     @default(0)
+  proofPointCount Int                     @default(0)
+  importedAt      DateTime?
+  metadataJson    Json?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  batch         AssetIngestionBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connectorAsset ConnectorAsset?    @relation(fields: [connectorAssetId], references: [id], onDelete: SetNull)
+  userAsset     UserAsset?          @relation(fields: [userAssetId], references: [id], onDelete: SetNull)
+
+  @@index([batchId])
+  @@index([userId, status])
+  @@index([connectorAssetId])
+  @@index([userAssetId])
+  @@index([externalId])
+  @@map("asset_ingestion_items")
 }
 
 model AssetNarrative {
@@ -2500,6 +2611,8 @@ model UserConnector {
   connectorSyncStates     ConnectorSyncState[]
   capabilityExecutionLogs CapabilityExecutionLog[]
   assets                  UserAsset[]
+  connectorAssets         ConnectorAsset[]
+  assetIngestionBatches   AssetIngestionBatch[]
   calendarEvents          CalendarEvent[]
   campaignConnectors      CampaignConnector[]
 
@@ -3207,6 +3320,9 @@ model ConversationThread {
   latestIntent      String?
   nextActionSummary String?
   lastMessageAt     DateTime?
+  externalId        String?
+  subject           String?
+  participantEmails String[]
   metadataJson      Json?
   createdAt         DateTime                     @default(now())
   updatedAt         DateTime                     @updatedAt
@@ -3231,6 +3347,7 @@ model ConversationThread {
   @@index([channel])
   @@index([status])
   @@index([lastMessageAt])
+  @@unique([userId, externalId])
   @@map("conversation_threads")
 }
 
@@ -3483,7 +3600,7 @@ model IntelligenceSource {
   targetId     String            @db.Uuid
   targetType   String            // "concept" | "proof_point"
   sourceType   ConceptSourceType
-  sourceId     String            @db.Uuid
+  sourceId     String
   createdAt    DateTime          @default(now())
 
   concept      Concept?          @relation("ConceptSources", fields: [targetId], references: [id], map: "intelligence_source_concept_fk")

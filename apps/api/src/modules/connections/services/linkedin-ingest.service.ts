@@ -3,7 +3,6 @@ import AdmZip from 'adm-zip';
 import { prisma, OfferingType, OfferingStatus } from '@opportunity-os/db';
 import { ConnectionImportService } from './connection-import.service';
 import { AiService } from '../../ai/ai.service';
-import { IntelligenceService } from '../../intelligence/intelligence.service';
 
 export interface StrategicDraft {
   posture: {
@@ -23,6 +22,8 @@ export interface StrategicDraft {
   }>;
 }
 
+import { EventEmitter2 } from '@nestjs/event-emitter';
+
 @Injectable()
 export class LinkedInIngestService {
   private readonly logger = new Logger(LinkedInIngestService.name);
@@ -30,7 +31,7 @@ export class LinkedInIngestService {
   constructor(
     private readonly connectionImportService: ConnectionImportService,
     private readonly aiService: AiService,
-    private readonly intelligenceService: IntelligenceService
+    private readonly eventEmitter: EventEmitter2
   ) {}
 
   async processFullZip(buffer: Buffer, userId?: string, importId?: string): Promise<StrategicDraft & { connectionCount: number; networkTopography?: any }> {
@@ -111,17 +112,17 @@ export class LinkedInIngestService {
         await this.persistStrategicDraft(userId, draft);
         
         // 4. SHRED THE RAW CONTENT: Turn profile and positions into Concepts/ProofPoints
-        const rawText = `
-          ABOUT: ${profileData?.[0]?.Summary || ''}
-          HEADLINE: ${profileData?.[0]?.Headline || ''}
-          EXPERIENCE:
-          ${positionsData?.map(p => `${p.Title} at ${p.Company}: ${p.Description || ''}`).join('\n')}
-        `;
-        
-        this.logger.log(`Shredding raw LinkedIn text into the Strategic Vault for user: ${userId}`);
-        await this.intelligenceService.shredText(userId, rawText, { 
-          type: 'knowledge_asset', 
-          id: importId || 'linkedin_profile' 
+        this.logger.log(`Emitting linkedin.ingested event for user: ${userId}`);
+        this.eventEmitter.emit('linkedin.ingested', {
+          userId,
+          importId: importId || 'linkedin_profile',
+          about: profileData?.[0]?.Summary || '',
+          headline: profileData?.[0]?.Headline || '',
+          positions: positionsData?.map(p => ({
+            title: p.Title,
+            company: p.Company,
+            description: p.Description || ''
+          }))
         });
       }
       

@@ -65,6 +65,38 @@ export class AiService {
     return response.content;
   }
 
+  async summarizeStrategicFindings(findings: { concepts: any[], proofPoints: any[] }): Promise<string> {
+    this.logger.log('Summarizing strategic findings with AI');
+    
+    const prompt = `
+You are a High-Signal Strategic Commander. I have just "shredded" several knowledge assets (PDFs, Decks, etc.) into the user's Strategic Vault.
+I have extracted the following intelligence:
+
+CONCEPTS:
+${findings.concepts.map(c => `- ${c.title}: ${c.description}`).join('\n')}
+
+PROOF POINTS:
+${findings.proofPoints.map(p => `- ${p.title}: ${p.content}`).join('\n')}
+
+YOUR TASK:
+Provide a punchy, 2-3 sentence strategic summary for the user. 
+- Acknowledge the core thesis found in their IP.
+- Highlight the 2 most powerful leverage points identified.
+- Speak as the "Director" who is impressed and ready to weaponize this expertise.
+- Start with something like "I've synthesized your [Core Thesis]..."
+
+SUMMARY:`;
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.6,
+      maxTokens: 300,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    return response.content.trim();
+  }
+
   async generateDiscoveryQuery(context: {
     offering?: any;
     campaign?: any;

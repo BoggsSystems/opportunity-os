@@ -38,7 +38,7 @@ import { SocialProvider } from "./social/social-provider.interface";
 import { ShopifyCommerceProvider } from "./commerce/shopify-commerce.provider";
 import { CommerceProvider } from "./commerce/commerce-provider.interface";
 import { AiService } from "../ai/ai.service";
-import { IntelligenceService } from "../intelligence/intelligence.service";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 
 @Injectable()
 export class ConnectorsService {
@@ -55,19 +55,81 @@ export class ConnectorsService {
     private readonly githubProvider: GithubProvider,
     private readonly shopifyProvider: ShopifyCommerceProvider,
     private readonly aiService: AiService,
-    private readonly intelligenceService: IntelligenceService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async getStorageSuggestions(userId: string) {
-    const connector = await this.findConnectedConnector(userId, CapabilityType.storage);
+  async listStorageFiles(userId: string, providerName?: string, query?: string) {
+    const connector = await this.findConnectedStorageConnector(userId, providerName);
     if (!connector) return [];
+
+    const provider = this.storageProviderFor(connector.capabilityProvider.providerName);
+    const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
+    const files = query
+      ? await provider.searchFiles(credentials, query)
+      : await provider.listFiles(credentials);
+
+    await Promise.all(
+      files.map((f) =>
+        prisma.connectorAsset.upsert({
+          where: {
+            userConnectorId_externalId: {
+              userConnectorId: connector.id,
+              externalId: f.externalId,
+            },
+          },
+          create: {
+            userId,
+            userConnectorId: connector.id,
+            externalProvider: connector.capabilityProvider.providerName,
+            externalId: f.externalId,
+            displayName: f.displayName,
+            fileName: f.fileName,
+            mimeType: f.mimeType,
+            sizeBytes: f.sizeBytes ? BigInt(f.sizeBytes) : null,
+            webViewLink: f.webViewLink,
+            versionToken: f.versionToken,
+            modifiedAt: f.modifiedAt,
+            discoveredAt: new Date(),
+            metadataJson: this.toJson({ source: 'provider_scan' }),
+          },
+          update: {
+            displayName: f.displayName,
+            fileName: f.fileName,
+            mimeType: f.mimeType,
+            sizeBytes: f.sizeBytes ? BigInt(f.sizeBytes) : null,
+            webViewLink: f.webViewLink,
+            versionToken: f.versionToken,
+            modifiedAt: f.modifiedAt,
+            discoveredAt: new Date(),
+          },
+        }),
+      ),
+    );
+
+    return files.map((f) => ({
+      id: f.externalId,
+      name: f.displayName,
+      mimeType: f.mimeType,
+      modifiedAt: f.modifiedAt,
+      sizeBytes: f.sizeBytes ?? null,
+      provider: connector.capabilityProvider.providerName,
+      connectorId: connector.id,
+    }));
+  }
+
+  async getStorageSuggestions(userId: string, providerName?: string) {
+    const connector = await this.findConnectedStorageConnector(userId, providerName);
+    if (!connector) return [];
+
+    const provider = this.storageProviderFor(connector.capabilityProvider.providerName);
+    const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
 
     const files = await provider.listFiles(credentials);
 
     // Identify files that need a "peek" (generic names or high-energy candidates)
     const filesWithContext = await Promise.all(files.map(async f => {
-      const isSuspicious = /draft|untitled|copy|version|resume|book|manifesto/i.test(f.displayName) || 
-                          (f.sizeBytes && f.sizeBytes > 1024 * 1024); // > 1MB
+      const isSuspicious = /draft|untitled|copy|version|resume|book|manifesto|strategy|deck|proposal|framework|roadmap|plan|case study|whitepaper/i.test(f.displayName) || 
+                          (f.sizeBytes && f.sizeBytes > 500 * 1024); // > 500KB
 
       let snippet = "";
       if (isSuspicious) {
@@ -88,14 +150,56 @@ export class ConnectorsService {
 
     const suggestedIds = await this.aiService.identifyStrategicAssets(filesWithContext);
 
-    return files
+    const suggested = files
       .filter(f => suggestedIds.includes(f.externalId))
       .map(f => ({
         id: f.externalId,
         name: f.displayName,
         mimeType: f.mimeType,
-        modifiedAt: f.modifiedAt
+        modifiedAt: f.modifiedAt,
+        sizeBytes: f.sizeBytes ?? null,
+        provider: connector.capabilityProvider.providerName,
+        connectorId: connector.id,
       }));
+
+    await Promise.all(
+      suggested.map((f) =>
+        prisma.connectorAsset.upsert({
+          where: {
+            userConnectorId_externalId: {
+              userConnectorId: connector.id,
+              externalId: f.id,
+            },
+          },
+          create: {
+            userId,
+            userConnectorId: connector.id,
+            externalProvider: connector.capabilityProvider.providerName,
+            externalId: f.id,
+            displayName: f.name,
+            fileName: f.name,
+            mimeType: f.mimeType,
+            modifiedAt: f.modifiedAt,
+            discoveredAt: new Date(),
+            metadataJson: this.toJson({ source: 'ai_suggestion' }),
+          },
+          update: {
+            displayName: f.name,
+            fileName: f.name,
+            mimeType: f.mimeType,
+            modifiedAt: f.modifiedAt,
+            discoveredAt: new Date(),
+            metadataJson: this.toJson({ source: 'ai_suggestion' }),
+          },
+        }),
+      ),
+    );
+
+    return suggested;
+  }
+
+  async searchStorage(userId: string, query: string, providerName?: string) {
+    return this.listStorageFiles(userId, providerName, query);
   }
 
   async listConnectors(userId: string) {
@@ -1563,7 +1667,7 @@ export class ConnectorsService {
       if (!message.fromEmail) continue;
 
       // 1. Create/Update Person for Sender
-      const sender = await prisma.person.upsert({
+      await prisma.person.upsert({
         where: { userId_email: { userId, email: message.fromEmail.toLowerCase() } },
         create: {
           userId,
@@ -1585,8 +1689,9 @@ export class ConnectorsService {
           create: {
             userId,
             externalId: message.providerThreadId,
+            channel: 'email',
             subject: message.subject,
-            participantEmails: [message.fromEmail, ...message.toEmails],
+            participantEmails: [message.fromEmail || '', ...message.toEmails],
             lastMessageAt: message.receivedAt,
           },
           update: {
@@ -1605,22 +1710,25 @@ export class ConnectorsService {
             userId,
             domain,
             name: domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1),
-            source: 'email_sync',
           },
           update: {},
         });
       }
 
       // 4. SHRED HIGH-SIGNAL SENT EMAILS: Extract intelligence from the user's own professional messages
-      const isSentByUser = message.fromEmail.toLowerCase().includes(userId.toLowerCase()) || 
+      const isSentByUser = message.fromEmail?.toLowerCase().includes(userId.toLowerCase()) || 
                           message.toEmails.length > 0; // Simplified check for now
-      const isSubstantive = (message.body?.length || 0) > 200;
+      const isSubstantive = (message.bodyPreview?.length || 0) > 200;
       
       if (isSentByUser && isSubstantive) {
-        this.intelligenceService.shredText(userId, message.body || '', {
-          type: 'conversation_thread',
-          id: message.providerThreadId || message.providerMessageId
-        }).catch(e => this.logger.error(`Failed to shred email ${message.providerMessageId}`, e));
+        // TODO: Update email providers to fetch full bodyText for deeper shredding
+        this.eventEmitter.emit('email.received', {
+          userId,
+          messageId: message.providerMessageId,
+          threadId: message.providerThreadId,
+          body: message.bodyPreview || '',
+          subject: message.subject
+        });
       }
     }
   }
@@ -1960,6 +2068,31 @@ export class ConnectorsService {
         userId,
         capability: { capabilityType: CapabilityType.email },
         status: ConnectorStatus.connected,
+      },
+      include: {
+        capability: true,
+        capabilityProvider: true,
+        connectorCredentials: true,
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+  }
+
+  private normalizeStorageProviderName(providerName?: string) {
+    if (!providerName) return undefined;
+    if (providerName === "google") return "google_drive";
+    if (providerName === "microsoft") return "onedrive";
+    return providerName;
+  }
+
+  private async findConnectedStorageConnector(userId: string, providerName?: string) {
+    const normalized = this.normalizeStorageProviderName(providerName);
+    return prisma.userConnector.findFirst({
+      where: {
+        userId,
+        capability: { capabilityType: CapabilityType.storage },
+        status: ConnectorStatus.connected,
+        ...(normalized ? { capabilityProvider: { providerName: normalized } } : {}),
       },
       include: {
         capability: true,

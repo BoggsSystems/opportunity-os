@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_INTERCEPTOR } from "@nestjs/core";
 import { ConfigModule } from "@nestjs/config";
+import { EventEmitterModule } from "@nestjs/event-emitter";
 import { TestValidationController } from "./common/test-validation.controller";
 import { HealthModule } from "./health/health.module";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -50,6 +51,7 @@ import { IntelligenceModule } from "./modules/intelligence/intelligence.module";
       isGlobal: true,
       envFilePath: [".env.local", ".env", "../../.env.local", "../../.env"],
     }),
+    EventEmitterModule.forRoot(),
     HealthModule,
     AuthModule,
     UsersModule,

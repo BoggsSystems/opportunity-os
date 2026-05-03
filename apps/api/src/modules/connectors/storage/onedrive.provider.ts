@@ -38,6 +38,33 @@ export class OneDriveProvider implements StorageProvider {
       }));
   }
 
+  async searchFiles(credentials: StorageConnectorCredentials, query: string): Promise<SyncedFile[]> {
+    const accessToken = this.requireAccessToken(credentials);
+    const endpoint = `https://graph.microsoft.com/v1.0/me/drive/root/search(q='${encodeURIComponent(query)}')`;
+
+    const response = await fetch(endpoint, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const payload = await this.readJson(response);
+    if (!response.ok) {
+      throw new Error(this.errorMessage('OneDrive search failed', response.status, payload));
+    }
+
+    return (payload?.value ?? [])
+      .filter((item: any) => item.file)
+      .map((item: any) => ({
+        externalId: item.id,
+        displayName: item.name,
+        fileName: item.name,
+        mimeType: item.file.mimeType,
+        sizeBytes: item.size,
+        webViewLink: item.webUrl,
+        versionToken: item.eTag,
+        modifiedAt: new Date(item.lastModifiedDateTime),
+      }));
+  }
+
   async downloadFile(credentials: StorageConnectorCredentials, externalId: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
     const accessToken = this.requireAccessToken(credentials);
     

@@ -852,6 +852,52 @@ Represents:
 Relationships:
 * links a Concept or Proof Point back to its source entity
 
+**Connector Asset**
+
+A provider-discovered file metadata record staged before ingestion.
+
+Represents:
+* one Google Drive / OneDrive / Dropbox file discovered for a specific user connector
+* provider-specific file metadata (name, type, modified time, version token)
+* the canonical provider-scoped asset inventory used by onboarding selection UIs
+
+Relationships:
+* belongs to one User
+* belongs to one User Connector
+* may map to one durable User Asset after import
+* may be referenced by many Asset Ingestion Items over time
+
+**Asset Ingestion Batch**
+
+A single import run for selected connector assets into the Vault/intelligence pipeline.
+
+Represents:
+* one user-triggered import action from a provider context
+* batch-level status and counts (selected/imported/failed)
+* summary and telemetry for auditability and retries
+
+Relationships:
+* belongs to one User
+* may belong to one User Connector
+* has many Asset Ingestion Items
+* may create many Concepts and Proof Points through shredding
+
+**Asset Ingestion Item**
+
+An item-level state record inside an Asset Ingestion Batch.
+
+Represents:
+* one selected asset in the import queue
+* item status (selected, queued, processing, imported, failed, skipped)
+* ingestion outcome metadata and error information
+
+Relationships:
+* belongs to one Asset Ingestion Batch
+* belongs to one User
+* may reference one Connector Asset
+* may reference one durable User Asset created/linked during ingest
+* may generate Intelligence Sources tied to extracted Concepts/Proof Points
+
 **Strategic Vault**
 
 The user's curated collection of intelligence.

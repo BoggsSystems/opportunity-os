@@ -47,6 +47,47 @@ export class DropboxProvider implements StorageProvider {
       }));
   }
 
+  async searchFiles(credentials: StorageConnectorCredentials, query: string): Promise<SyncedFile[]> {
+    const accessToken = this.requireAccessToken(credentials);
+    
+    const response = await fetch('https://api.dropboxapi.com/2/files/search_v2', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: query,
+        options: {
+          max_results: 20,
+          file_status: 'active',
+          filename_only: true
+        }
+      }),
+    });
+
+    const payload = await this.readJson(response);
+    if (!response.ok) {
+      throw new Error(this.errorMessage('Dropbox search failed', response.status, payload));
+    }
+
+    return (payload?.matches ?? [])
+      .filter((match: any) => match.metadata?.metadata?.['.tag'] === 'file')
+      .map((match: any) => {
+        const entry = match.metadata.metadata;
+        return {
+          externalId: entry.id,
+          displayName: entry.name,
+          fileName: entry.name,
+          mimeType: this.getMimeType(entry.name),
+          sizeBytes: entry.size,
+          webViewLink: `https://www.dropbox.com/home${entry.path_display}`,
+          versionToken: entry.rev,
+          modifiedAt: new Date(entry.client_modified || entry.server_modified),
+        };
+      });
+  }
+
   async downloadFile(credentials: StorageConnectorCredentials, externalId: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
     const accessToken = this.requireAccessToken(credentials);
     
@@ -61,6 +102,33 @@ export class DropboxProvider implements StorageProvider {
     if (!response.ok) {
       const payload = await this.readJson(response);
       throw new Error(this.errorMessage('Dropbox download failed', response.status, payload));
+    }
+
+    const metaHeader = response.headers.get('dropbox-api-result');
+    const meta = metaHeader ? JSON.parse(metaHeader) : {};
+    
+    const arrayBuffer = await response.arrayBuffer();
+    return {
+      buffer: Buffer.from(arrayBuffer),
+      fileName: meta.name || 'dropbox-file',
+      mimeType: this.getMimeType(meta.name || ''),
+    };
+  }
+
+  async peekFile(credentials: StorageConnectorCredentials, externalId: string, rangeBytes: number = 1024): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    const accessToken = this.requireAccessToken(credentials);
+    
+    const response = await fetch('https://content.dropboxapi.com/2/files/download', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Dropbox-API-Arg': JSON.stringify({ path: externalId }),
+        Range: `bytes=0-${rangeBytes}`
+      },
+    });
+
+    if (!response.ok && response.status !== 206) {
+      return { buffer: Buffer.alloc(0), fileName: '', mimeType: 'application/octet-stream' };
     }
 
     const metaHeader = response.headers.get('dropbox-api-result');

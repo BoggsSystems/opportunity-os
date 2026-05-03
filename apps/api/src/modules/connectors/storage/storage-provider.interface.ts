@@ -16,6 +16,7 @@ export interface SyncedFile {
 export interface StorageProvider {
   readonly providerName: string;
   listFiles(credentials: StorageConnectorCredentials, options?: { folderId?: string }): Promise<SyncedFile[]>;
+  searchFiles(credentials: StorageConnectorCredentials, query: string): Promise<SyncedFile[]>;
   downloadFile(credentials: StorageConnectorCredentials, externalId: string): Promise<{ buffer: Buffer; fileName: string; mimeType: string }>;
   peekFile(credentials: StorageConnectorCredentials, externalId: string, rangeBytes?: number): Promise<{ buffer: Buffer; fileName: string; mimeType: string }>;
   test(credentials: StorageConnectorCredentials): Promise<{ ok: boolean; rawResponse?: any }>;

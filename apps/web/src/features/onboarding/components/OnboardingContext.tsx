@@ -61,7 +61,7 @@ export interface OnboardingContextType {
   storageSuggestions: any[];
   setStorageSuggestions: (suggestions: any[]) => void;
   selectedAssetIds: string[];
-  setSelectedAssetIds: (ids: string[]) => void;
+  setSelectedAssetIds: React.Dispatch<React.SetStateAction<string[]>>;
   onComplete: () => void;
   isWorking: boolean;
   isConductorExpanded: boolean;
@@ -98,6 +98,11 @@ export interface OnboardingContextType {
   onConnectShopify?: ((storeName: string, token: string) => Promise<void>) | undefined;
   onConnectSalesforce?: ((token: string) => Promise<void>) | undefined;
   onSyncEmail?: (() => Promise<void>) | undefined;
+  handleStorageSearch: (query: string) => Promise<void>;
+  handleImportAssets: () => Promise<void>;
+  triggerStorageScan: () => Promise<void>;
+  initiateProviderSensing: (providerId?: string) => Promise<void>;
+  isImporting: boolean;
   
   // Utils
   api: ApiClient;
@@ -179,7 +184,8 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const [isConductorThinking, setIsConductorThinking] = useState(false);
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [isConductorExpanded, setIsConductorExpanded] = useState(false);
-  const isWorking = isLoading; // Alias for compatibility
+  const [isImporting, setIsImporting] = useState(false);
+  const isWorking = isLoading || isImporting; // Alias for compatibility
 
   const [guestSessionId] = useState(() => crypto.randomUUID());
 
@@ -344,7 +350,8 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
             // For now, we'll simulate the call or hit the shred endpoint if we had a single one
             await api.post('/intelligence/shred', { 
               assetIds: selectedAssetIds,
-              sourceType: 'knowledge_asset'
+              sourceType: 'connector_asset',
+              providerName: 'google_drive',
             });
           } catch (e) {
             console.warn('Shredding trigger failed, but continuing...', e);
@@ -383,10 +390,21 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     }
   };
 
-  const startSequentialSensing = async () => {
+  const resolveStorageProvider = (providerId?: string) => {
+    if (providerId === 'google') return 'google_drive';
+    if (providerId === 'microsoft') return 'onedrive';
+    return undefined;
+  };
+
+  const currentStorageProvider = () => {
+    const currentProviderId = spotlightData[spotlightIndex]?.id;
+    return resolveStorageProvider(currentProviderId);
+  };
+
+  const initiateProviderSensing = async (targetProviderId?: string) => {
     setIsSensingActive(true);
     setSensingLogs([]);
-    const selectedIds = connectedProviders;
+    const selectedIds = targetProviderId ? [targetProviderId] : connectedProviders;
 
     for (const id of selectedIds) {
       const provider = { linkedin: 'LinkedIn', google: 'Google', microsoft: 'Outlook' }[id as 'linkedin' | 'google' | 'microsoft'];
@@ -394,29 +412,20 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       setSensingLogs(prev => [...prev, { id: `log-${id}`, message: `Scanning ${provider} for relationship depth...`, type: 'info' }]);
       
       // TRIGGER REAL SYNC
+      // 1. Storage Sensing (The focus for Drive)
       try {
         if (id === 'google' || id === 'microsoft') {
-          // Sync Email
-          const emailRes = await api.post<any>('/connectors/email/sync');
-          setSensingLogs(prev => [...prev, { id: `sync-email-${id}`, message: `Synced ${emailRes.synced || 0} messages from ${provider} inbox.`, type: 'success' }]);
-          
-          // Sync Storage Suggestions (Metadata Scan)
-          try {
-            const suggestions = await api.get<any[]>('/connectors/storage/suggestions');
-            setStorageSuggestions(suggestions);
-            setSelectedAssetIds(suggestions.map(s => s.id)); // Default to selecting all found
-            if (suggestions.length > 0) {
-              setSensingLogs(prev => [...prev, { id: `suggestions-${id}`, message: `Conductor identified ${suggestions.length} high-value strategic assets.`, type: 'info' }]);
-            }
-          } catch (e) {
-            console.warn(`Storage suggestions failed for ${id}`, e);
+          const providerKey = resolveStorageProvider(id);
+          const suggestions = await api.listStorageFiles(providerKey ? { provider: providerKey } : {});
+          setStorageSuggestions(suggestions);
+          setSelectedAssetIds(suggestions.map(s => s.id));
+          if (suggestions.length > 0) {
+            setSensingLogs(prev => [...prev, { id: `suggestions-${id}`, message: `Conductor identified ${suggestions.length} strategic assets.`, type: 'info' }]);
           }
-          
-          // Sync Storage (General Topography)
         }
       } catch (err: any) {
-        console.error(`Sensing failed for ${provider}:`, err);
-        setSensingLogs(prev => [...prev, { id: `err-${id}`, message: `Sensing partial for ${provider}: ${err.message || 'Connection timeout'}`, type: 'error' }]);
+        console.error(`💾 Storage sensing failed for ${provider}:`, err);
+        setSensingLogs(prev => [...prev, { id: `err-storage-${id}`, message: `Storage scan partial for ${provider}: ${err.message || 'Error'}`, type: 'error' }]);
       }
 
       setProviderStatuses(prev => ({ ...prev, [id]: { status: 'completed', result: 'Verified' } }));
@@ -448,9 +457,11 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
           { label: 'Companies', value: stats.companyCount.toLocaleString() },
           { label: isLinkedIn ? 'Signals' : 'Threads', value: stats.threadCount.toLocaleString() }
         ],
-        insight: stats.totalNodes > 0 ? 'Professional topography detected and mapped.' : 'No significant topography detected yet. Proceeding with strategic intent.',
+        insight: stats.totalNodes > 0 
+          ? `Detected a robust network topography with ${stats.personCount} strategic contacts. Ready to map relationship depth.` 
+          : 'No significant topography detected yet. Proceeding with strategic intent.',
         conductorSpeech: stats.totalNodes > 0 
-          ? `Analysis complete. I have mapped your ${id} ecosystem.`
+          ? `Analysis complete. I have mapped your ${id} ecosystem and identified high-velocity entry points.`
           : `I've scanned your ${id} ecosystem. It appears to be a fresh canvas. We'll build your strategic map from the ground up.`
       };
     });
@@ -461,7 +472,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
 
     const firstSpotlight = spotlights[0];
     if (firstSpotlight?.id === 'google') {
-      setGoogleSubStep('gmail');
+      setGoogleSubStep('drive');
     }
     
     setTimeout(() => {
@@ -469,6 +480,83 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
         setWizardMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', text: firstSpotlight.conductorSpeech }]);
       }
     }, 1000);
+  };
+
+  const startSequentialSensing = async () => {
+    await initiateProviderSensing();
+  };
+
+  const handleStorageSearch = async (query: string) => {
+    const providerKey = currentStorageProvider();
+    if (!query) {
+      // Re-fetch default suggestions if query is empty
+      const suggestions = await api.listStorageFiles(providerKey ? { provider: providerKey } : {});
+      setStorageSuggestions(suggestions);
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      const results = await api.searchStorage(query, providerKey);
+      setStorageSuggestions(results);
+    } catch (err) {
+      console.error('❌ Search failed:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleImportAssets = async () => {
+    if (selectedAssetIds.length === 0) return;
+    
+    setIsImporting(true);
+    setGenerationMessage('Director is shredding your strategic assets into the Vault...');
+    try {
+      const res = await api.post<any>('/intelligence/shred', { 
+        assetIds: selectedAssetIds,
+        sourceType: 'connector_asset',
+        providerName: currentStorageProvider(),
+      });
+      
+      if (res.summary) {
+        setWizardMessages(prev => [...prev, { 
+          id: Date.now().toString(), 
+          role: 'assistant', 
+          text: res.summary 
+        }]);
+      }
+    } catch (e) {
+      console.warn('Shredding trigger failed:', e);
+      setWizardMessages(prev => [...prev, { 
+        id: Date.now().toString(), 
+        role: 'assistant', 
+        text: "I've ingested your assets, but I encountered a slight lag in the synthesis. Don't worry, they are in the Vault and I'm ready to proceed." 
+      }]);
+    } finally {
+      setIsImporting(false);
+      setGenerationMessage(null);
+    }
+  };
+
+  const triggerStorageScan = async () => {
+    setIsLoading(true);
+    setSensingLogs(prev => [...prev, { id: 'manual-scan', message: "Initiating deep cloud scan for strategic assets...", type: 'info' }]);
+    try {
+      const providerKey = currentStorageProvider();
+      const suggestions = await api.listStorageFiles(providerKey ? { provider: providerKey } : {});
+      setStorageSuggestions(suggestions);
+      setSelectedAssetIds(suggestions.map(s => s.id));
+      if (suggestions.length > 0) {
+        setSensingLogs(prev => [...prev, { id: 'manual-success', message: `Deep scan identified ${suggestions.length} high-value assets.`, type: 'success' }]);
+      } else {
+        setSensingLogs(prev => [...prev, { id: 'manual-empty', message: "Deep scan complete. No new high-signal assets identified.", type: 'info' }]);
+      }
+    } catch (err: any) {
+      console.error("Manual storage scan failed:", err);
+      setSensingLogs(prev => [...prev, { id: 'manual-err', message: `Scan stalled: ${err.message || 'Check connection'}`, type: 'error' }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const designActionLanes = async () => {
@@ -530,6 +618,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     setActiveImportId, setWizardMessages, setSelectedCampaigns, setSelectedActionLanes,
     setCurrentActionLaneCampaignIndex, setSpotlightIndex, setGoogleSubStep, api, user,
     onComplete, setSelectedLanes, isWorking, isConductorExpanded, setIsConductorExpanded,
+    handleStorageSearch, handleImportAssets, triggerStorageScan, initiateProviderSensing, isImporting,
     onConnectLinkedIn: onConnectLinkedIn ? async () => {
       await onConnectLinkedIn();
       setConnectedProviders(prev => prev.includes('linkedin') ? prev : [...prev, 'linkedin']);
