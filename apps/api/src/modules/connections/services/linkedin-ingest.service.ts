@@ -3,6 +3,7 @@ import AdmZip from 'adm-zip';
 import { prisma, OfferingType, OfferingStatus } from '@opportunity-os/db';
 import { ConnectionImportService } from './connection-import.service';
 import { AiService } from '../../ai/ai.service';
+import { IntelligenceService } from '../../intelligence/intelligence.service';
 
 export interface StrategicDraft {
   posture: {
@@ -28,7 +29,8 @@ export class LinkedInIngestService {
 
   constructor(
     private readonly connectionImportService: ConnectionImportService,
-    private readonly aiService: AiService
+    private readonly aiService: AiService,
+    private readonly intelligenceService: IntelligenceService
   ) {}
 
   async processFullZip(buffer: Buffer, userId?: string, importId?: string): Promise<StrategicDraft & { connectionCount: number; networkTopography?: any }> {
@@ -107,6 +109,20 @@ export class LinkedInIngestService {
       // 3. Persist Strategic Draft to Database (Only if authenticated)
       if (userId) {
         await this.persistStrategicDraft(userId, draft);
+        
+        // 4. SHRED THE RAW CONTENT: Turn profile and positions into Concepts/ProofPoints
+        const rawText = `
+          ABOUT: ${profileData?.[0]?.Summary || ''}
+          HEADLINE: ${profileData?.[0]?.Headline || ''}
+          EXPERIENCE:
+          ${positionsData?.map(p => `${p.Title} at ${p.Company}: ${p.Description || ''}`).join('\n')}
+        `;
+        
+        this.logger.log(`Shredding raw LinkedIn text into the Strategic Vault for user: ${userId}`);
+        await this.intelligenceService.shredText(userId, rawText, { 
+          type: 'knowledge_asset', 
+          id: importId || 'linkedin_profile' 
+        });
       }
       
       return {

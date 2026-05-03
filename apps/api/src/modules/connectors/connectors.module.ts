@@ -11,8 +11,11 @@ import { OutlookCalendarProvider } from './calendar/outlook-calendar.provider';
 import { ICloudCalendarProvider } from './calendar/icloud-calendar.provider';
 import { GithubProvider } from './social/github.provider';
 import { ShopifyCommerceProvider } from './commerce/shopify-commerce.provider';
+import { AiModule } from '../ai/ai.module';
+import { IntelligenceModule } from '../intelligence/intelligence.module';
 
 @Module({
+  imports: [AiModule, IntelligenceModule],
   controllers: [ConnectorsController],
   providers: [
     ConnectorsService,

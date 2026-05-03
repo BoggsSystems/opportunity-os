@@ -38,6 +38,7 @@ import { SocialProvider } from "./social/social-provider.interface";
 import { ShopifyCommerceProvider } from "./commerce/shopify-commerce.provider";
 import { CommerceProvider } from "./commerce/commerce-provider.interface";
 import { AiService } from "../ai/ai.service";
+import { IntelligenceService } from "../intelligence/intelligence.service";
 
 @Injectable()
 export class ConnectorsService {
@@ -54,6 +55,7 @@ export class ConnectorsService {
     private readonly githubProvider: GithubProvider,
     private readonly shopifyProvider: ShopifyCommerceProvider,
     private readonly aiService: AiService,
+    private readonly intelligenceService: IntelligenceService,
   ) {}
 
   async getStorageSuggestions(userId: string) {
@@ -1607,6 +1609,18 @@ export class ConnectorsService {
           },
           update: {},
         });
+      }
+
+      // 4. SHRED HIGH-SIGNAL SENT EMAILS: Extract intelligence from the user's own professional messages
+      const isSentByUser = message.fromEmail.toLowerCase().includes(userId.toLowerCase()) || 
+                          message.toEmails.length > 0; // Simplified check for now
+      const isSubstantive = (message.body?.length || 0) > 200;
+      
+      if (isSentByUser && isSubstantive) {
+        this.intelligenceService.shredText(userId, message.body || '', {
+          type: 'conversation_thread',
+          id: message.providerThreadId || message.providerMessageId
+        }).catch(e => this.logger.error(`Failed to shred email ${message.providerMessageId}`, e));
       }
     }
   }
