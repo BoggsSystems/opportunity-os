@@ -5115,3 +5115,43 @@ Links concepts to the evidence that validates them.
 | :--- | :--- | :--- | :--- |
 | `concept_id` | `uuid` | FK -> `concept.id` | |
 | `proof_point_id` | `uuid` | FK -> `proof_point.id` | |
+
+### `intelligence_usage`
+
+Tracks the deployment and performance of vault items.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `uuid` | PK | |
+| `user_id` | `uuid` | FK -> `user.id` | |
+| `target_id` | `uuid` | NOT NULL | FK to `concept.id` or `proof_point.id` |
+| `action_item_id` | `uuid` | FK -> `action_item.id` | The specific outreach it was used in |
+| `sentiment_score` | `float` | | Performance feedback from the response |
+| `outcome` | `text` | | e.g., "replied", "converted" |
+| `created_at` | `timestamp` | NOT NULL | |
+
+### `user_postures`
+
+The user's synthesized strategic persona.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `uuid` | PK | |
+| `user_id` | `uuid` | FK -> `user.id` | |
+| `title` | `text` | NOT NULL | e.g., "The Pragmatic Engineering Leader" |
+| `description` | `text` | NOT NULL | |
+| `tone_metadata`| `jsonb` | | Formal, provocateur, collaborative |
+| `is_active` | `boolean` | Default: `true` | |
+
+### `concept_refinements`
+
+History of updates to concepts.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `uuid` | PK | |
+| `concept_id` | `uuid` | FK -> `concept.id` | |
+| `old_value` | `text` | | |
+| `new_value` | `text` | | |
+| `refinement_type`| `text` | | e.g., "user_edit", "ai_learned" |
+| `created_at` | `timestamp` | NOT NULL | |

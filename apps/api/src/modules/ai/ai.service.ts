@@ -2273,6 +2273,51 @@ Important:
       firstDraftPrompt: 'Introduce yourself and suggest a conversation',
     };
   }
+
+  async synthesizeStrategicPersona(vaultSummary: { methodologies: string[], stances: string[], keySuccesses: string[] }): Promise<any> {
+    this.logger.log('Synthesizing strategic persona from vault summary');
+
+    const prompt = `
+You are a High-Stakes Career Strategist. I am providing you with a summary of a professional's "Strategic Vault".
+Your task is to synthesize this data into a cohesive "Director's Persona".
+
+VAULT SUMMARY:
+- Methodologies: ${vaultSummary.methodologies.join(', ')}
+- Stances: ${vaultSummary.stances.join(', ')}
+- Key Successes: ${vaultSummary.keySuccesses.join(', ')}
+
+INSTRUCTIONS:
+1. Return ONLY a valid JSON object with the following fields:
+   - "title": A punchy professional title (e.g., "The Pragmatic AI Architect").
+   - "description": A 2-sentence summary of their strategic value.
+   - "postureText": A deep 3-paragraph "manifesto" of their professional stance.
+   - "toneMetadata": An object with "style" (e.g., "provocateur"), "level" (e.g., "executive"), and "attributes" (array).
+   - "objectives": A list of 3-5 high-level strategic objectives.
+2. Ensure the persona feels unique and derived directly from the provided vault items.
+
+JSON OUTPUT:`;
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.7,
+      maxTokens: 2000,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    try {
+      const parsed = JSON.parse(response.content.replace(/```json/gi, '').replace(/```/g, '').trim());
+      return parsed;
+    } catch (e) {
+      this.logger.error('Failed to parse synthesizeStrategicPersona JSON', e);
+      return {
+        title: "Strategic Leader",
+        description: "A professional focused on driving high-value outcomes.",
+        postureText: "Default posture.",
+        toneMetadata: { style: "professional", level: "standard", attributes: [] },
+        objectives: ["Drive growth", "Optimize efficiency"]
+      };
+    }
+  }
 }
 
 // Types for goal extraction

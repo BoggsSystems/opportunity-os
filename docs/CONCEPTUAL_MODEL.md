@@ -860,6 +860,33 @@ Represents:
 * the "Director's View" of all extracted and promoted concepts
 * the single source of truth for the Conductor's strategic context
 
+**Intelligence Usage**
+
+A record of when and how a Concept or Proof Point was used.
+
+Represents:
+* the link between a Vault item and a specific outreach email or LinkedIn post
+* performance metrics (opens, clicks, replies) associated with specific strategic arguments
+* the "success rate" of certain methodologies in certain industries
+
+**User Posture (The Strategic Persona)**
+
+The high-level synthesis of all Vault intelligence into a cohesive professional identity.
+
+Represents:
+* your primary strategic "angles" (e.g., "The Pragmatic Architect")
+* the consistent tone and perspective the Conductor uses in all communications
+* the "Core Pillar" concepts that define your market position
+
+**Intelligence Refinement**
+
+The history and evolution of a Concept or Proof Point.
+
+Represents:
+* manual edits you've made to AI-extracted frameworks
+* semantic updates as your methodologies evolve
+* "Learned" improvements from the Conductor's interactions
+
 Represents:
 
 * one CSV upload event

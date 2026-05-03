@@ -172,4 +172,44 @@ export class IntelligenceService {
       },
     });
   }
+
+  /**
+   * COGNITIVE HARVESTING: Extracts intelligence from a conversation thread
+   */
+  async harvestConversation(userId: string, threadId: string) {
+    this.logger.log(`Harvesting intelligence from thread ${threadId} for user ${userId}`);
+
+    const messages = await prisma.conversationThreadMessage.findMany({
+      where: { threadId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const chatLog = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
+    
+    // We use the same shredder logic but with a conversation source type
+    return this.shredText(userId, chatLog, { 
+      type: 'conversation_thread', 
+      id: threadId 
+    });
+  }
+
+  /**
+   * FLYWHEEL FEEDBACK: Tracks usage of a vault item
+   */
+  async trackUsage(userId: string, data: {
+    targetId: string;
+    actionItemId: string;
+    sentiment?: number;
+    outcome?: string;
+  }) {
+    return prisma.intelligenceUsage.create({
+      data: {
+        userId,
+        targetId: data.targetId,
+        actionItemId: data.actionItemId,
+        sentiment: data.sentiment,
+        outcome: data.outcome,
+      },
+    });
+  }
 }

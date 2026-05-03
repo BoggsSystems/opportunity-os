@@ -814,6 +814,7 @@ model User {
    notifications                Notification[]
   concepts                     Concept[]
   proofPoints                  ProofPoint[]
+  intelligenceUsage            IntelligenceUsage[]
 
   @@map("users")
 }
@@ -2051,9 +2052,14 @@ model OfferingThesisMapping {
 model UserPosture {
   id            String   @id @default(uuid()) @db.Uuid
   userId        String   @unique @db.Uuid
-  postureText   String
+  title         String?
+  description   String?
+  postureText   String   // The full synthesized stance
   objectives    String[]
   preferredTone String?
+  toneMetadata  Json?    // Advanced tone settings (formal, provocateur, etc)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -3088,6 +3094,7 @@ model ActionItem {
   targetCompany       Company?             @relation("CompanyActionItems", fields: [targetCompanyId], references: [id], onDelete: SetNull)
   conversationThreads ConversationThread[]
   commandQueueItems   CommandQueueItem[]
+  intelligenceUsage   IntelligenceUsage[]
 
   @@index([userId])
   @@index([campaignId])
@@ -3450,6 +3457,7 @@ model Concept {
   proofLinks   ConceptProofLink[]
   parents      ConceptRelationship[] @relation("ConceptChildren")
   children     ConceptRelationship[] @relation("ConceptParents")
+  refinements  ConceptRefinement[]
 
   @@map("concepts")
 }
@@ -3505,4 +3513,32 @@ model ConceptProofLink {
 
   @@id([conceptId, proofPointId])
   @@map("concept_proof_links")
+}
+
+model IntelligenceUsage {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  targetId     String   @db.Uuid // conceptId or proofPointId
+  actionItemId String?  @db.Uuid
+  sentiment    Float?
+  outcome      String?
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id])
+  actionItem   ActionItem? @relation(fields: [actionItemId], references: [id])
+
+  @@map("intelligence_usage")
+}
+
+model ConceptRefinement {
+  id             String   @id @default(uuid()) @db.Uuid
+  conceptId      String   @db.Uuid
+  oldValue       String?
+  newValue       String
+  refinementType String   // "user_edit", "ai_learned"
+  createdAt      DateTime @default(now())
+
+  concept        Concept  @relation(fields: [conceptId], references: [id])
+
+  @@map("concept_refinements")
 }
