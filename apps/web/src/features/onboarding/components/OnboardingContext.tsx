@@ -74,7 +74,11 @@ export interface OnboardingContextType {
   } | null;
   isIngestionModalOpen: boolean;
   ingestionBatchId: string | null;
+  intelligenceArtifacts: any[];
+  intelligenceJobs: any[];
+  intelligenceChunks: any[];
   setIsIngestionModalOpen: (open: boolean) => void;
+  refreshIntelligenceStatus: () => Promise<void>;
 
   // Actions
   nextStep: (step: Step) => void;
@@ -198,6 +202,9 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const [isConductorExpanded, setIsConductorExpanded] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [ingestionBatchId, setIngestionBatchId] = useState<string | null>(null);
+  const [intelligenceArtifacts, setIntelligenceArtifacts] = useState<any[]>([]);
+  const [intelligenceJobs, setIntelligenceJobs] = useState<any[]>([]);
+  const [intelligenceChunks, setIntelligenceChunks] = useState<any[]>([]);
   const [isIngestionModalOpen, setIsIngestionModalOpen] = useState(false);
   const [ingestionStatus, setIngestionStatus] = useState<{
     assetName?: string;
@@ -208,6 +215,23 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const isWorking = isLoading || isImporting; // Alias for compatibility
 
   const [guestSessionId] = useState(() => crypto.randomUUID());
+
+  const refreshIntelligenceStatus = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      const [artifacts, jobs, chunks] = await Promise.all([
+        api.get<any[]>('/intelligence/artifacts'),
+        api.get<any[]>('/intelligence/jobs'),
+        api.get<any[]>('/intelligence/chunks'),
+      ]);
+      setIntelligenceArtifacts(Array.isArray(artifacts) ? artifacts : []);
+      setIntelligenceJobs(Array.isArray(jobs) ? jobs : []);
+      setIntelligenceChunks(Array.isArray(chunks) ? chunks : []);
+    } catch (error) {
+      console.warn('⚠️ OnboardingContext: Failed to refresh intelligence status:', error);
+    }
+  }, [api, user?.id]);
 
   // --- Sync with Real Connectors ---
   useEffect(() => {
@@ -251,8 +275,19 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       }).catch(err => {
         console.error('❌ OnboardingContext: Failed to fetch connectors:', err);
       });
+      void refreshIntelligenceStatus();
     }
-  }, [user, api]);
+  }, [user, api, refreshIntelligenceStatus]);
+
+  useEffect(() => {
+    if (!user?.id || !ingestionBatchId) return undefined;
+
+    const timer = window.setInterval(() => {
+      void refreshIntelligenceStatus();
+    }, 2500);
+
+    return () => window.clearInterval(timer);
+  }, [user?.id, ingestionBatchId, refreshIntelligenceStatus]);
 
   // --- Ensure Spotlight Data exists even if sensing hasn't run ---
   useEffect(() => {
@@ -323,6 +358,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
               text: event.data.summary
             }]);
           }
+          void refreshIntelligenceStatus();
         }
       } else if (event.type === 'shredding-error') {
         if (event.batchId === ingestionBatchId) {
@@ -339,7 +375,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     return () => {
       importWebSocketService.unsubscribe(ingestionBatchId);
     };
-  }, [ingestionBatchId]);
+  }, [ingestionBatchId, refreshIntelligenceStatus]);
 
   // --- Persistence ---
   useEffect(() => {
@@ -691,6 +727,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       if (res.batchId) {
         setIngestionBatchId(res.batchId);
         // Modal is already open, status will update via WebSocket
+        void refreshIntelligenceStatus();
       }
       
       setSensingLogs(prev => [...prev, { 
@@ -733,10 +770,11 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       setStrategicDraft(draft);
       setConnectionCount(draft?.connectionCount || 0);
       setActiveImportId(result.data.importId);
+      await refreshIntelligenceStatus();
       setWizardMessages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'assistant',
-        text: `LinkedIn archive ingested. I found ${draft?.connectionCount || 0} relationship records and captured your professional posture for offering generation.`
+        text: `LinkedIn archive ingested. I found ${draft?.connectionCount || 0} relationship records, captured your fast profile memory, and queued the deeper archive analysis in the background.`
       }]);
     } finally {
       setIsLoading(false);
@@ -875,7 +913,8 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     setCurrentActionLaneCampaignIndex, setSpotlightIndex, setGoogleSubStep, api, user,
     onComplete, setSelectedLanes, isWorking, isConductorExpanded, setIsConductorExpanded,
     handleStorageSearch, handleImportAssets, handleLinkedInArchiveUpload, handleManualAssetUpload, triggerStorageScan, initiateProviderSensing, isImporting,
-    ingestionStatus, isIngestionModalOpen, ingestionBatchId, setIsIngestionModalOpen,
+    ingestionStatus, isIngestionModalOpen, ingestionBatchId, intelligenceArtifacts, intelligenceJobs, intelligenceChunks,
+    setIsIngestionModalOpen, refreshIntelligenceStatus,
     onConnectLinkedIn: onConnectLinkedIn ? async () => {
       await onConnectLinkedIn();
       setConnectedProviders(prev => prev.includes('linkedin') ? prev : [...prev, 'linkedin']);

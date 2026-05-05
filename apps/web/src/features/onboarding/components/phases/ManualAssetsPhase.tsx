@@ -1,12 +1,37 @@
 import React from 'react';
-import { ArrowRight, CheckCircle, FileText, Upload, AlertCircle } from 'lucide-react';
+import { ArrowRight, CheckCircle, FileText, Upload, AlertCircle, Brain, Clock, Database } from 'lucide-react';
 import { useOnboarding } from '../OnboardingContext';
 
 export const ManualAssetsPhase: React.FC = () => {
-  const { handleManualAssetUpload, uploadedAssets, nextStep, isLoading } = useOnboarding();
+  const {
+    handleManualAssetUpload,
+    uploadedAssets,
+    nextStep,
+    isLoading,
+    ingestionStatus,
+    intelligenceArtifacts,
+    intelligenceJobs,
+    intelligenceChunks,
+  } = useOnboarding();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const [status, setStatus] = React.useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [message, setMessage] = React.useState('');
+
+  const assetArtifacts = React.useMemo(() => {
+    return intelligenceArtifacts
+      .filter((artifact: any) => ['google_drive_file', 'onedrive_file', 'manual_upload', 'knowledge_asset_asset', 'connector_asset_asset'].includes(artifact.sourceKind))
+      .slice(0, 6);
+  }, [intelligenceArtifacts]);
+
+  const assetJobCount = React.useMemo(() => {
+    const artifactIds = new Set(assetArtifacts.map((artifact: any) => artifact.id));
+    return intelligenceJobs.filter((job: any) => artifactIds.has(job.ingestionArtifactId)).length;
+  }, [assetArtifacts, intelligenceJobs]);
+
+  const assetChunkCount = React.useMemo(() => {
+    const artifactIds = new Set(assetArtifacts.map((artifact: any) => artifact.id));
+    return intelligenceChunks.filter((chunk: any) => artifactIds.has(chunk.ingestionArtifactId)).length;
+  }, [assetArtifacts, intelligenceChunks]);
 
   const handleSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -73,6 +98,57 @@ export const ManualAssetsPhase: React.FC = () => {
         </div>
       )}
 
+      {(uploadedAssets.length > 0 || assetArtifacts.length > 0 || ingestionStatus) && (
+        <div className="ingestion-intelligence-panel animate-in">
+          <div className="intelligence-summary-grid">
+            <div className="intelligence-summary-card">
+              <Database size={18} />
+              <span>Grounded</span>
+              <strong>{Math.max(uploadedAssets.length, assetArtifacts.length).toLocaleString()}</strong>
+              <small>strategic assets</small>
+            </div>
+            <div className="intelligence-summary-card">
+              <Clock size={18} />
+              <span>Queued</span>
+              <strong>{assetJobCount.toLocaleString()}</strong>
+              <small>analysis jobs</small>
+            </div>
+            <div className="intelligence-summary-card">
+              <Brain size={18} />
+              <span>Available</span>
+              <strong>{assetChunkCount.toLocaleString()}</strong>
+              <small>memory chunks</small>
+            </div>
+          </div>
+
+          {ingestionStatus && (
+            <div className="intelligence-progress-row">
+              <div>
+                <strong>{ingestionStatus.assetName || ingestionStatus.step}</strong>
+                <span>{ingestionStatus.message || 'Background intelligence update'}</span>
+              </div>
+              <div className="intelligence-progress-track" aria-label="Ingestion progress">
+                <span style={{ width: `${Math.max(0, Math.min(100, ingestionStatus.percentage))}%` }} />
+              </div>
+            </div>
+          )}
+
+          {assetArtifacts.length > 0 && (
+            <div className="intelligence-section-list">
+              {assetArtifacts.map((artifact: any) => (
+                <div className="intelligence-section-row" key={artifact.id}>
+                  <div>
+                    <strong>{artifact.sourceName}</strong>
+                    <span>{artifact.providerName || artifact.sourceKind}</span>
+                  </div>
+                  <span className={`intelligence-status-pill ${artifact.status}`}>{formatAssetStatus(artifact.status)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="onboarding-footer">
         <button className="onboarding-btn-secondary" onClick={() => nextStep('linkedin-archive')}>Back</button>
         <button className="onboarding-btn-primary" onClick={() => nextStep('intent')}>
@@ -81,4 +157,11 @@ export const ManualAssetsPhase: React.FC = () => {
       </div>
     </div>
   );
+};
+
+const formatAssetStatus = (status?: string) => {
+  if (status === 'processed') return 'Summarized';
+  if (status === 'processing') return 'Processing';
+  if (status === 'failed') return 'Needs review';
+  return 'Queued';
 };
