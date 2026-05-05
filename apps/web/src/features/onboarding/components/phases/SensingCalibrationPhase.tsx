@@ -11,7 +11,7 @@ export const SensingCalibrationPhase: React.FC = () => {
     spotlightData, spotlightIndex, isSensingActive,
     handleImportAssets, isImporting, selectedAssetIds,
     isIngestionModalOpen, ingestionStatus, ingestionBatchId, setIsIngestionModalOpen,
-    handleDiscoveryNext
+    handleDiscoveryNext, setIsConductorExpanded
   } = useOnboarding();
 
   const [isCalibrated, setIsCalibrated] = React.useState(false);
@@ -107,7 +107,7 @@ export const SensingCalibrationPhase: React.FC = () => {
         onComplete={() => {
           setIsIngestionModalOpen(false);
           setIsCalibrated(true);
-          // If 100%, we can actually auto-advance or let them click the confirm button
+          setIsConductorExpanded(true); // SLEEK AUTO-EXPANSION
         }}
       />
     </div>

@@ -292,6 +292,15 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
               percentage: event.percentage,
               message: event.message
             });
+
+            // IF ASSET COMPLETE: NARRATE IN CHAT
+            if (event.step === 'Complete' && (event as any).summary) {
+              setWizardMessages(prev => [...prev, {
+                id: `narrate-${event.assetId || Math.random()}`,
+                role: 'assistant',
+                text: (event as any).summary
+              }]);
+            }
           }
         } else if (event.type === 'shredding-completed') {
           if (event.batchId === ingestionBatchId) {
@@ -300,7 +309,15 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
               percentage: 100,
               message: 'Strategic Analysis Finalized.'
             });
-            // We don't close the modal automatically; user clicks a button
+            
+            // ADD BATCH SUMMARY TO CHAT
+            if (event.summary) {
+              setWizardMessages(prev => [...prev, {
+                id: `batch-summary-${ingestionBatchId}`,
+                role: 'assistant',
+                text: event.summary
+              }]);
+            }
           }
         } else if (event.type === 'shredding-error') {
           if (event.batchId === ingestionBatchId) {

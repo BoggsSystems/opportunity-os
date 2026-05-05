@@ -370,9 +370,11 @@ export class IntelligenceService {
         this.eventEmitter.emit('shredding.progress', {
           batchId: batchId,
           assetId: id,
+          assetName: id, // Fallback to ID if name not available here
           step: 'Complete',
           percentage: Math.round(((index + 1) / assetIds.length) * 100),
-          message: synthesisOnly ? `Strategic summary captured.` : `Asset integrated into Strategic Brain.`
+          message: synthesisOnly ? `Strategic summary captured.` : `Asset integrated into Strategic Brain.`,
+          summary: assetSummary, // PASS THE INDIVIDUAL SUMMARY
         });
       } catch (e: any) {
         const logPath = '/Users/jeffboggs/opportunity-os/apps/api/debug.log';
