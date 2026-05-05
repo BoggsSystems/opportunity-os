@@ -4,12 +4,14 @@ import { useOnboarding } from '../OnboardingContext';
 import { GoogleDriveProvider } from '../providers/GoogleDriveProvider';
 import { GmailProvider } from '../providers/GmailProvider';
 import { LinkedInProvider } from '../providers/LinkedInProvider';
+import { IngestionProgressModal } from '../shared/IngestionProgressModal';
 
 export const SensingCalibrationPhase: React.FC = () => {
   const { 
-    spotlightData, spotlightIndex, discoveryCalibration,
-    setDiscoveryCalibration, handleDiscoveryNext, isSensingActive,
-    handleImportAssets, isImporting, selectedAssetIds
+    spotlightData, spotlightIndex, isSensingActive,
+    handleImportAssets, isImporting, selectedAssetIds,
+    isIngestionModalOpen, ingestionStatus, ingestionBatchId, setIsIngestionModalOpen,
+    handleDiscoveryNext
   } = useOnboarding();
 
   const [isCalibrated, setIsCalibrated] = React.useState(false);
@@ -97,6 +99,17 @@ export const SensingCalibrationPhase: React.FC = () => {
           {!isImporting && <ArrowRight size={18} />}
         </button>
       </div>
+
+      <IngestionProgressModal
+        isOpen={isIngestionModalOpen}
+        batchId={ingestionBatchId}
+        status={ingestionStatus}
+        onComplete={() => {
+          setIsIngestionModalOpen(false);
+          setIsCalibrated(true);
+          // If 100%, we can actually auto-advance or let them click the confirm button
+        }}
+      />
     </div>
   );
 };

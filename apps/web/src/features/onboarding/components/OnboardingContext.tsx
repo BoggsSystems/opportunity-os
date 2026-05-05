@@ -66,6 +66,15 @@ export interface OnboardingContextType {
   onComplete: () => void;
   isWorking: boolean;
   isConductorExpanded: boolean;
+  ingestionStatus: {
+    assetName?: string;
+    step: string;
+    percentage: number;
+    message?: string;
+  } | null;
+  isIngestionModalOpen: boolean;
+  ingestionBatchId: string | null;
+  setIsIngestionModalOpen: (open: boolean) => void;
 
   // Actions
   nextStep: (step: Step) => void;
@@ -186,6 +195,14 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const [isConductorExpanded, setIsConductorExpanded] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [ingestionBatchId, setIngestionBatchId] = useState<string | null>(null);
+  const [isIngestionModalOpen, setIsIngestionModalOpen] = useState(false);
+  const [ingestionStatus, setIngestionStatus] = useState<{
+    assetName?: string;
+    step: string;
+    percentage: number;
+    message?: string;
+  } | null>(null);
   const isWorking = isLoading || isImporting; // Alias for compatibility
 
   const [guestSessionId] = useState(() => crypto.randomUUID());
@@ -258,6 +275,50 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       }
     }
   }, [connectedProviders, spotlightData.length, googleSubStep]);
+  
+  // --- Ingestion WebSocket Listener ---
+  useEffect(() => {
+    if (ingestionBatchId) {
+      console.log(`🔌 [Frontend] Subscribing to ingestion events for batch: ${ingestionBatchId}`);
+      
+      const handleEvent = (event: ImportEvent) => {
+        console.log(`📊 [Frontend] Received event: ${event.type} for batch: ${(event as any).batchId || (event as any).importId}`);
+        if (event.type === 'shredding-progress') {
+          if (event.batchId === ingestionBatchId) {
+            console.log(`✅ [Frontend] Updating progress: ${event.step} (${event.percentage}%)`);
+            setIngestionStatus({
+              assetName: event.assetName,
+              step: event.step,
+              percentage: event.percentage,
+              message: event.message
+            });
+          }
+        } else if (event.type === 'shredding-completed') {
+          if (event.batchId === ingestionBatchId) {
+            setIngestionStatus({
+              step: 'Complete',
+              percentage: 100,
+              message: 'Strategic Analysis Finalized.'
+            });
+            // We don't close the modal automatically; user clicks a button
+          }
+        } else if (event.type === 'shredding-error') {
+          if (event.batchId === ingestionBatchId) {
+            setIngestionStatus({
+              step: 'Error',
+              percentage: 0,
+              message: `Ingestion Failed: ${event.error?.message || 'Unknown error'}`
+            });
+          }
+        }
+      };
+
+      importWebSocketService.subscribe(ingestionBatchId, handleEvent);
+      return () => {
+        importWebSocketService.unsubscribe(ingestionBatchId);
+      };
+    }
+  }, [ingestionBatchId]);
 
   // --- Persistence ---
   useEffect(() => {
@@ -568,7 +629,16 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     if (selectedAssetIds.length === 0) return;
     
     setIsImporting(true);
-    setGenerationMessage('Director is shredding your strategic assets into the Vault...');
+    setGenerationMessage('Director is analyzing your strategic assets...');
+    
+    // OPEN MODAL IMMEDIATELY
+    setIsIngestionModalOpen(true);
+    setIngestionStatus({
+      step: 'Initiating',
+      percentage: 0,
+      message: 'Commanding Strategic Analysis...'
+    });
+
     setSensingLogs(prev => [...prev, { 
       id: `import-start-${Date.now()}`, 
       message: `Analyzing ${selectedAssetIds.length} strategic assets...`, 
@@ -576,51 +646,25 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     }]);
 
     try {
-      for (const assetId of selectedAssetIds) {
-        const asset = storageSuggestions.find(a => a.id === assetId);
-        if (asset) {
-          await new Promise(resolve => setTimeout(resolve, 800));
-          setSensingLogs(prev => [...prev, { 
-            id: `analyze-${assetId}-${Date.now()}`, 
-            message: `Deciphering ${asset.name}... extracted key strategic vectors.`, 
-            type: 'success' 
-          }]);
-        }
-      }
-
       const res = await api.post<any>('/intelligence/shred', { 
         assetIds: selectedAssetIds,
         sourceType: 'connector_asset',
         providerName: currentStorageProvider(),
+        synthesisOnly: true, // RUN COMMANDER, NOT SHREDDER
       });
+
+      if (res.batchId) {
+        setIngestionBatchId(res.batchId);
+        // Modal is already open, status will update via WebSocket
+      }
       
       setSensingLogs(prev => [...prev, { 
         id: `import-complete-${Date.now()}`, 
-        message: "Strategic Terrain Mapping Complete. Intelligence is now calibrated.", 
+        message: "Strategic Analysis Handed to Commander.", 
         type: 'success' 
       }]);
 
-      if (res.results && Array.isArray(res.results)) {
-        res.results.forEach((r: any) => {
-          if (r.assetSummary) {
-            setWizardMessages(prev => [...prev, { 
-              id: `asset-${r.id}-${Date.now()}`, 
-              role: 'assistant', 
-              text: r.assetSummary 
-            }]);
-          }
-        });
-      }
-
-      if (res.summary) {
-        setGenerationMessage("Intelligence Synthesized. Your strategic terrain is now fully mapped.");
-        setWizardMessages(prev => [...prev, { 
-          id: `batch-summary-${Date.now()}`, 
-          role: 'assistant', 
-          text: res.summary 
-        }]);
-      }
-    } catch (e) {
+    } catch (e: any) {
       console.error('❌ [OnboardingContext] Import failed:', e);
       setSensingLogs(prev => [...prev, { 
         id: `import-error-${Date.now()}`, 
@@ -726,6 +770,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     setCurrentActionLaneCampaignIndex, setSpotlightIndex, setGoogleSubStep, api, user,
     onComplete, setSelectedLanes, isWorking, isConductorExpanded, setIsConductorExpanded,
     handleStorageSearch, handleImportAssets, triggerStorageScan, initiateProviderSensing, isImporting,
+    ingestionStatus, isIngestionModalOpen, ingestionBatchId, setIsIngestionModalOpen,
     onConnectLinkedIn: onConnectLinkedIn ? async () => {
       await onConnectLinkedIn();
       setConnectedProviders(prev => prev.includes('linkedin') ? prev : [...prev, 'linkedin']);

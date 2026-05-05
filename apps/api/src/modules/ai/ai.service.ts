@@ -97,6 +97,32 @@ SUMMARY:`;
     const response = await this.aiProviderFactory.getProvider().generateText(request);
     return response.content.trim();
   }
+  async generateStrategicBriefing(text: string, assetName: string): Promise<string> {
+    this.logger.log(`Generating strategic briefing for asset: ${assetName}`);
+    
+    const prompt = `
+You are a High-Signal Strategic Commander. I have just provided you with a knowledge asset named "${assetName}".
+YOUR TASK:
+1. Internalize the content of this asset.
+2. Provide a 2-3 sentence strategic briefing for the Director.
+3. Focus on the core value proposition, unique perspective, or "weaponizable" insight contained in this document.
+4. Speak as the "Commander" who is briefing the Director on a newly acquired intelligence asset.
+5. Start with something like "I've internalized [Asset Name]..."
+
+ASSET TEXT:
+${text.substring(0, 15000)}
+
+BRIEFING:`;
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.5,
+      maxTokens: 300,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    return response.content.trim();
+  }
 
   async generateDiscoveryQuery(context: {
     offering?: any;

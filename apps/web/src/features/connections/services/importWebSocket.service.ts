@@ -40,7 +40,32 @@ export interface ImportError {
   };
 }
 
-export type ImportEvent = ImportProgress | ImportCompleted | ImportError;
+export interface ShreddingProgress {
+  type: 'shredding-progress';
+  batchId: string;
+  assetId?: string;
+  assetName?: string;
+  step: string;
+  percentage: number;
+  message?: string;
+  timestamp: string;
+}
+
+export interface ShreddingCompleted {
+  type: 'shredding-completed';
+  batchId: string;
+  timestamp: string;
+  data: any;
+}
+
+export interface ShreddingError {
+  type: 'shredding-error';
+  batchId: string;
+  timestamp: string;
+  error: any;
+}
+
+export type ImportEvent = ImportProgress | ImportCompleted | ImportError | ShreddingProgress | ShreddingCompleted | ShreddingError;
 
 export class ImportWebSocketService {
   private socket: Socket | null = null;
@@ -100,6 +125,21 @@ export class ImportWebSocketService {
 
     this.socket.on('import-error', (event: ImportError) => {
       console.log('❌ Import error:', event);
+      this.notifyListeners(event);
+    });
+
+    this.socket.on('shredding-progress', (event: ShreddingProgress) => {
+      console.log('📊 Shredding progress:', event);
+      this.notifyListeners(event);
+    });
+
+    this.socket.on('shredding-completed', (event: ShreddingCompleted) => {
+      console.log('✅ Shredding completed:', event);
+      this.notifyListeners(event);
+    });
+
+    this.socket.on('shredding-error', (event: ShreddingError) => {
+      console.log('❌ Shredding error:', event);
       this.notifyListeners(event);
     });
   }

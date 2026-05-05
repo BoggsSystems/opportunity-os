@@ -21,10 +21,23 @@ export class IntelligenceController {
   @Post('shred')
   async shredAssets(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() data: { assetIds: string[]; sourceType: ConceptSourceType; providerName?: string; connectorId?: string }
+    @Body() data: { 
+      assetIds: string[]; 
+      sourceType: ConceptSourceType; 
+      providerName?: string; 
+      connectorId?: string;
+      synthesisOnly?: boolean;
+    }
   ) {
     if (!user?.id) throw new UnauthorizedException();
-    return this.intelligenceService.shredAssets(user.id, data.assetIds, data.sourceType, data.providerName, data.connectorId);
+    return this.intelligenceService.shredAssets(
+      user.id, 
+      data.assetIds, 
+      data.sourceType, 
+      data.providerName, 
+      data.connectorId,
+      data.synthesisOnly
+    );
   }
 
   @Post('link-proof')

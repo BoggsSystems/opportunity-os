@@ -52,6 +52,24 @@ export class ImportGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     this.sendImportError(data.importId, data);
   }
 
+  @OnEvent('shredding.progress')
+  handleShreddingProgressEvent(data: any) {
+    this.logger.log(`📊 [Gateway] Received shredding.progress for batch ${data.batchId}: ${data.step}`);
+    this.sendShreddingProgress(data.batchId, data);
+  }
+
+  @OnEvent('shredding.completed')
+  handleShreddingCompletedEvent(data: any) {
+    this.logger.log(`✅ Received shredding.completed event for batch ${data.batchId}`);
+    this.sendShreddingCompletion(data.batchId, data);
+  }
+
+  @OnEvent('shredding.error')
+  handleShreddingErrorEvent(data: any) {
+    this.logger.log(`❌ Received shredding.error event for batch ${data.batchId}: ${data.message}`);
+    this.sendShreddingError(data.batchId, data);
+  }
+
   handleConnection(client: Socket) {
     this.logger.log(`🔗 Client connected: ${client.id}`);
     this.logger.log(`🔗 Client connected from: ${client.handshake.address}`);
@@ -172,10 +190,57 @@ export class ImportGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     }
   }
 
+  // Send shredding progress update
+  sendShreddingProgress(batchId: string, data: {
+    batchId: string;
+    assetId?: string;
+    assetName?: string;
+    step: string;
+    percentage: number;
+    message?: string;
+  }) {
+    if (this.server) {
+      this.logger.log(`📡 [Gateway] Broadcasting shredding-progress to room import-${batchId}`);
+      this.server.to(`import-${batchId}`).emit('shredding-progress', {
+        type: 'shredding-progress',
+        batchId,
+        timestamp: new Date().toISOString(),
+        ...data,
+      });
+    } else {
+      this.logger.warn(`⚠️ [Gateway] No server available to broadcast shredding-progress`);
+    }
+  }
+
+  // Send shredding completion
+  sendShreddingCompletion(batchId: string, data: any) {
+    if (this.server) {
+      this.server.to(`import-${batchId}`).emit('shredding-completed', {
+        type: 'shredding-completed',
+        batchId,
+        timestamp: new Date().toISOString(),
+        data,
+      });
+    }
+  }
+
+  // Send shredding error
+  sendShreddingError(batchId: string, error: any) {
+    if (this.server) {
+      this.server.to(`import-${batchId}`).emit('shredding-error', {
+        type: 'shredding-error',
+        batchId,
+        timestamp: new Date().toISOString(),
+        error,
+      });
+    }
+  }
+
   // Send current import status (for new subscribers)
   private async sendImportStatus(importId: string) {
     this.logger.log(`📋 Sending current status for import ${importId}`);
     try {
+      // First check connection imports
       const batch = await prisma.connectionImportBatch.findUnique({
         where: { id: importId }
       });
@@ -194,18 +259,22 @@ export class ImportGateway implements OnGatewayInit, OnGatewayConnection, OnGate
           failedRecords: batch.errorCount,
           percentage
         });
-
-        if (batch.status === 'completed') {
-          this.sendImportCompletion(importId, {
-            status: 'completed',
-            totalRecords: batch.totalRows,
-            importedRecords: batch.createdPeopleCount,
-            duplicateRecords: batch.duplicateCount,
-            failedRecords: batch.errorCount,
-            duration: 0 // Unknown
-          });
-        }
+        return;
       }
+
+      // Then check asset ingestion batches
+      const assetBatch = await prisma.assetIngestionBatch.findUnique({
+        where: { id: importId }
+      });
+
+      if (assetBatch) {
+        this.sendShreddingProgress(importId, {
+          batchId: importId,
+          step: assetBatch.status === 'completed' ? 'Done' : 'Processing...',
+          percentage: assetBatch.status === 'completed' ? 100 : 50,
+        });
+      }
+
     } catch (error: any) {
       this.logger.error(`Error sending initial status: ${error.message}`);
     }
