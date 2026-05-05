@@ -533,14 +533,6 @@ class OnboardingCampaignInputDto {
   @IsOptional()
   @IsString()
   messagingHook?: string;
-
-  @IsOptional()
-  @IsString()
-  duration?: string;
-
-  @IsOptional()
-  @IsString()
-  channel?: string;
 }
 
 class OnboardingActionLaneInputDto {

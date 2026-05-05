@@ -437,6 +437,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
           });
           if (res.success && res.offerings?.length) {
             setProposedOfferings(res.offerings);
+            setSelectedLanes(res.offerings.map(o => o.id)); // Auto-select all by default
             setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "I have analyzed your data and proposed the following Revenue Lanes. Which ones should we focus on? Feel free to chat with me below if you'd like to refine or pivot these directions." }]);
           }
         } finally {
@@ -445,6 +446,10 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
         }
       }, 50);
       return;
+    } else if (step === 'campaigns') {
+      // INITIALIZE SEQUENTIAL GENERATION
+      setCurrentOfferingIndex(0);
+      setProposedCampaigns([]);
     } else if (step === 'account' && !user) {
       setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "Your strategy is ready to activate. Create a workspace account now so I can save this plan, attach connectors to the right owner, and continue into execution setup." }]);
     }
@@ -873,6 +878,46 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     }
   };
 
+  const generateNextCampaign = async () => {
+    if (currentOfferingIndex >= selectedLanes.length) return;
+
+    const offeringId = selectedLanes[currentOfferingIndex];
+    const offering = proposedOfferings.find(o => o.id === offeringId);
+    if (!offering) {
+      setCurrentOfferingIndex(prev => prev + 1);
+      return;
+    }
+
+    setIsLoading(true);
+    setGenerationMessage(`Architecting mission: ${offering.title}...`);
+    
+    try {
+      const res = await api.proposeCampaigns({
+        offerings: [offering], // SEND ONLY ONE
+        context: {
+          interpretation: comprehensiveSynthesis,
+          posture: strategicDraft?.posture?.text
+        }
+      });
+
+      if (res.success && res.campaigns?.length) {
+        setProposedCampaigns(prev => [...prev, ...res.campaigns]);
+        setWizardMessages(prev => [...prev, { 
+          id: crypto.randomUUID(), 
+          role: 'assistant', 
+          text: `I have architected the tactical campaign for "${offering.title}". It focuses on ${res.campaigns[0].title}.` 
+        }]);
+      }
+      
+      setCurrentOfferingIndex(prev => prev + 1);
+    } catch (e) {
+      console.error('Campaign generation failed', e);
+    } finally {
+      setIsLoading(false);
+      setGenerationMessage(null);
+    }
+  };
+
   const handleConductorSend = async (text: string) => {
     const userMsg = { id: crypto.randomUUID(), role: 'user', text };
     setWizardMessages(prev => [...prev, userMsg]);
@@ -915,6 +960,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     handleStorageSearch, handleImportAssets, handleLinkedInArchiveUpload, handleManualAssetUpload, triggerStorageScan, initiateProviderSensing, isImporting,
     ingestionStatus, isIngestionModalOpen, ingestionBatchId, intelligenceArtifacts, intelligenceJobs, intelligenceChunks,
     setIsIngestionModalOpen, refreshIntelligenceStatus,
+    currentOfferingIndex, setCurrentOfferingIndex, generateNextCampaign,
     onConnectLinkedIn: onConnectLinkedIn ? async () => {
       await onConnectLinkedIn();
       setConnectedProviders(prev => prev.includes('linkedin') ? prev : [...prev, 'linkedin']);

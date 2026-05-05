@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCw, ArrowRight } from 'lucide-react';
+import { RefreshCw, ArrowRight, Target } from 'lucide-react';
 import { useOnboarding } from '../OnboardingContext';
 
 export const StrategicIntentPhase: React.FC = () => {
@@ -96,5 +96,3 @@ export const StrategicIntentPhase: React.FC = () => {
   );
 };
 
-// Internal icon for the mission card
-import { Target } from 'lucide-react';

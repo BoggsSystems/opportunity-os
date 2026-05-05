@@ -536,17 +536,13 @@ Respond with ONLY a valid JSON array of objects. Each object must have:
   "laneTitle": "the title of the Revenue Lane",
   "title": "Campaign name (e.g., 'SDLC Velocity Outreach')",
   "description": "A punchy 1-2 sentence description of the campaign strategy.",
-  "duration": "90 days",
   "targetSegment": "Exactly who this campaign targets (title, company stage, industry)",
-  "channel": "Primary outreach channel(s) (e.g., LinkedIn DM, Email, Warm Intro)",
   "messagingHook": "The specific IP framework or angle used as the conversation opener",
   "goalMetric": "A measurable success metric (e.g., '15 qualified conversations')"
 }
 
 Rules:
 - Create exactly ONE campaign per Revenue Lane.
-- Default duration to 90 days unless the lane clearly calls for a shorter sprint.
-- Be specific about the target segment — not "executives" but "VP/Dir Engineering at Series B+ SaaS companies".
 - The messagingHook must reference the user's actual IP frameworks.
 - Ensure the output is strictly valid JSON.
 `.trim();
