@@ -135,9 +135,9 @@ export class IntelligenceService {
   /**
    * THE SHREDDER: Extracts concepts and proof points from raw text
    */
-  async shredText(userId: string, text: string, source: { type: ConceptSourceType; id: string }, synthesisOnly: boolean = false) {
+  async shredText(userId: string, text: string, source: { type: ConceptSourceType; id: string; name?: string }, synthesisOnly: boolean = false) {
     if (synthesisOnly) {
-      return this.summarizeAsset(userId, text, source.id);
+      return this.summarizeAsset(userId, text, source.name || source.id);
     }
 
     this.logger.log(`Shredding text for user ${userId} from source ${source.type}:${source.id}`);
@@ -250,16 +250,23 @@ export class IntelligenceService {
     
     for (const [index, id] of assetIds.entries()) {
       try {
+        const assetRecord = await prisma.connectorAsset.findFirst({
+          where: { externalId: id, userId },
+          select: { fileName: true }
+        });
+        const assetName = assetRecord?.fileName || id;
+
         await prisma.assetIngestionItem.updateMany({
           where: { batchId: batchId, externalId: id },
           data: { status: 'processing' },
         });
         
         // Emit "Starting Asset" progress
-        this.logger.log(`📊 [Background] Batch ${batchId}: Emitting 'Starting Asset' for ${id}`);
+        this.logger.log(`📊 [Background] Batch ${batchId}: Emitting 'Starting Asset' for ${assetName}`);
         this.eventEmitter.emit('shredding.progress', {
           batchId: batchId,
           assetId: id,
+          assetName: assetName,
           step: 'Downloading',
           percentage: Math.round(((index) / assetIds.length) * 100),
           message: `Accessing asset ${index + 1} of ${assetIds.length}...`
@@ -318,24 +325,24 @@ export class IntelligenceService {
           percentage: Math.round(((index + 0.3) / assetIds.length) * 100),
           message: `Extracting text from asset...`
         });
-
         const cleanText = text.trim().substring(0, 300000); 
         
         // --- DIAGNOSTIC LOGGING ---
         const logPath = '/Users/jeffboggs/opportunity-os/apps/api/debug.log';
         fs.appendFileSync(logPath, `\n[${new Date().toISOString()}] 📄 SHREDDING ASSET (HOLISTIC): ${id} (${mimeType})\nTEXT LENGTH: ${cleanText.length} chars\nPREVIEW: ${cleanText.substring(0, 500)}...\n`);
-        // ---------------------------
-
-        // Emit "AI Synthesis" progress
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] 📄 TEXT CLEANED (${cleanText.length} chars)\n`);
+        
+        // Emit "Analyzing" progress
         this.eventEmitter.emit('shredding.progress', {
           batchId: batchId,
           assetId: id,
-          step: 'AI Synthesis',
-          percentage: Math.round(((index + 0.6) / assetIds.length) * 100),
+          assetName: assetName,
+          step: 'Analyzing',
+          percentage: Math.round(((index + 0.5) / assetIds.length) * 100),
           message: `Commander analyzing strategic frameworks...`
         });
 
-        const shredResult = await this.shredText(userId, cleanText, { type: sourceType, id }, synthesisOnly);
+        const shredResult = await this.shredText(userId, cleanText, { type: sourceType, id, name: assetName } as any, synthesisOnly);
         
         fs.appendFileSync(logPath, `[${new Date().toISOString()}] ✅ SHRED RESULT: ${shredResult.concepts.length} concepts, ${shredResult.proofPoints.length} proof points found.\n`);
 
@@ -370,7 +377,7 @@ export class IntelligenceService {
         this.eventEmitter.emit('shredding.progress', {
           batchId: batchId,
           assetId: id,
-          assetName: id, // Fallback to ID if name not available here
+          assetName: assetName,
           step: 'Complete',
           percentage: Math.round(((index + 1) / assetIds.length) * 100),
           message: synthesisOnly ? `Strategic summary captured.` : `Asset integrated into Strategic Brain.`,
