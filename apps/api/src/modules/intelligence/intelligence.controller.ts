@@ -1,9 +1,14 @@
-import { Controller, Get, Post, Body, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, UnauthorizedException } from '@nestjs/common';
 import { IntelligenceService } from './intelligence.service';
 import { UserPostureService } from './user-posture.service';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AuthenticatedUser } from '../auth/auth.types';
-import { ConceptSourceType } from '@opportunity-os/db';
+import {
+  ConceptSourceType,
+  IngestionArtifactStatus,
+  IntelligenceChunkKind,
+  IntelligenceJobStatus,
+} from '@opportunity-os/db';
 
 @Controller('intelligence')
 export class IntelligenceController {
@@ -16,6 +21,33 @@ export class IntelligenceController {
   async getVault(@CurrentUser() user?: AuthenticatedUser) {
     if (!user?.id) throw new UnauthorizedException();
     return this.intelligenceService.getVault(user.id);
+  }
+
+  @Get('artifacts')
+  async getArtifacts(
+    @Query('status') status: IngestionArtifactStatus | undefined,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException();
+    return this.intelligenceService.getIngestionArtifacts(user.id, status);
+  }
+
+  @Get('jobs')
+  async getJobs(
+    @Query('status') status: IntelligenceJobStatus | undefined,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException();
+    return this.intelligenceService.getIntelligenceJobs(user.id, status);
+  }
+
+  @Get('chunks')
+  async getChunks(
+    @Query('kind') kind: IntelligenceChunkKind | undefined,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    if (!user?.id) throw new UnauthorizedException();
+    return this.intelligenceService.getIntelligenceChunks(user.id, kind);
   }
 
   @Post('shred')

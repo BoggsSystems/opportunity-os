@@ -55,6 +55,25 @@ export class LinkedInIngestService {
         }
       }
 
+      if (userId) {
+        await this.eventEmitter.emitAsync('linkedin.archive.discovered', {
+          userId,
+          importId,
+          archiveName: importId ? `LinkedIn Archive ${importId}` : 'LinkedIn Archive',
+          files: Object.entries(dataMap).map(([path, records]) => ({
+            path,
+            name: path.split('/').pop() || path,
+            mimeType: 'text/csv',
+            sizeBytes: Buffer.byteLength(JSON.stringify(records), 'utf8'),
+            recordCount: records.length,
+            metadata: {
+              source: 'linkedin_data_export',
+              highSignal: this.isHighSignalLinkedInArchivePath(path),
+            },
+          })),
+        });
+      }
+
       // 1. Handle Connections
       // 1. Handle Connections - Be more aggressive in finding the connections file
       const connectionsEntry = zipEntries.find(e => {
@@ -110,6 +129,15 @@ export class LinkedInIngestService {
       // 3. Persist Strategic Draft to Database (Only if authenticated)
       if (userId) {
         await this.persistStrategicDraft(userId, draft);
+        await this.eventEmitter.emitAsync('linkedin.archive.fast-memory', {
+          userId,
+          importId,
+          profileSummary: profileData?.[0]?.Summary || profileData?.[0]?.['About Me'] || undefined,
+          headline: profileData?.[0]?.Headline || undefined,
+          connectionCount,
+          topCompanies: connectionMetadata?.topCompanies || [],
+          topTitles: connectionMetadata?.topTitles || [],
+        });
         
         // 4. SHRED THE RAW CONTENT: Turn profile and positions into Concepts/ProofPoints
         this.logger.log(`Emitting linkedin.ingested event for user: ${userId}`);
@@ -232,6 +260,23 @@ Only return the JSON.
       .sort((a, b) => b[1] - a[1])
       .slice(0, limit)
       .map(([val]) => val);
+  }
+
+  private isHighSignalLinkedInArchivePath(path: string): boolean {
+    const lower = path.toLowerCase();
+    return [
+      'profile',
+      'connections',
+      'messages',
+      'shares',
+      'comments',
+      'recommendations',
+      'endorsements',
+      'positions',
+      'skills',
+      'invitations',
+      'jobs',
+    ].some(token => lower.includes(token));
   }
 
   private async persistStrategicDraft(userId: string, draft: StrategicDraft): Promise<void> {
