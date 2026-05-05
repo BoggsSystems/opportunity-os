@@ -278,63 +278,65 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   
   // --- Ingestion WebSocket Listener ---
   useEffect(() => {
-    if (ingestionBatchId) {
-      console.log(`🔌 [Frontend] Subscribing to ingestion events for batch: ${ingestionBatchId}`);
-      
-      const handleEvent = (event: ImportEvent) => {
-        console.log(`📊 [Frontend] Received event: ${event.type} for batch: ${(event as any).batchId || (event as any).importId}`);
-        if (event.type === 'shredding-progress') {
-          if (event.batchId === ingestionBatchId) {
-            console.log(`✅ [Frontend] Updating progress: ${event.step} (${event.percentage}%)`);
-            setIngestionStatus({
-              assetName: event.assetName,
-              step: event.step,
-              percentage: event.percentage,
-              message: event.message
-            });
+    if (!ingestionBatchId) {
+      return undefined;
+    }
 
-            // IF ASSET COMPLETE: NARRATE IN CHAT
-            if (event.step === 'Complete' && (event as any).summary) {
-              setWizardMessages(prev => [...prev, {
-                id: `narrate-${event.assetId || Math.random()}`,
-                role: 'assistant',
-                text: (event as any).summary
-              }]);
-            }
-          }
-        } else if (event.type === 'shredding-completed') {
-          if (event.batchId === ingestionBatchId) {
-            setIngestionStatus({
-              step: 'Complete',
-              percentage: 100,
-              message: 'Strategic Analysis Finalized.'
-            });
-            
-            // ADD BATCH SUMMARY TO CHAT
-            if (event.summary) {
-              setWizardMessages(prev => [...prev, {
-                id: `batch-summary-${ingestionBatchId}`,
-                role: 'assistant',
-                text: event.summary
-              }]);
-            }
-          }
-        } else if (event.type === 'shredding-error') {
-          if (event.batchId === ingestionBatchId) {
-            setIngestionStatus({
-              step: 'Error',
-              percentage: 0,
-              message: `Ingestion Failed: ${event.error?.message || 'Unknown error'}`
-            });
+    console.log(`🔌 [Frontend] Subscribing to ingestion events for batch: ${ingestionBatchId}`);
+      
+    const handleEvent = (event: ImportEvent) => {
+      console.log(`📊 [Frontend] Received event: ${event.type} for batch: ${(event as any).batchId || (event as any).importId}`);
+      if (event.type === 'shredding-progress') {
+        if (event.batchId === ingestionBatchId) {
+          console.log(`✅ [Frontend] Updating progress: ${event.step} (${event.percentage}%)`);
+          setIngestionStatus({
+            ...(event.assetName ? { assetName: event.assetName } : {}),
+            step: event.step,
+            percentage: event.percentage,
+            ...(event.message ? { message: event.message } : {})
+          });
+
+          // IF ASSET COMPLETE: NARRATE IN CHAT
+          if (event.step === 'Complete' && event.summary) {
+            setWizardMessages(prev => [...prev, {
+              id: `narrate-${event.assetId || Math.random()}`,
+              role: 'assistant',
+              text: event.summary
+            }]);
           }
         }
-      };
+      } else if (event.type === 'shredding-completed') {
+        if (event.batchId === ingestionBatchId) {
+          setIngestionStatus({
+            step: 'Complete',
+            percentage: 100,
+            message: 'Strategic Analysis Finalized.'
+          });
+            
+          // ADD BATCH SUMMARY TO CHAT
+          if (event.data.summary) {
+            setWizardMessages(prev => [...prev, {
+              id: `batch-summary-${ingestionBatchId}`,
+              role: 'assistant',
+              text: event.data.summary
+            }]);
+          }
+        }
+      } else if (event.type === 'shredding-error') {
+        if (event.batchId === ingestionBatchId) {
+          setIngestionStatus({
+            step: 'Error',
+            percentage: 0,
+            message: `Ingestion Failed: ${event.error?.message || 'Unknown error'}`
+          });
+        }
+      }
+    };
 
-      importWebSocketService.subscribe(ingestionBatchId, handleEvent);
-      return () => {
-        importWebSocketService.unsubscribe(ingestionBatchId);
-      };
-    }
+    importWebSocketService.subscribe(ingestionBatchId, handleEvent);
+    return () => {
+      importWebSocketService.unsubscribe(ingestionBatchId);
+    };
   }, [ingestionBatchId]);
 
   // --- Persistence ---

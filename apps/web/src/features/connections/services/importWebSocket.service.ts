@@ -48,6 +48,7 @@ export interface ShreddingProgress {
   step: string;
   percentage: number;
   message?: string;
+  summary?: string;
   timestamp: string;
 }
 
@@ -55,7 +56,11 @@ export interface ShreddingCompleted {
   type: 'shredding-completed';
   batchId: string;
   timestamp: string;
-  data: any;
+  data: {
+    importedCount?: number;
+    failedCount?: number;
+    summary?: string;
+  };
 }
 
 export interface ShreddingError {
