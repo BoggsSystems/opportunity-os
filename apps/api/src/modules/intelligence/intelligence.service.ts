@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { prisma, ConceptCategory, ConceptSourceType } from '@opportunity-os/db';
+import * as pdf from 'pdf-parse';
+import * as fs from 'fs';
 import { AiService } from '../ai/ai.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 
@@ -35,8 +37,7 @@ export class IntelligenceService {
 
       await tx.intelligenceSource.create({
         data: {
-          targetId: concept.id,
-          targetType: 'concept',
+          conceptId: concept.id,
           sourceType: data.sourceType,
           sourceId: data.sourceId,
         },
@@ -65,8 +66,7 @@ export class IntelligenceService {
 
       await tx.intelligenceSource.create({
         data: {
-          targetId: proofPoint.id,
-          targetType: 'proof_point',
+          proofPointId: proofPoint.id,
           sourceType: data.sourceType,
           sourceId: data.sourceId,
         },
@@ -103,8 +103,8 @@ export class IntelligenceService {
   async shredText(userId: string, text: string, source: { type: ConceptSourceType; id: string }) {
     this.logger.log(`Shredding text for user ${userId} from source ${source.type}:${source.id}`);
     
-    // 1. Identify Concepts
-    const extracted = await this.aiService.extractStrategicIntelligence(text);
+    // 1. Identify Concepts (Using the efficient 5.4-mini shredder)
+    const extracted = await this.aiService.extractStrategicIntelligence(text, 'openai/gpt-5.4-mini');
     
     const results = {
       concepts: [] as any[],
@@ -135,7 +135,10 @@ export class IntelligenceService {
       results.proofPoints.push(proofPoint);
     }
 
-    return results;
+    return {
+      ...results,
+      summary: extracted.summary
+    };
   }
 
   /**
@@ -179,15 +182,69 @@ export class IntelligenceService {
           where: { batchId: batch.id, externalId: id },
           data: { status: 'processing' },
         });
-        const { buffer } = await this.connectorsService.downloadFile(userId, id);
-        const text = buffer.toString('utf8').substring(0, 15000); 
         
-        const shredResult = await this.shredText(userId, text, { type: sourceType, id });
+        const { buffer, mimeType } = await this.connectorsService.downloadFile(userId, id, providerName);
         
+        let text = '';
+        if (mimeType === 'application/pdf') {
+          try {
+            this.logger.log(`📄 ROBUST PDF EXTRACTION: ${id} (${buffer.length} bytes)`);
+            
+            let pdfParser = pdf; // Already imported as * as pdf
+            // Handle both CommonJS, ES module exports, and specialized versions (2.4.5)
+            if (typeof pdfParser !== 'function') {
+              if ((pdfParser as any).default) {
+                pdfParser = (pdfParser as any).default;
+              } else if ((pdfParser as any).PDFParse) {
+                pdfParser = (pdfParser as any).PDFParse;
+              }
+            }
+
+            if (typeof pdfParser === 'function') {
+              try {
+                const data = await (pdfParser as any)(buffer);
+                text = data?.text || '';
+              } catch (e: any) {
+                if (e.message?.includes("Class constructor") || e.message?.includes("cannot be invoked without 'new'")) {
+                  const parser = new (pdfParser as any)({ data: buffer });
+                  const result = await parser.getText();
+                  text = result.text || '';
+                } else {
+                  throw e;
+                }
+              }
+            } else if ((pdfParser as any).PDFParse) {
+              const parser = new (pdfParser as any).PDFParse({ data: buffer });
+              const result = await parser.getText();
+              text = result.text || '';
+            }
+
+            this.logger.log(`📄 PDF SUCCESS: Extracted ${text.length} characters from ${id}`);
+          } catch (err) {
+            this.logger.error(`Failed to parse PDF ${id}`, err);
+            text = buffer.toString('utf8'); // Fallback
+          }
+        } else {
+          text = buffer.toString('utf8');
+        }
+
+        const cleanText = text.trim().substring(0, 300000); 
+        
+        // --- DIAGNOSTIC LOGGING ---
+        const logPath = '/Users/jeffboggs/opportunity-os/apps/api/debug.log';
+        fs.appendFileSync(logPath, `\n[${new Date().toISOString()}] 📄 SHREDDING ASSET (HOLISTIC): ${id} (${mimeType})\nTEXT LENGTH: ${cleanText.length} chars\nPREVIEW: ${cleanText.substring(0, 500)}...\n`);
+        // ---------------------------
+
+        const shredResult = await this.shredText(userId, cleanText, { type: sourceType, id });
+        
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ✅ SHRED RESULT: ${shredResult.concepts.length} concepts, ${shredResult.proofPoints.length} proof points found.\n`);
+
+        const assetSummary = shredResult.summary;
+
         allFindings.concepts.push(...shredResult.concepts);
         allFindings.proofPoints.push(...shredResult.proofPoints);
         
-        results.push({ id, status: 'success', ...shredResult });
+        results.push({ id, status: 'success', ...shredResult, assetSummary });
         await prisma.assetIngestionItem.updateMany({
           where: { batchId: batch.id, externalId: id },
           data: {
@@ -198,6 +255,8 @@ export class IntelligenceService {
           },
         });
       } catch (e: any) {
+        const logPath = '/Users/jeffboggs/opportunity-os/apps/api/debug.log';
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ❌ SHREDDING FAILED for asset ${id}: ${e.message}\n`);
         this.logger.error(`Failed to shred asset ${id}`, e);
         results.push({ id, status: 'failed', error: e.message });
         await prisma.assetIngestionItem.updateMany({
@@ -264,7 +323,8 @@ export class IntelligenceService {
    * FLYWHEEL FEEDBACK: Tracks usage of a vault item
    */
   async trackUsage(userId: string, data: {
-    targetId: string;
+    conceptId?: string;
+    proofPointId?: string;
     actionItemId: string;
     sentiment?: number;
     outcome?: string;
@@ -272,7 +332,8 @@ export class IntelligenceService {
     return prisma.intelligenceUsage.create({
       data: {
         userId,
-        targetId: data.targetId,
+        conceptId: data.conceptId,
+        proofPointId: data.proofPointId,
         actionItemId: data.actionItemId,
         sentiment: data.sentiment,
         outcome: data.outcome,

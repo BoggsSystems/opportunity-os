@@ -13,7 +13,7 @@ export class GoogleDriveProvider implements StorageProvider {
     const accessToken = this.requireAccessToken(credentials);
     const query = options?.folderId 
       ? `'${options.folderId}' in parents and trashed = false` 
-      : "mimeType != 'application/vnd.google-apps.folder' and trashed = false";
+      : "'root' in parents and trashed = false";
 
     const response = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,size,webViewLink,headRevisionId,modifiedTime)`,

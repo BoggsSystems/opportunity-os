@@ -1249,7 +1249,7 @@ export function App() {
     }
   }
 
-  async function startGmailOAuth() {
+  async function startGoogleOAuth() {
     window.location.href = `${api.baseUrl}/auth/google`;
   }
 
@@ -1473,7 +1473,7 @@ export function App() {
           notice={notice}
           onAuth={handleAuth}
           onConnectOutlook={startOutlookOAuth}
-          onConnectGmail={startGmailOAuth}
+          onConnectGoogle={startGoogleOAuth}
           onConnectLinkedIn={startLinkedInOAuth}
           onConnectHubSpot={connectHubSpot}
           onConnectShopify={connectShopify}
@@ -1610,7 +1610,7 @@ export function App() {
           emailReadiness={emailReadiness}
           onComplete={handleOnboardingComplete} 
           onConnectOutlook={startOutlookOAuth}
-          onConnectGmail={startGmailOAuth}
+          onConnectGoogle={startGoogleOAuth}
           onConnectLinkedIn={startLinkedInOAuth}
           onConnectHubSpot={connectHubSpot}
           onConnectShopify={connectShopify}

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthGuard as PassportAuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
@@ -112,6 +112,12 @@ export class AuthController {
   @Get('me')
   async me(@CurrentUser() user?: AuthenticatedUser) {
     return this.authService.getCurrentUser(user?.id ?? '');
+  }
+  
+  @Post('scrub')
+  async scrub(@CurrentUser() user?: AuthenticatedUser) {
+    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
+    return this.authService.scrubUser(user.id);
   }
 
   @Public()

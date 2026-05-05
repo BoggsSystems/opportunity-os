@@ -14,6 +14,57 @@ const seedData = async () => {
       },
     });
 
+    // Core Capabilities
+    const caps = [
+      { type: 'email', name: 'Email', desc: 'Send and receive emails' },
+      { type: 'calendar', name: 'Calendar', desc: 'Manage schedules' },
+      { type: 'storage', name: 'File Storage', desc: 'Cloud file storage' },
+      { type: 'contacts', name: 'Contacts', desc: 'Contact management' },
+      { type: 'discovery', name: 'Content Discovery', desc: 'Ingest external content' },
+    ];
+
+    const capabilityMap: Record<string, any> = {};
+    for (const cap of caps) {
+      capabilityMap[cap.type] = await prisma.capability.upsert({
+        where: { capabilityType: cap.type },
+        update: { name: cap.name, description: cap.desc },
+        create: {
+          capabilityType: cap.type,
+          name: cap.name,
+          description: cap.desc,
+          supportedFeaturesJson: [],
+          defaultConfigJson: {},
+        },
+      });
+    }
+
+    // Capability Providers
+    const providers = [
+      { capType: 'email', name: 'gmail', display: 'Gmail', scopes: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send'] },
+      { capType: 'calendar', name: 'google_calendar', display: 'Google Calendar', scopes: ['https://www.googleapis.com/auth/calendar.readonly'] },
+      { capType: 'storage', name: 'google_drive', display: 'Google Drive', scopes: ['https://www.googleapis.com/auth/drive.readonly'] },
+      { capType: 'contacts', name: 'linkedin', display: 'LinkedIn', scopes: ['r_liteprofile', 'r_emailaddress'] },
+    ];
+
+    for (const prov of providers) {
+      const cap = capabilityMap[prov.capType];
+      if (!cap) continue;
+      await prisma.capabilityProvider.upsert({
+        where: { capabilityId_providerName: { capabilityId: cap.id, providerName: prov.name } },
+        update: { displayName: prov.display, requiredScopesJson: prov.scopes || [] },
+        create: {
+          capabilityId: cap.id,
+          providerName: prov.name,
+          displayName: prov.display,
+          description: `${prov.display} integration`,
+          authType: 'oauth2',
+          requiredScopesJson: prov.scopes || [],
+          rateLimitConfigJson: {},
+          providerConfigSchemaJson: {},
+        },
+      });
+    }
+
     // Plans
     const starterPlan = await prisma.plan.upsert({
       where: { code: 'starter' },

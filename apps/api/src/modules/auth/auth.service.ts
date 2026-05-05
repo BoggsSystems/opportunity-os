@@ -14,6 +14,7 @@ import {
   prisma,
   AuthenticationCredentialType,
   UserLifecycleStage,
+  ConnectorStatus,
 } from "@opportunity-os/db";
 import { getConfig } from "@opportunity-os/config";
 import {
@@ -111,6 +112,12 @@ export class AuthService {
             expiresAt: sessionExpiresAt,
             lastUsedAt: new Date(),
           },
+        });
+
+        // 6. Auto-provision connectors for Google services
+        await this.autoProvisionGoogleConnectors(credential.authenticationIdentity.userId, {
+            accessToken: profile.accessToken,
+            refreshToken: profile.refreshToken || credential.refreshToken,
         });
 
         return this.buildAuthResponse(
@@ -246,6 +253,12 @@ export class AuthService {
           expiresAt: sessionExpiresAt,
           lastUsedAt: new Date(),
         },
+      });
+
+      // 6. Auto-provision connectors for Google services
+      await this.autoProvisionGoogleConnectors(identity.userId, {
+          accessToken: profile.accessToken,
+          refreshToken: profile.refreshToken,
       });
 
       return this.buildAuthResponse(
@@ -1481,5 +1494,74 @@ export class AuthService {
 
   private isNonProduction(): boolean {
     return this.config.NODE_ENV !== "production";
+  }
+
+  private async autoProvisionGoogleConnectors(userId: string, creds: { accessToken?: string; refreshToken?: string }) {
+    if (!creds.accessToken) return;
+    
+    try {
+      console.log("🔍 [AuthService] Auto-provisioning Google connectors for user:", userId);
+      const [storageCap, storageProv, calCap, calProv, emailCap, emailProv] = await Promise.all([
+        prisma.capability.findFirst({ where: { capabilityType: 'storage' } }),
+        prisma.capabilityProvider.findFirst({ where: { providerName: 'google_drive' } }),
+        prisma.capability.findFirst({ where: { capabilityType: 'calendar' } }),
+        prisma.capabilityProvider.findFirst({ where: { providerName: 'google_calendar' } }),
+        prisma.capability.findFirst({ where: { capabilityType: 'email' } }),
+        prisma.capabilityProvider.findFirst({ where: { providerName: 'gmail' } }),
+      ]);
+      console.log("🔍 [AuthService] Storage Provider Found:", !!storageProv);
+      console.log("🔍 [AuthService] Storage Capability Found:", !!storageCap);
+
+      const provision = async (capId: string, provId: string, name: string, features: string[]) => {
+        const connector = await prisma.userConnector.upsert({
+          where: { userId_capabilityId: { userId, capabilityId: capId } },
+          create: {
+            userId,
+            capabilityId: capId,
+            capabilityProviderId: provId,
+            connectorName: name,
+            status: ConnectorStatus.connected,
+            enabledFeaturesJson: JSON.stringify(features),
+          },
+          update: { status: ConnectorStatus.connected, capabilityProviderId: provId }
+        });
+        
+        await prisma.connectorCredential.upsert({
+          where: { userConnectorId: connector.id },
+          create: {
+            userConnectorId: connector.id,
+            credentialType: "oauth2_token",
+            encryptedData: JSON.stringify(creds),
+            refreshStatus: "ready",
+          },
+          update: {
+            encryptedData: JSON.stringify(creds),
+            refreshStatus: "ready",
+          }
+        });
+      };
+
+      if (storageCap && storageProv) await provision(storageCap.id, storageProv.id, "Google Drive", ["list", "download", "sync"]);
+      if (calCap && calProv) await provision(calCap.id, calProv.id, "Google Calendar", ["sync", "list"]);
+      if (emailCap && emailProv) await provision(emailCap.id, emailProv.id, "Gmail", ["send", "sync", "reply_detection"]);
+      
+      console.log("✅ [AuthService] Google connectors provisioned");
+    } catch (e) {
+      console.error("❌ [AuthService] Failed to auto-provision Google connectors:", e);
+    }
+  }
+
+  async scrubUser(userId: string) {
+    console.log(`🧹 [AuthService] Scrubbing all data for user: ${userId}`);
+    try {
+      // Deleting the user will cascade to almost everything due to 'onDelete: Cascade' in schema
+      await prisma.user.delete({
+        where: { id: userId },
+      });
+      return { success: true, message: "User and all associated data scrubbed successfully." };
+    } catch (error) {
+      console.error(`❌ [AuthService] Failed to scrub user ${userId}:`, error);
+      throw new BadRequestException(`Scrub failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
   }
 }

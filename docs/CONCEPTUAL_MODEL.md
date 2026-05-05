@@ -850,7 +850,9 @@ Represents:
 * a LinkedIn Post
 
 Relationships:
-* links a Concept or Proof Point back to its source entity
+* links a Concept back to its source entity
+* links a Proof Point back to its source entity
+* ensures provenance for all strategic intelligence extracted from assets or conversations
 
 **Connector Asset**
 

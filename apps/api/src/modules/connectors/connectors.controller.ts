@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import * as fs from 'fs';
 import type { Response } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -123,13 +124,20 @@ export class ConnectorsController {
     return this.connectorsService.syncEmail(user.id);
   }
 
-  @Get('storage/suggestions')
-  async getStorageSuggestions(
+  @Get('storage/assets')
+  async listStorageAssets(
     @Query('provider') provider: string | undefined,
+    @Query('folderId') folderId: string | undefined,
     @CurrentUser() user?: AuthenticatedUser,
   ) {
-    if (!user?.id) throw new UnauthorizedException('No authenticated user found');
-    return this.connectorsService.getStorageSuggestions(user.id, provider);
+    const logPath = '/Users/jeffboggs/opportunity-os/apps/api/debug.log';
+    fs.appendFileSync(logPath, `\n[${new Date().toISOString()}] 📡 [Controller] listStorageAssets - Provider: ${provider}, Folder: ${folderId}, User: ${user?.id}\n`);
+    console.log('📡 [ConnectorsController] GET storage/assets', { provider, folderId, userId: user?.id });
+    if (!user?.id) {
+      console.warn('📡 [ConnectorsController] 401 Unauthorized - No user');
+      throw new UnauthorizedException('No authenticated user found');
+    }
+    return this.connectorsService.listStorageAssets(user.id, provider, folderId);
   }
 
   @Get('storage/files')

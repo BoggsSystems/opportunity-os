@@ -18,7 +18,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "db:seed": "node --loader ts-node/esm prisma/seeds/seed-esm.mjs",
+    "db:seed": "tsx prisma/seeds/seed-clean.ts",
     "db:reset": "prisma migrate reset --force",
     "db:deploy": "prisma migrate deploy"
   },

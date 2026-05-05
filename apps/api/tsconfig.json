@@ -14,7 +14,7 @@
     "rootDir": "./src",
     "baseUrl": "./",
     "incremental": true,
-    "noEmitOnError": false,
+    "noEmitOnError": true,
     "skipLibCheck": true,
     "strictNullChecks": false,
     "noImplicitAny": false,

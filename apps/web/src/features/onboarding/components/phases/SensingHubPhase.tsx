@@ -6,7 +6,7 @@ export const SensingHubPhase: React.FC = () => {
   const { 
     connectedProviders, setConnectedProviders, providerStatuses,
     setCurrentStep, startSequentialSensing, uploadStatus, 
-    onConnectLinkedIn, onConnectGmail, onConnectOutlook,
+    onConnectLinkedIn, onConnectGoogle, onConnectOutlook,
     onConnectHubSpot, onConnectShopify, onConnectSalesforce,
     nextStep 
   } = useOnboarding();
@@ -28,7 +28,7 @@ export const SensingHubPhase: React.FC = () => {
       id: 'google', 
       name: 'Google', 
       icon: 'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg',
-      onConnect: onConnectGmail 
+      onConnect: onConnectGoogle 
     },
     { 
       id: 'microsoft', 
@@ -68,10 +68,21 @@ export const SensingHubPhase: React.FC = () => {
       <div className="provider-selection-container">
         <div className="provider-grid">
           {PROVIDERS.map((provider: any) => {
-            const isSelected = connectedProviders.includes(provider.id);
+            const isSelected = provider.id === 'google' 
+              ? (connectedProviders.includes('gmail') || connectedProviders.includes('google_drive') || connectedProviders.includes('google_calendar'))
+              : provider.id === 'microsoft'
+              ? (connectedProviders.includes('outlook') || connectedProviders.includes('onedrive'))
+              : connectedProviders.includes(provider.id);
+
             const status = providerStatuses[provider.id];
             const isSyncing = status?.status === 'syncing';
-            const isCompleted = status?.status === 'completed';
+            
+            // For Google, we consider it 'completed' only if we have both Gmail and Drive
+            const isCompleted = provider.id === 'google'
+              ? (connectedProviders.includes('gmail') && connectedProviders.includes('google_drive'))
+              : provider.id === 'microsoft'
+              ? connectedProviders.includes('outlook')
+              : status?.status === 'completed';
             
             return (
               <div 

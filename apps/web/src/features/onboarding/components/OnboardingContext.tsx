@@ -47,6 +47,7 @@ export interface OnboardingContextType {
   selectedActionLanes: string[];
   currentActionLaneCampaignIndex: number;
   connectedProviders: string[];
+  allConnectors: any[];
   providerStatuses: Record<string, any>;
   sensingLogs: any[];
   isSensingActive: boolean;
@@ -92,7 +93,7 @@ export interface OnboardingContextType {
   // Handlers
   onAuth?: ((mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>) | undefined;
   onConnectOutlook?: (() => Promise<void>) | undefined;
-  onConnectGmail?: (() => Promise<void>) | undefined;
+  onConnectGoogle?: (() => Promise<void>) | undefined;
   onConnectLinkedIn?: (() => Promise<void>) | undefined;
   onConnectHubSpot?: ((token: string) => Promise<void>) | undefined;
   onConnectShopify?: ((storeName: string, token: string) => Promise<void>) | undefined;
@@ -100,7 +101,7 @@ export interface OnboardingContextType {
   onSyncEmail?: (() => Promise<void>) | undefined;
   handleStorageSearch: (query: string) => Promise<void>;
   handleImportAssets: () => Promise<void>;
-  triggerStorageScan: () => Promise<void>;
+  triggerStorageScan: (folderId?: string) => Promise<void>;
   initiateProviderSensing: (providerId?: string) => Promise<void>;
   isImporting: boolean;
   
@@ -136,7 +137,7 @@ interface OnboardingProviderProps {
   user?: any;
   onAuth?: (mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>;
   onConnectOutlook?: () => Promise<void>;
-  onConnectGmail?: () => Promise<void>;
+  onConnectGoogle?: () => Promise<void>;
   onConnectLinkedIn?: () => Promise<void>;
   onConnectHubSpot?: (token: string) => Promise<void>;
   onConnectShopify?: (storeName: string, token: string) => Promise<void>;
@@ -147,7 +148,7 @@ interface OnboardingProviderProps {
 
 export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({ 
   children, api, user,
-  onAuth, onConnectOutlook, onConnectGmail, onConnectLinkedIn,
+  onAuth, onConnectOutlook, onConnectGoogle, onConnectLinkedIn,
   onConnectHubSpot, onConnectShopify, onConnectSalesforce, onSyncEmail,
   onComplete
 }) => {
@@ -168,8 +169,8 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const [proposedActionLanes, setProposedActionLanes] = useState<any[]>(restoredSnapshot?.proposedActionLanes ?? []);
   const [selectedActionLanes, setSelectedActionLanes] = useState<string[]>(restoredSnapshot?.selectedActionLanes ?? []);
   const [currentActionLaneCampaignIndex, setCurrentActionLaneCampaignIndex] = useState(restoredSnapshot?.currentActionLaneCampaignIndex ?? 0);
-  const [connectedProviders, setConnectedProviders] = useState<string[]>(restoredSnapshot?.connectedProviders ?? []);
-
+  const [connectedProviders, setConnectedProviders] = useState<string[]>([]);
+  const [allConnectors, setAllConnectors] = useState<any[]>([]);
   const [providerStatuses, setProviderStatuses] = useState<Record<string, any>>({});
   const [sensingLogs, setSensingLogs] = useState<any[]>([]);
   const [isSensingActive, setIsSensingActive] = useState(false);
@@ -200,11 +201,11 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
             .filter(c => c.status === 'connected' || c.status === 'syncing')
             .map(c => {
               const name = c.providerName || c.capabilityProvider?.providerName || '';
-              if (name === 'google_oauth' || name === 'gmail' || name === 'google_calendar') return 'google';
-              if (name === 'microsoft' || name === 'outlook' || name === 'onedrive') return 'microsoft';
               return name;
             });
           
+          setAllConnectors(connectors);
+
           if (active.length > 0) {
             console.log('✅ OnboardingContext: Found active providers:', active);
             setConnectedProviders(prev => {
@@ -217,7 +218,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
           connectors.forEach(c => {
             const name = c.providerName || c.capabilityProvider?.providerName || '';
             let id = name;
-            if (name === 'google_oauth' || name === 'gmail' || name === 'google_calendar') id = 'google';
+            if (name === 'google_oauth' || name === 'gmail' || name === 'google_calendar' || name === 'google_drive') id = 'google';
             else if (name === 'microsoft' || name === 'outlook' || name === 'onedrive') id = 'microsoft';
             
             if (c.status === 'connected') {
@@ -233,6 +234,30 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       });
     }
   }, [user, api]);
+
+  // --- Ensure Spotlight Data exists even if sensing hasn't run ---
+  useEffect(() => {
+    if (connectedProviders.length > 0 && spotlightData.length === 0) {
+      const spotlights = connectedProviders.map(id => ({
+        id,
+        name: { linkedin: 'LinkedIn', google: 'Google', microsoft: 'Outlook' }[id as 'linkedin' | 'google' | 'microsoft'] || id,
+        metric: '0',
+        metricLabel: id === 'linkedin' ? 'Connections' : 'Nodes',
+        breakdown: [
+          { label: id === 'linkedin' ? 'Connections' : 'Contacts', value: '0' },
+          { label: 'Companies', value: '0' },
+          { label: id === 'linkedin' ? 'Signals' : 'Threads', value: '0' }
+        ],
+        insight: 'Awaiting discovery sensing...',
+        conductorSpeech: `Entering your ${id} ecosystem. Ready to begin calibration.`
+      }));
+      setSpotlightData(spotlights);
+      
+      if (spotlights[0]?.id === 'google' && !googleSubStep) {
+        setGoogleSubStep('drive');
+      }
+    }
+  }, [connectedProviders, spotlightData.length, googleSubStep]);
 
   // --- Persistence ---
   useEffect(() => {
@@ -391,8 +416,8 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   };
 
   const resolveStorageProvider = (providerId?: string) => {
-    if (providerId === 'google') return 'google_drive';
-    if (providerId === 'microsoft') return 'onedrive';
+    if (providerId === 'google' || providerId === 'google_drive') return 'google_drive';
+    if (providerId === 'microsoft' || providerId === 'onedrive') return 'onedrive';
     return undefined;
   };
 
@@ -416,11 +441,11 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       try {
         if (id === 'google' || id === 'microsoft') {
           const providerKey = resolveStorageProvider(id);
-          const suggestions = await api.listStorageFiles(providerKey ? { provider: providerKey } : {});
-          setStorageSuggestions(suggestions);
-          setSelectedAssetIds(suggestions.map(s => s.id));
-          if (suggestions.length > 0) {
-            setSensingLogs(prev => [...prev, { id: `suggestions-${id}`, message: `Conductor identified ${suggestions.length} strategic assets.`, type: 'info' }]);
+          const assets = await api.listStorageAssets(providerKey);
+          setStorageSuggestions(assets);
+          setSelectedAssetIds(assets.map((s: any) => s.id));
+          if (assets.length > 0) {
+            setSensingLogs(prev => [...prev, { id: `suggestions-${id}`, message: `Conductor identified ${assets.length} strategic assets.`, type: 'info' }]);
           }
         }
       } catch (err: any) {
@@ -444,25 +469,48 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       console.warn('⚠️ OnboardingContext: Failed to fetch live stats:', err);
     }
 
-    const spotlights = connectedProviders.map(id => {
+    const PRIORITY: Record<string, number> = {
+      'google_drive': 1,
+      'gmail': 2,
+      'linkedin': 3,
+      'google_calendar': 4,
+      'outlook': 5,
+      'onedrive': 6
+    };
+
+    const sortedProviders = [...connectedProviders].sort((a, b) => {
+      return (PRIORITY[a] || 99) - (PRIORITY[b] || 99);
+    });
+
+    const spotlights = sortedProviders.map(id => {
       const isLinkedIn = id === 'linkedin';
+      const isDrive = id === 'google_drive';
       
+      const nameMap: Record<string, string> = {
+        linkedin: 'LinkedIn',
+        gmail: 'Gmail',
+        google_drive: 'Google Drive',
+        google_calendar: 'Google Calendar',
+        outlook: 'Outlook',
+        onedrive: 'OneDrive'
+      };
+
       return {
         id,
-        name: { linkedin: 'LinkedIn', google: 'Gmail', microsoft: 'Outlook' }[id as 'linkedin' | 'google' | 'microsoft'],
-        metric: stats.totalNodes.toLocaleString(),
-        metricLabel: isLinkedIn ? 'Connections' : 'Nodes',
+        name: nameMap[id] || id,
+        metric: isDrive ? storageSuggestions.length.toLocaleString() : stats.totalNodes.toLocaleString(),
+        metricLabel: isLinkedIn ? 'Connections' : isDrive ? 'Nodes' : 'Items',
         breakdown: [
-          { label: isLinkedIn ? 'Connections' : 'Contacts', value: stats.personCount.toLocaleString() },
+          { label: isLinkedIn ? 'Connections' : isDrive ? 'Strategic Docs' : 'Contacts', value: isDrive ? storageSuggestions.length.toLocaleString() : stats.personCount.toLocaleString() },
           { label: 'Companies', value: stats.companyCount.toLocaleString() },
-          { label: isLinkedIn ? 'Signals' : 'Threads', value: stats.threadCount.toLocaleString() }
+          { label: isLinkedIn ? 'Signals' : isDrive ? 'Assets' : 'Threads', value: isDrive ? '0' : stats.threadCount.toLocaleString() }
         ],
-        insight: stats.totalNodes > 0 
+        insight: stats.totalNodes > 0 || storageSuggestions.length > 0
           ? `Detected a robust network topography with ${stats.personCount} strategic contacts. Ready to map relationship depth.` 
           : 'No significant topography detected yet. Proceeding with strategic intent.',
-        conductorSpeech: stats.totalNodes > 0 
-          ? `Analysis complete. I have mapped your ${id} ecosystem and identified high-velocity entry points.`
-          : `I've scanned your ${id} ecosystem. It appears to be a fresh canvas. We'll build your strategic map from the ground up.`
+        conductorSpeech: stats.totalNodes > 0 || storageSuggestions.length > 0
+          ? `Analysis complete. I have mapped your ${nameMap[id] || id} ecosystem and identified high-velocity entry points.`
+          : `I've scanned your ${nameMap[id] || id} ecosystem. It appears to be a fresh canvas. We'll build your strategic map from the ground up.`
       };
     });
 
@@ -470,17 +518,27 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     setSpotlightIndex(0);
     setIsSensingActive(false);
 
-    const firstSpotlight = spotlights[0];
-    if (firstSpotlight?.id === 'google') {
-      setGoogleSubStep('drive');
-    }
-    
-    setTimeout(() => {
-      if (firstSpotlight) {
-        setWizardMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', text: firstSpotlight.conductorSpeech }]);
-      }
-    }, 1000);
+    // Initial introduction is handled by the useEffect below
   };
+
+  // Auto-talk when spotlight moves or sequence starts
+  useEffect(() => {
+    if (currentStep === 'discovery-sensing' && spotlightData && spotlightData[spotlightIndex]) {
+      const provider = spotlightData[spotlightIndex];
+      const messageText = provider.conductorSpeech || `I'm ready to analyze your ${provider.name} ecosystem. Let's see what topography we can map here.`;
+      
+      // Check if we've already sent this message to avoid duplicates
+      setWizardMessages(prev => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg?.text === messageText) return prev;
+        return [...prev, { 
+          id: crypto.randomUUID(), 
+          role: 'assistant', 
+          text: messageText 
+        }];
+      });
+    }
+  }, [spotlightIndex, currentStep, spotlightData]);
 
   const startSequentialSensing = async () => {
     await initiateProviderSensing();
@@ -511,49 +569,98 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     
     setIsImporting(true);
     setGenerationMessage('Director is shredding your strategic assets into the Vault...');
+    setSensingLogs(prev => [...prev, { 
+      id: `import-start-${Date.now()}`, 
+      message: `Analyzing ${selectedAssetIds.length} strategic assets...`, 
+      type: 'info' 
+    }]);
+
     try {
+      for (const assetId of selectedAssetIds) {
+        const asset = storageSuggestions.find(a => a.id === assetId);
+        if (asset) {
+          await new Promise(resolve => setTimeout(resolve, 800));
+          setSensingLogs(prev => [...prev, { 
+            id: `analyze-${assetId}-${Date.now()}`, 
+            message: `Deciphering ${asset.name}... extracted key strategic vectors.`, 
+            type: 'success' 
+          }]);
+        }
+      }
+
       const res = await api.post<any>('/intelligence/shred', { 
         assetIds: selectedAssetIds,
         sourceType: 'connector_asset',
         providerName: currentStorageProvider(),
       });
       
+      setSensingLogs(prev => [...prev, { 
+        id: `import-complete-${Date.now()}`, 
+        message: "Strategic Terrain Mapping Complete. Intelligence is now calibrated.", 
+        type: 'success' 
+      }]);
+
+      if (res.results && Array.isArray(res.results)) {
+        res.results.forEach((r: any) => {
+          if (r.assetSummary) {
+            setWizardMessages(prev => [...prev, { 
+              id: `asset-${r.id}-${Date.now()}`, 
+              role: 'assistant', 
+              text: r.assetSummary 
+            }]);
+          }
+        });
+      }
+
       if (res.summary) {
+        setGenerationMessage("Intelligence Synthesized. Your strategic terrain is now fully mapped.");
         setWizardMessages(prev => [...prev, { 
-          id: Date.now().toString(), 
+          id: `batch-summary-${Date.now()}`, 
           role: 'assistant', 
           text: res.summary 
         }]);
       }
     } catch (e) {
-      console.warn('Shredding trigger failed:', e);
-      setWizardMessages(prev => [...prev, { 
-        id: Date.now().toString(), 
-        role: 'assistant', 
-        text: "I've ingested your assets, but I encountered a slight lag in the synthesis. Don't worry, they are in the Vault and I'm ready to proceed." 
+      console.error('❌ [OnboardingContext] Import failed:', e);
+      setSensingLogs(prev => [...prev, { 
+        id: `import-error-${Date.now()}`, 
+        message: "Calibration interrupted. Some assets could not be fully ingested.", 
+        type: 'error' 
       }]);
     } finally {
       setIsImporting(false);
-      setGenerationMessage(null);
     }
   };
 
-  const triggerStorageScan = async () => {
+  const triggerStorageScan = async (folderId?: string) => {
     setIsLoading(true);
-    setSensingLogs(prev => [...prev, { id: 'manual-scan', message: "Initiating deep cloud scan for strategic assets...", type: 'info' }]);
+    console.log('🔍 [OnboardingContext] triggerStorageScan initiated', { folderId });
+    setSensingLogs(prev => [...prev, { id: `manual-scan-${Date.now()}`, message: "Initiating deep cloud scan for strategic assets...", type: 'info' }]);
     try {
       const providerKey = currentStorageProvider();
-      const suggestions = await api.listStorageFiles(providerKey ? { provider: providerKey } : {});
-      setStorageSuggestions(suggestions);
-      setSelectedAssetIds(suggestions.map(s => s.id));
-      if (suggestions.length > 0) {
-        setSensingLogs(prev => [...prev, { id: 'manual-success', message: `Deep scan identified ${suggestions.length} high-value assets.`, type: 'success' }]);
+      console.log('🔍 [OnboardingContext] Resolved providerKey:', providerKey);
+      
+      if (!providerKey) {
+        throw new Error('Provider context not resolved. Please ensure you are on a valid discovery step.');
+      }
+      
+      const assets = await api.listStorageAssets(providerKey, folderId);
+      console.log('✅ [OnboardingContext] Assets received:', assets.length, 'items');
+      
+      setStorageSuggestions(assets);
+      
+      if (!folderId) {
+        setSelectedAssetIds(assets.filter(a => a.mimeType !== 'application/vnd.google-apps.folder').map((s: any) => s.id));
+      }
+
+      if (assets.length > 0) {
+        setSensingLogs(prev => [...prev, { id: `manual-success-${Date.now()}`, message: `Deep scan identified ${assets.length} items.`, type: 'success' }]);
       } else {
-        setSensingLogs(prev => [...prev, { id: 'manual-empty', message: "Deep scan complete. No new high-signal assets identified.", type: 'info' }]);
+        setSensingLogs(prev => [...prev, { id: `manual-empty-${Date.now()}`, message: "Deep scan complete. No new high-signal assets identified.", type: 'info' }]);
       }
     } catch (err: any) {
-      console.error("Manual storage scan failed:", err);
-      setSensingLogs(prev => [...prev, { id: 'manual-err', message: `Scan stalled: ${err.message || 'Check connection'}`, type: 'error' }]);
+      console.error("❌ [OnboardingContext] Manual storage scan failed:", err);
+      setSensingLogs(prev => [...prev, { id: `manual-err-${Date.now()}`, message: `Scan stalled: ${err.message || 'Check connection'}`, type: 'error' }]);
     } finally {
       setIsLoading(false);
     }
@@ -609,7 +716,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const value: OnboardingContextType = {
     currentStep, setCurrentStep, connectionCount, activeImportId, uploadedAssets, comprehensiveSynthesis,
     selectedLanes, wizardMessages, strategicDraft, proposedOfferings, proposedCampaigns, selectedCampaigns,
-    proposedActionLanes, selectedActionLanes, currentActionLaneCampaignIndex, connectedProviders,
+    proposedActionLanes, selectedActionLanes, currentActionLaneCampaignIndex, connectedProviders, allConnectors,
     providerStatuses, sensingLogs, isSensingActive, spotlightData, spotlightIndex, googleSubStep,
     discoveryCalibration, isLoading, uploadStatus, isConductorThinking, generationMessage,
     storageSuggestions, setStorageSuggestions, selectedAssetIds, setSelectedAssetIds,
@@ -623,9 +730,10 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       await onConnectLinkedIn();
       setConnectedProviders(prev => prev.includes('linkedin') ? prev : [...prev, 'linkedin']);
     } : undefined,
-    onConnectGmail: onConnectGmail ? async () => {
-      await onConnectGmail();
-      setConnectedProviders(prev => prev.includes('google') ? prev : [...prev, 'google']);
+    onConnectGoogle: onConnectGoogle ? async () => {
+      await onConnectGoogle();
+      // We don't manually update the array here anymore; we rely on the re-fetch of connectors
+      // to populate the raw gmail, google_drive, and google_calendar names.
     } : undefined,
     onConnectOutlook: onConnectOutlook ? async () => {
       await onConnectOutlook();

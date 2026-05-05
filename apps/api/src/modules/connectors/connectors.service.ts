@@ -13,6 +13,7 @@ import {
   prisma,
 } from "@opportunity-os/db";
 import { createHash, randomBytes } from "crypto";
+import * as fs from "fs";
 import { SetupEmailConnectorDto } from "./dto/setup-email-connector.dto";
 import { SetupStorageConnectorDto } from "./dto/setup-storage-connector.dto";
 import { SetupCalendarConnectorDto } from "./dto/setup-calendar-connector.dto";
@@ -37,7 +38,6 @@ import { GithubProvider } from "./social/github.provider";
 import { SocialProvider } from "./social/social-provider.interface";
 import { ShopifyCommerceProvider } from "./commerce/shopify-commerce.provider";
 import { CommerceProvider } from "./commerce/commerce-provider.interface";
-import { AiService } from "../ai/ai.service";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 
 @Injectable()
@@ -54,7 +54,6 @@ export class ConnectorsService {
     private readonly icloudCalendarProvider: ICloudCalendarProvider,
     private readonly githubProvider: GithubProvider,
     private readonly shopifyProvider: ShopifyCommerceProvider,
-    private readonly aiService: AiService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -116,86 +115,103 @@ export class ConnectorsService {
       connectorId: connector.id,
     }));
   }
-
-  async getStorageSuggestions(userId: string, providerName?: string) {
-    const connector = await this.findConnectedStorageConnector(userId, providerName);
-    if (!connector) return [];
-
-    const provider = this.storageProviderFor(connector.capabilityProvider.providerName);
-    const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
-
-    const files = await provider.listFiles(credentials);
-
-    // Identify files that need a "peek" (generic names or high-energy candidates)
-    const filesWithContext = await Promise.all(files.map(async f => {
-      const isSuspicious = /draft|untitled|copy|version|resume|book|manifesto|strategy|deck|proposal|framework|roadmap|plan|case study|whitepaper/i.test(f.displayName) || 
-                          (f.sizeBytes && f.sizeBytes > 500 * 1024); // > 500KB
-
-      let snippet = "";
-      if (isSuspicious) {
-        try {
-          const peek = await provider.peekFile(credentials, f.externalId);
-          snippet = peek.buffer.toString('utf8').replace(/[^\x20-\x7E]/g, '').substring(0, 500);
-        } catch (e) {
-          // Ignore peek failures
-        }
+  async listStorageAssets(userId: string, providerName?: string, folderId?: string) {
+    const logPath = '/Users/jeffboggs/opportunity-os/apps/api/debug.log';
+    try {
+      fs.appendFileSync(logPath, `\n[${new Date().toISOString()}] 📡 listStorageAssets ENTERED - Provider: ${providerName}\n`);
+      console.log(`📡 [ConnectorsService] listStorageAssets: Start`, { userId, providerName, folderId });
+      
+      const connector = await this.findConnectedStorageConnector(userId, providerName);
+      if (!connector) {
+        console.warn(`📡 [ConnectorsService] No connector found for user ${userId} and provider ${providerName}`);
+        return [];
       }
+      console.log(`📡 [ConnectorsService] Connector identified: ${connector.id} (${connector.capabilityProvider.providerName})`);
 
-      return { 
-        id: f.externalId, 
-        name: f.displayName, 
-        snippet 
-      };
-    }));
+      const provider = this.storageProviderFor(connector.capabilityProvider.providerName);
+      const credentials = this.parseCredentials(connector.connectorCredentials?.encryptedData);
+      console.log(`📡 [ConnectorsService] Credentials parsed, calling provider.listFiles...`);
 
-    const suggestedIds = await this.aiService.identifyStrategicAssets(filesWithContext);
+      const files = await provider.listFiles(credentials, { folderId });
+      console.log(`📡 [ConnectorsService] Provider returned ${files.length} raw files`);
 
-    const suggested = files
-      .filter(f => suggestedIds.includes(f.externalId))
-      .map(f => ({
-        id: f.externalId,
-        name: f.displayName,
-        mimeType: f.mimeType,
-        modifiedAt: f.modifiedAt,
-        sizeBytes: f.sizeBytes ?? null,
-        provider: connector.capabilityProvider.providerName,
-        connectorId: connector.id,
+      const suggested = files.map(f => ({
+          id: f.externalId,
+          name: f.displayName,
+          mimeType: f.mimeType,
+          modifiedAt: f.modifiedAt,
+          sizeBytes: f.sizeBytes ? Number(f.sizeBytes) : null,
+          webViewLink: f.webViewLink,
+          provider: connector.capabilityProvider.providerName,
+          connectorId: connector.id,
+          snippet: "",
       }));
 
-    await Promise.all(
-      suggested.map((f) =>
-        prisma.connectorAsset.upsert({
-          where: {
-            userConnectorId_externalId: {
-              userConnectorId: connector.id,
-              externalId: f.id,
+      console.log(`📡 [ConnectorsService] Syncing ${suggested.length} assets to DB...`);
+      await Promise.all(
+        suggested.map((f) =>
+          prisma.connectorAsset.upsert({
+            where: {
+              userConnectorId_externalId: {
+                userConnectorId: connector.id,
+                externalId: f.id,
+              },
             },
-          },
-          create: {
-            userId,
-            userConnectorId: connector.id,
-            externalProvider: connector.capabilityProvider.providerName,
-            externalId: f.id,
-            displayName: f.name,
-            fileName: f.name,
-            mimeType: f.mimeType,
-            modifiedAt: f.modifiedAt,
-            discoveredAt: new Date(),
-            metadataJson: this.toJson({ source: 'ai_suggestion' }),
-          },
-          update: {
-            displayName: f.name,
-            fileName: f.name,
-            mimeType: f.mimeType,
-            modifiedAt: f.modifiedAt,
-            discoveredAt: new Date(),
-            metadataJson: this.toJson({ source: 'ai_suggestion' }),
-          },
-        }),
-      ),
-    );
+            create: {
+              userId,
+              userConnectorId: connector.id,
+              externalProvider: connector.capabilityProvider.providerName,
+              externalId: f.id,
+              displayName: f.name,
+              fileName: f.name,
+              mimeType: f.mimeType,
+              sizeBytes: f.sizeBytes ? BigInt(f.sizeBytes) : null,
+              webViewLink: f.webViewLink,
+              modifiedAt: f.modifiedAt,
+              discoveredAt: new Date(),
+              metadataJson: this.toJson({
+                sizeBytes: f.sizeBytes ? BigInt(f.sizeBytes).toString() : null,
+                snippet: f.snippet,
+                modifiedAt: f.modifiedAt,
+                webViewLink: f.webViewLink,
+                source: 'ai_suggestion'
+              }),
+            },
+            update: {
+              displayName: f.name,
+              fileName: f.name,
+              mimeType: f.mimeType,
+              sizeBytes: f.sizeBytes ? BigInt(f.sizeBytes) : null,
+              webViewLink: f.webViewLink,
+              modifiedAt: f.modifiedAt,
+              discoveredAt: new Date(),
+              metadataJson: this.toJson({
+                sizeBytes: f.sizeBytes ? BigInt(f.sizeBytes).toString() : null,
+                snippet: f.snippet,
+                modifiedAt: f.modifiedAt,
+                webViewLink: f.webViewLink,
+                source: 'ai_suggestion'
+              }),
+            },
+          }),
+        ),
+      );
 
-    return suggested;
+      console.log(`📡 [ConnectorsService] listStorageAssets: Success`);
+      return suggested;
+    } catch (error: any) {
+      const logPath = '/Users/jeffboggs/opportunity-os/apps/api/debug.log';
+      const errorDetail = `
+[${new Date().toISOString()}] ❌ listStorageAssets CRASH
+Error: ${error?.message}
+Stack: ${error?.stack}
+---------------------------------------------------
+`;
+      fs.appendFileSync(logPath, errorDetail);
+      console.error(`❌ [ConnectorsService] listStorageAssets CRASH:`, error);
+      const errorMessage = error?.message || 'Unknown backend error';
+      throw new BadRequestException(`Backend Scan Error: ${errorMessage}`);
+    }
   }
 
   async searchStorage(userId: string, query: string, providerName?: string) {
@@ -798,6 +814,8 @@ export class ConnectorsService {
         "https://www.googleapis.com/auth/userinfo.profile",
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
         "openid",
       ];
 
@@ -1107,6 +1125,57 @@ export class ConnectorsService {
           }),
         },
       });
+
+      // --- Auto-Provision for Google ---
+      if (providerName === "gmail" && credentials) {
+        console.log("🔍 [ConnectorsService] Google OAuth: Auto-provisioning related connectors...");
+        
+        // 1. Calendar
+        try {
+          const { capability: calCap, provider: calProv } = await this.ensureCalendarProvider("google_calendar");
+          const calConnector = await prisma.userConnector.upsert({
+            where: { userId_capabilityId: { userId: connector.userId, capabilityId: calCap.id } },
+            create: {
+              userId: connector.userId,
+              capabilityId: calCap.id,
+              capabilityProviderId: calProv.id,
+              connectorName: "Google Calendar",
+              status: ConnectorStatus.connected,
+              enabledFeaturesJson: this.toJson(["sync", "list", "create"]),
+            },
+            update: { status: ConnectorStatus.connected, errorMessage: null }
+          });
+          await prisma.connectorCredential.upsert({
+            where: { userConnectorId: calConnector.id },
+            create: { userConnectorId: calConnector.id, credentialType: "oauth2_token", encryptedData: JSON.stringify(credentials), refreshStatus: "ready" },
+            update: { encryptedData: JSON.stringify(credentials), refreshStatus: "ready" }
+          });
+          console.log("✅ [ConnectorsService] Provisioned Google Calendar");
+        } catch (e) { console.error("❌ [ConnectorsService] Failed to auto-provision Google Calendar", e); }
+
+        // 2. Storage (Drive)
+        try {
+          const { capability: storageCap, provider: storageProv } = await this.ensureStorageProvider("google_drive");
+          const driveConnector = await prisma.userConnector.upsert({
+            where: { userId_capabilityId: { userId: connector.userId, capabilityId: storageCap.id } },
+            create: {
+              userId: connector.userId,
+              capabilityId: storageCap.id,
+              capabilityProviderId: storageProv.id,
+              connectorName: "Google Drive",
+              status: ConnectorStatus.connected,
+              enabledFeaturesJson: this.toJson(["list", "download", "sync"]),
+            },
+            update: { status: ConnectorStatus.connected, errorMessage: null }
+          });
+          await prisma.connectorCredential.upsert({
+            where: { userConnectorId: driveConnector.id },
+            create: { userConnectorId: driveConnector.id, credentialType: "oauth2_token", encryptedData: JSON.stringify(credentials), refreshStatus: "ready" },
+            update: { encryptedData: JSON.stringify(credentials), refreshStatus: "ready" }
+          });
+          console.log("✅ [ConnectorsService] Provisioned Google Drive");
+        } catch (e) { console.error("❌ [ConnectorsService] Failed to auto-provision Google Drive", e); }
+      }
 
       return this.oauthResultHtml({
         success: true,
@@ -1441,10 +1510,12 @@ export class ConnectorsService {
     };
   }
 
-  async downloadFile(userId: string, externalId: string) {
+  async downloadFile(userId: string, externalId: string, providerName?: string) {
+    const normalized = this.normalizeStorageProviderName(providerName);
     const connector = await this.findConnectedConnector(
       userId,
       CapabilityType.storage,
+      normalized,
     );
     if (!connector) {
       throw new BadRequestException(
@@ -2161,11 +2232,13 @@ export class ConnectorsService {
   private async findConnectedConnector(
     userId: string,
     capabilityType: CapabilityType,
+    providerName?: string,
   ) {
     return prisma.userConnector.findFirst({
       where: {
         userId,
         capability: { capabilityType },
+        ...(providerName ? { capabilityProvider: { providerName } } : {}),
         status: ConnectorStatus.connected,
       },
       include: {

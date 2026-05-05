@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import { 
   prisma, 
   AIConversationPurpose, 
@@ -207,33 +208,24 @@ Use screenshots/images as evidence when provided. Do not invent names, outcomes,
     };
   }
 
-  async extractStrategicIntelligence(text: string): Promise<{ concepts: any[], proofPoints: any[] }> {
+  async extractStrategicIntelligence(text: string, modelOverride?: string): Promise<{ concepts: any[], proofPoints: any[], summary: string }> {
     this.logger.log('Extracting strategic intelligence from text');
     
     const prompt = `
-You are a High-Signal Strategic Shredder. I am providing you with a chunk of text (a book excerpt, a resume, or a chat transcript).
-Your task is to extract "Strategic Concepts" and "Proof Points".
-
-STRATEGIC CONCEPTS:
-- Frameworks (The "How-To")
-- Methodologies (The process)
-- Stances (Strong professional opinions)
-- Heuristics (Rules of thumb)
-
-PROOF POINTS:
-- Metrics (Specific numbers)
-- Case Studies (Specific success stories)
-- Brand names/Clients mentioned
+You are a High-Signal Strategic Commander. Analyze the following intellectual property (IP) and extract its core tactical value.
 
 TEXT:
-${text.substring(0, 10000)} // Bounded for context window
+${text}
 
 INSTRUCTIONS:
-1. Return ONLY a valid JSON object with two arrays: "concepts" and "proofPoints".
+1. Return ONLY a valid JSON object with: 
+   - "concepts": Array of strategic vectors found.
+   - "proofPoints": Array of metrics or career milestones found.
+   - "summary": A punchy, one-sentence strategic thesis of this document's value.
 2. For each Concept, provide: "title", "description", "category" (framework, methodology, stance, story, metric), and "metadata" (object).
 3. For each Proof Point, provide: "title" and "content".
-4. If nothing is found, return empty arrays.
-5. Be surgical. Only extract high-value intelligence.
+4. Focus on "Weaponizable" insights—things that can be used in a real conversation to establish authority.
+5. If nothing is found, return empty arrays and a "No weaponizable intelligence found" summary.
 
 JSON OUTPUT:`;
 
@@ -241,18 +233,30 @@ JSON OUTPUT:`;
       prompt,
       temperature: 0.1,
       maxTokens: 2000,
+      model: modelOverride
     };
 
     const response = await this.aiProviderFactory.getProvider().generateText(request);
+    
+    // --- DIAGNOSTIC LOGGING ---
+    const logPath = '/Users/jeffboggs/opportunity-os/apps/api/debug.log';
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}] 🤖 RAW AI RESPONSE:\n${response.content}\n-----------------------------------\n`);
+    // ---------------------------
+
     try {
       const parsed = JSON.parse(response.content.replace(/```json/gi, '').replace(/```/g, '').trim());
       return {
         concepts: Array.isArray(parsed.concepts) ? parsed.concepts : [],
         proofPoints: Array.isArray(parsed.proofPoints) ? parsed.proofPoints : [],
+        summary: parsed.summary || "No weaponizable intelligence found."
       };
     } catch (e) {
       this.logger.error('Failed to parse extractStrategicIntelligence JSON', e);
-      return { concepts: [], proofPoints: [] };
+      return { 
+        concepts: [], 
+        proofPoints: [], 
+        summary: "Extraction failure: could not parse AI response."
+      };
     }
   }
   async identifyStrategicAssets(files: { id: string; name: string; snippet?: string }[]): Promise<string[]> {
@@ -663,8 +667,8 @@ IMPORTANT RULES:
       return 'anthropic/claude-3.5-sonnet';
     }
     
-    // Free users get the efficiency tier
-    return 'openai/gpt-4o-mini';
+    // Standard users get the new GPT-5.5 state-of-the-art intelligence
+    return 'openai/gpt-5.5';
   }
 
   async generateText(prompt: string, options?: Partial<AiRequest>, userId?: string): Promise<string> {

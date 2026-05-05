@@ -529,9 +529,11 @@ export class ApiClient {
     return this.request<any[]>(`/connectors/storage/files${suffix}`);
   }
 
-  async getStorageSuggestions(provider?: string) {
-    const suffix = provider ? `?provider=${encodeURIComponent(provider)}` : '';
-    return this.request<any[]>(`/connectors/storage/suggestions${suffix}`);
+  async listStorageAssets(provider?: string, folderId?: string) {
+    const params = new URLSearchParams();
+    if (provider) params.append('provider', provider);
+    if (folderId) params.append('folderId', folderId);
+    return this.request<any[]>(`/connectors/storage/assets?${params.toString()}`);
   }
 
   async searchStorage(query: string, provider?: string) {
@@ -821,7 +823,14 @@ export class ApiClient {
       requestInit.body = JSON.stringify(options.body);
     }
 
-    const response = await fetch(`${API_URL}${path}`, requestInit);
+    const url = `${API_URL}${path}`;
+    console.log(`🌐 [ApiClient] Requesting: ${requestInit.method} ${url}`, {
+      authenticated: options.authenticated !== false,
+      hasToken: !!this.accessToken,
+      headers: headers
+    });
+
+    const response = await fetch(url, requestInit);
 
     const text = await response.text();
     const payload = text ? parseJson(text) : null;

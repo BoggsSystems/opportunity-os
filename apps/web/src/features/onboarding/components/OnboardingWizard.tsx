@@ -15,7 +15,7 @@ interface OnboardingWizardProps {
   emailReadiness?: any;
   onAuth?: (mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>;
   onConnectOutlook?: () => Promise<void>;
-  onConnectGmail?: () => Promise<void>;
+  onConnectGoogle?: () => Promise<void>;
   onConnectLinkedIn?: () => Promise<void>;
   onConnectHubSpot?: (token: string) => Promise<void>;
   onConnectShopify?: (storeName: string, token: string) => Promise<void>;
@@ -27,7 +27,7 @@ export const OnboardingWizardContent: React.FC = () => {
   const { 
     currentStep, isConductorExpanded, setIsConductorExpanded,
     wizardMessages, isConductorThinking, handleConductorSend,
-    user
+    user, api
   } = useOnboarding();
 
   const renderSignedInIndicator = () => {
@@ -36,9 +36,9 @@ export const OnboardingWizardContent: React.FC = () => {
         <button 
           className="dev-reset-btn" 
           onClick={() => { localStorage.clear(); sessionStorage.clear(); window.location.reload(); }}
-          title="Reset Onboarding State"
+          title="Reset Local State"
         >
-          <RotateCcw size={14} /> <span>Reset</span>
+          <RotateCcw size={14} /> <span>Reset Local</span>
         </button>
       );
     }
@@ -52,10 +52,21 @@ export const OnboardingWizardContent: React.FC = () => {
         </div>
         <button 
           className="dev-reset-btn" 
-          onClick={() => { localStorage.clear(); sessionStorage.clear(); window.location.reload(); }}
-          title="Reset Onboarding State"
+          onClick={async () => { 
+            if (window.confirm("SCRUB BACKEND? This will delete your user and all data. You will be logged out.")) {
+              try {
+                await api.post('/auth/scrub');
+              } catch (e) {
+                console.warn('Scrub failed (you might already be deleted):', e);
+              }
+              localStorage.clear(); 
+              sessionStorage.clear(); 
+              window.location.reload(); 
+            }
+          }}
+          title="Reset Onboarding State & Scrub Backend"
         >
-          <RotateCcw size={14} /> <span>Reset</span>
+          <RotateCcw size={14} /> <span>Scrub</span>
         </button>
       </div>
     );

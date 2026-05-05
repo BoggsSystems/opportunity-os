@@ -5200,8 +5200,8 @@ Links concepts and proof points to their origin.
 | Column | Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
 | `id` | `uuid` | PK | |
-| `target_id` | `uuid` | NOT NULL | FK to `concept.id` or `proof_point.id` |
-| `target_type` | `text` | NOT NULL | 'concept' or 'proof_point' |
+| `concept_id` | `uuid` | NULL, FK -> `concept.id` | Link if source is for a concept |
+| `proof_point_id` | `uuid` | NULL, FK -> `proof_point.id` | Link if source is for a proof point |
 | `source_type` | `concept_source_type` | NOT NULL | |
 | `source_id` | `text` | NOT NULL | Provider IDs are not guaranteed UUID (e.g., Google Drive IDs) |
 | `created_at` | `timestamp` | NOT NULL | |
@@ -5233,7 +5233,8 @@ Tracks the deployment and performance of vault items.
 | :--- | :--- | :--- | :--- |
 | `id` | `uuid` | PK | |
 | `user_id` | `uuid` | FK -> `user.id` | |
-| `target_id` | `uuid` | NOT NULL | FK to `concept.id` or `proof_point.id` |
+| `concept_id` | `uuid` | NULL, FK -> `concept.id` | |
+| `proof_point_id` | `uuid` | NULL, FK -> `proof_point.id` | |
 | `action_item_id` | `uuid` | FK -> `action_item.id` | The specific outreach it was used in |
 | `sentiment_score` | `float` | | Performance feedback from the response |
 | `outcome` | `text` | | e.g., "replied", "converted" |
