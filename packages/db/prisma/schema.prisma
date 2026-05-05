@@ -637,6 +637,13 @@ enum ConceptSourceType {
   manual_entry
   linkedin_post
   connector_asset
+  linkedin_archive
+  linkedin_message
+  linkedin_comment
+  linkedin_article
+  linkedin_recommendation
+  linkedin_job_application
+  intelligence_chunk
 }
 
 enum AssetIngestionBatchStatus {
@@ -655,6 +662,62 @@ enum AssetIngestionItemStatus {
   imported
   failed
   skipped
+}
+
+enum IngestionArtifactStatus {
+  discovered
+  staged
+  queued
+  processing
+  processed
+  failed
+  skipped
+}
+
+enum IntelligenceJobStatus {
+  queued
+  running
+  completed
+  failed
+  retrying
+  cancelled
+}
+
+enum IntelligenceJobKind {
+  fast_summary
+  profile_shred
+  connections_cluster
+  message_thread_memory
+  content_memory
+  comments_signal_memory
+  recommendations_proof
+  endorsements_proof
+  job_market_memory
+  invitations_outreach_history
+  vector_embedding
+  posture_synthesis
+}
+
+enum IntelligenceChunkKind {
+  profile_summary
+  connection_cluster
+  message_thread_summary
+  post_theme
+  comment_signal
+  recommendation_proof
+  endorsement_proof
+  job_market_signal
+  invitation_signal
+  document_section
+  strategic_thesis
+  proof_point
+}
+
+enum IntelligenceEmbeddingStatus {
+  pending
+  embedded
+  failed
+  stale
 }
 
 enum RewardRuleType {
@@ -837,6 +900,10 @@ model User {
   connectorAssets              ConnectorAsset[]
   assetIngestionBatches        AssetIngestionBatch[]
   assetIngestionItems          AssetIngestionItem[]
+  ingestionArtifacts           IngestionArtifact[]
+  intelligenceJobs             IntelligenceJob[]
+  intelligenceChunks           IntelligenceChunk[]
+  intelligenceEmbeddings       IntelligenceEmbedding[]
 
   @@map("users")
 }
@@ -1736,6 +1803,7 @@ model ConnectionImportBatch {
   user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   records  ConnectionRecord[]
   segments ConnectionSegment[]
+  ingestionArtifacts IngestionArtifact[]
 
   @@index([userId])
   @@index([status])
@@ -2221,6 +2289,7 @@ model UserAsset {
   interactions  AssetInteraction[]
   campaigns     CampaignAsset[]
   ingestionItems AssetIngestionItem[]
+  ingestionArtifacts IngestionArtifact[]
 
   @@index([userId])
   @@index([category])
@@ -2248,6 +2317,7 @@ model ConnectorAsset {
   user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   userConnector UserConnector        @relation(fields: [userConnectorId], references: [id], onDelete: Cascade)
   ingestionItems AssetIngestionItem[]
+  ingestionArtifacts IngestionArtifact[]
 
   @@unique([userConnectorId, externalId])
   @@index([userId, userConnectorId])
@@ -2276,6 +2346,8 @@ model AssetIngestionBatch {
   user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   userConnector UserConnector?     @relation(fields: [userConnectorId], references: [id], onDelete: SetNull)
   items         AssetIngestionItem[]
+  artifacts     IngestionArtifact[]
+  jobs          IntelligenceJob[]
 
   @@index([userId, createdAt])
   @@index([userConnectorId])
@@ -2304,6 +2376,8 @@ model AssetIngestionItem {
   user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   connectorAsset ConnectorAsset?    @relation(fields: [connectorAssetId], references: [id], onDelete: SetNull)
   userAsset     UserAsset?          @relation(fields: [userAssetId], references: [id], onDelete: SetNull)
+  artifacts     IngestionArtifact[]
+  jobs          IntelligenceJob[]
 
   @@index([batchId])
   @@index([userId, status])
@@ -2311,6 +2385,149 @@ model AssetIngestionItem {
   @@index([userAssetId])
   @@index([externalId])
   @@map("asset_ingestion_items")
+}
+
+model IngestionArtifact {
+  id                      String                  @id @default(uuid()) @db.Uuid
+  userId                  String                  @db.Uuid
+  assetIngestionBatchId   String?                 @db.Uuid
+  assetIngestionItemId    String?                 @db.Uuid
+  connectionImportBatchId String?                 @db.Uuid
+  userConnectorId         String?                 @db.Uuid
+  connectorAssetId        String?                 @db.Uuid
+  userAssetId             String?                 @db.Uuid
+  providerName            String?
+  sourceKind              String                  @db.VarChar(80)
+  sourceName              String
+  sourcePath              String?
+  mimeType                String?
+  sizeBytes               BigInt?
+  checksum                String?
+  recordCount             Int?
+  status                  IngestionArtifactStatus @default(discovered)
+  errorMessage            String?
+  metadataJson            Json?
+  discoveredAt            DateTime                @default(now())
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assetIngestionBatch   AssetIngestionBatch?   @relation(fields: [assetIngestionBatchId], references: [id], onDelete: SetNull)
+  assetIngestionItem    AssetIngestionItem?    @relation(fields: [assetIngestionItemId], references: [id], onDelete: SetNull)
+  connectionImportBatch ConnectionImportBatch?  @relation(fields: [connectionImportBatchId], references: [id], onDelete: SetNull)
+  userConnector         UserConnector?         @relation(fields: [userConnectorId], references: [id], onDelete: SetNull)
+  connectorAsset        ConnectorAsset?        @relation(fields: [connectorAssetId], references: [id], onDelete: SetNull)
+  userAsset             UserAsset?             @relation(fields: [userAssetId], references: [id], onDelete: SetNull)
+  jobs                  IntelligenceJob[]
+  chunks                IntelligenceChunk[]
+
+  @@unique([assetIngestionBatchId, sourcePath])
+  @@index([userId, status])
+  @@index([userId, sourceKind])
+  @@index([assetIngestionBatchId])
+  @@index([assetIngestionItemId])
+  @@index([connectionImportBatchId])
+  @@index([userConnectorId])
+  @@index([connectorAssetId])
+  @@index([userAssetId])
+  @@index([providerName])
+  @@map("ingestion_artifacts")
+}
+
+model IntelligenceJob {
+  id                    String                @id @default(uuid()) @db.Uuid
+  userId                String                @db.Uuid
+  ingestionArtifactId   String?               @db.Uuid
+  assetIngestionBatchId String?               @db.Uuid
+  assetIngestionItemId  String?               @db.Uuid
+  kind                  IntelligenceJobKind
+  status                IntelligenceJobStatus @default(queued)
+  priority              Int                   @default(100)
+  attemptCount          Int                   @default(0)
+  maxAttempts           Int                   @default(3)
+  progressPercent       Int                   @default(0)
+  idempotencyKey        String?
+  inputJson             Json?
+  outputJson            Json?
+  errorMessage          String?
+  lockedAt              DateTime?
+  lockedBy              String?
+  scheduledAt           DateTime?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ingestionArtifact   IngestionArtifact?   @relation(fields: [ingestionArtifactId], references: [id], onDelete: SetNull)
+  assetIngestionBatch AssetIngestionBatch? @relation(fields: [assetIngestionBatchId], references: [id], onDelete: SetNull)
+  assetIngestionItem  AssetIngestionItem?  @relation(fields: [assetIngestionItemId], references: [id], onDelete: SetNull)
+  chunks              IntelligenceChunk[]
+
+  @@unique([idempotencyKey])
+  @@index([userId, status])
+  @@index([status, priority, scheduledAt])
+  @@index([kind, status])
+  @@index([ingestionArtifactId])
+  @@index([assetIngestionBatchId])
+  @@index([assetIngestionItemId])
+  @@map("intelligence_jobs")
+}
+
+model IntelligenceChunk {
+  id                    String                @id @default(uuid()) @db.Uuid
+  userId                String                @db.Uuid
+  ingestionArtifactId   String?               @db.Uuid
+  intelligenceJobId     String?               @db.Uuid
+  chunkKind             IntelligenceChunkKind
+  sourceType            String?               @db.VarChar(80)
+  sourceId              String?
+  externalKey           String?
+  title                 String?
+  content               String
+  summary               String?
+  tokenCount            Int?
+  metadataJson          Json?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ingestionArtifact   IngestionArtifact?   @relation(fields: [ingestionArtifactId], references: [id], onDelete: SetNull)
+  intelligenceJob     IntelligenceJob?     @relation(fields: [intelligenceJobId], references: [id], onDelete: SetNull)
+  embeddings          IntelligenceEmbedding[]
+  sources             IntelligenceSource[]
+
+  @@unique([ingestionArtifactId, externalKey])
+  @@index([userId, chunkKind])
+  @@index([userId, sourceType, sourceId])
+  @@index([ingestionArtifactId])
+  @@index([intelligenceJobId])
+  @@map("intelligence_chunks")
+}
+
+model IntelligenceEmbedding {
+  id             String                      @id @default(uuid()) @db.Uuid
+  userId         String                      @db.Uuid
+  chunkId        String                      @db.Uuid
+  providerName   String
+  modelName      String
+  dimensions     Int?
+  vectorRef      String?
+  status         IntelligenceEmbeddingStatus @default(pending)
+  attemptCount   Int                         @default(0)
+  errorMessage   String?
+  embeddedAt     DateTime?
+  metadataJson   Json?
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+
+  user   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunk  IntelligenceChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@unique([chunkId, providerName, modelName])
+  @@index([userId, status])
+  @@index([vectorRef])
+  @@map("intelligence_embeddings")
 }
 
 model AssetNarrative {
@@ -2613,6 +2830,7 @@ model UserConnector {
   assets                  UserAsset[]
   connectorAssets         ConnectorAsset[]
   assetIngestionBatches   AssetIngestionBatch[]
+  ingestionArtifacts      IngestionArtifact[]
   calendarEvents          CalendarEvent[]
   campaignConnectors      CampaignConnector[]
 
@@ -3601,13 +3819,16 @@ model IntelligenceSource {
   id           String            @id @default(uuid()) @db.Uuid
   conceptId    String?           @db.Uuid
   proofPointId String?           @db.Uuid
+  chunkId      String?           @db.Uuid
   sourceType   ConceptSourceType
   sourceId     String
   createdAt    DateTime          @default(now())
 
   concept      Concept?          @relation("ConceptSources", fields: [conceptId], references: [id])
   proofPoint   ProofPoint?       @relation("ProofPointSources", fields: [proofPointId], references: [id])
+  chunk        IntelligenceChunk? @relation(fields: [chunkId], references: [id], onDelete: SetNull)
 
+  @@index([chunkId])
   @@map("intelligence_sources")
 }
 

@@ -1666,6 +1666,36 @@
   font-size: 0.85rem;
 }
 
+.visually-hidden-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ingestion-drop-zone {
+  position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.drop-zone.error {
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.drop-zone.error .upload-icon-wrapper {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.ingestion-status-copy {
+  color: var(--os-text-muted);
+  font-size: 0.9rem;
+  margin: 8px 0 0;
+}
+
 .social-auth-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

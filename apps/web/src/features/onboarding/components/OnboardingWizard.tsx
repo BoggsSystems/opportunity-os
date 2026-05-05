@@ -73,8 +73,8 @@ export const OnboardingWizardContent: React.FC = () => {
   };
 
   const dots: Step[] = [
-    'briefing', 'account', 'relationships', 'discovery-sensing', 
-    'discovery-synthesis', 'knowledge', 'intent', 'campaigns', 
+    'briefing', 'account', 'relationships', 'discovery-sensing',
+    'linkedin-archive', 'manual-assets', 'intent', 'campaigns',
     'actionLanes', 'connectivity', 'activation', 'workspaceIntro', 'workspaceHandoff'
   ];
 

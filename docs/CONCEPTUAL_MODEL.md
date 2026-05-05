@@ -900,6 +900,73 @@ Relationships:
 * may reference one durable User Asset created/linked during ingest
 * may generate Intelligence Sources tied to extracted Concepts/Proof Points
 
+**Ingestion Artifact**
+
+A durable source-unit discovered inside an ingestion run.
+
+Represents:
+* one file inside a LinkedIn archive, such as `Connections.csv`, `messages.csv`, `Shares.csv`, or `Recommendations_Received.csv`
+* one provider file from Google Drive, OneDrive, or Dropbox
+* one manually uploaded document
+* a provider stream such as Gmail thread export or Outlook mailbox slice
+* source metadata, record counts, processing status, and error state
+
+Relationships:
+* belongs to one User
+* may belong to one Asset Ingestion Batch or Asset Ingestion Item
+* may belong to one Connection Import Batch for LinkedIn connection archives
+* may reference one User Connector, Connector Asset, or User Asset
+* has many Intelligence Jobs
+* has many Intelligence Chunks
+
+**Intelligence Job**
+
+A durable background work unit for deep shredding.
+
+Represents:
+* one queued/running/completed background task
+* examples: profile shred, connections clustering, message-thread memory, content memory, job-market memory, vector embedding
+* retry state, lock state, progress, input payload, output payload, and error message
+
+Relationships:
+* belongs to one User
+* may belong to one Ingestion Artifact
+* may belong to one Asset Ingestion Batch or Item
+* creates many Intelligence Chunks
+
+**Intelligence Chunk**
+
+A smaller extracted unit of reusable strategic memory.
+
+Represents:
+* one relationship cluster
+* one message-thread summary
+* one LinkedIn post/content theme
+* one recommendation proof point
+* one job-market signal
+* one document section or strategic thesis
+
+Relationships:
+* belongs to one User
+* may belong to one Ingestion Artifact
+* may be produced by one Intelligence Job
+* may have many Intelligence Embeddings
+* may be referenced by Intelligence Sources to connect Concepts/Proof Points back to exact memory chunks
+
+**Intelligence Embedding**
+
+The vector-index state for an Intelligence Chunk.
+
+Represents:
+* whether a chunk has been embedded
+* the embedding provider/model/dimensions
+* the external vector reference used by a vector database
+* stale/failed/pending embedding status for retries
+
+Relationships:
+* belongs to one User
+* belongs to one Intelligence Chunk
+
 **Strategic Vault**
 
 The user's curated collection of intelligence.

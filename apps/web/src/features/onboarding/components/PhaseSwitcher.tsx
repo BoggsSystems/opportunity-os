@@ -6,6 +6,8 @@ import { SensingHubPhase } from './phases/SensingHubPhase';
 import { SensingCalibrationPhase } from './phases/SensingCalibrationPhase';
 import { DiscoverySynthesisPhase } from './phases/DiscoverySynthesisPhase';
 import { KnowledgePhase } from './phases/KnowledgePhase';
+import { LinkedInArchivePhase } from './phases/LinkedInArchivePhase';
+import { ManualAssetsPhase } from './phases/ManualAssetsPhase';
 import { StrategicIntentPhase } from './phases/StrategicIntentPhase';
 import { CampaignArchitecturePhase } from './phases/CampaignArchitecturePhase';
 import { TacticalCalibrationPhase } from './phases/TacticalCalibrationPhase';
@@ -29,6 +31,10 @@ export const PhaseSwitcher: React.FC = () => {
       return <SensingHubPhase />;
     case 'discovery-sensing':
       return <SensingCalibrationPhase />;
+    case 'linkedin-archive':
+      return <LinkedInArchivePhase />;
+    case 'manual-assets':
+      return <ManualAssetsPhase />;
     case 'discovery-synthesis':
       return <DiscoverySynthesisPhase />;
     case 'knowledge':

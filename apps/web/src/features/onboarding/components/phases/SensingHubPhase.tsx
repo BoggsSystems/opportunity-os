@@ -1,11 +1,11 @@
 import React from 'react';
-import { Users, Globe, Network, CheckCircle, Zap, ArrowRight, Upload } from 'lucide-react';
+import { Users, Globe, Network, CheckCircle, Zap, ArrowRight } from 'lucide-react';
 import { useOnboarding } from '../OnboardingContext';
 
 export const SensingHubPhase: React.FC = () => {
   const { 
     connectedProviders, setConnectedProviders, providerStatuses,
-    setCurrentStep, startSequentialSensing, uploadStatus, 
+    setCurrentStep, startSequentialSensing,
     onConnectLinkedIn, onConnectGoogle, onConnectOutlook,
     onConnectHubSpot, onConnectShopify, onConnectSalesforce,
     nextStep 
@@ -127,18 +127,12 @@ export const SensingHubPhase: React.FC = () => {
           })}
         </div>
 
-        {connectedProviders.includes('linkedin') && (
-          <div className="manual-upload-section animate-in">
-            <div className="auth-divider">
-              <span>Legacy Fallback</span>
-            </div>
-            <p className="fallback-hint">If direct sensing is restricted, drop your LinkedIn ZIP here.</p>
-            <div className={`drop-zone compact ${uploadStatus === 'success' ? 'success' : ''}`}>
-              <Upload size={18} />
-              <span>{uploadStatus === 'success' ? 'ZIP Processed' : 'Drop LinkedIn ZIP'}</span>
-            </div>
+        <div className="manual-upload-section animate-in">
+          <div className="auth-divider">
+            <span>Data Ingestion Pipeline</span>
           </div>
-        )}
+          <p className="fallback-hint">Next we will ingest your LinkedIn archive and strategic documents directly. Connector scanning is optional.</p>
+        </div>
       </div>
 
       <div className="onboarding-footer">
@@ -146,16 +140,16 @@ export const SensingHubPhase: React.FC = () => {
         <button 
           className="onboarding-btn-primary" 
           onClick={() => {
-            if (connectedProviders.length > 0) {
+            const scanEligibleProviders = connectedProviders.filter((provider) => ['google_drive', 'onedrive'].includes(provider));
+            if (scanEligibleProviders.length > 0) {
               setCurrentStep('discovery-sensing' as any);
               void startSequentialSensing();
-            } else if (uploadStatus === 'success') {
-              setCurrentStep('knowledge');
+            } else {
+              setCurrentStep('linkedin-archive');
             }
           }}
-          disabled={connectedProviders.length === 0 && uploadStatus !== 'success'}
         >
-          Initialize Sensing Sequence <ArrowRight size={18} />
+          Continue to Data Ingestion <ArrowRight size={18} />
         </button>
       </div>
     </div>

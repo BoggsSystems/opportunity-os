@@ -5118,6 +5118,164 @@ Purpose: per-asset state and outcome tracking for each ingestion batch.
 
 ---
 
+### `ingestion_artifacts`
+
+Purpose: durable source-file/source-stream inventory for background shredding.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `asset_ingestion_batch_id` UUID NULL FK -> `asset_ingestion_batches.id`
+* `asset_ingestion_item_id` UUID NULL FK -> `asset_ingestion_items.id`
+* `connection_import_batch_id` UUID NULL FK -> `connection_import_batches.id`
+* `user_connector_id` UUID NULL FK -> `user_connectors.id`
+* `connector_asset_id` UUID NULL FK -> `connector_assets.id`
+* `user_asset_id` UUID NULL FK -> `user_assets.id`
+* `provider_name` VARCHAR NULL
+* `source_kind` VARCHAR NOT NULL // linkedin_archive_file, google_drive_file, manual_upload, gmail_thread_export
+* `source_name` VARCHAR NOT NULL
+* `source_path` VARCHAR NULL
+* `mime_type` VARCHAR NULL
+* `size_bytes` BIGINT NULL
+* `checksum` VARCHAR NULL
+* `record_count` INTEGER NULL
+* `status` `ingestion_artifact_status` NOT NULL DEFAULT `discovered`
+* `error_message` TEXT NULL
+* `metadata_json` JSONB NULL
+* `discovered_at` TIMESTAMP NOT NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on (`asset_ingestion_batch_id`, `source_path`)
+* index on (`user_id`, `status`)
+* index on (`user_id`, `source_kind`)
+* indexes on nullable FK columns
+* index on `provider_name`
+
+#### Notes
+
+* This lets a LinkedIn ZIP become many tracked artifacts, e.g. `Connections.csv`, `messages.csv`, `Shares.csv`, `Comments.csv`, and `Recommendations_Received.csv`.
+* The UI can report file coverage and background processing status without waiting for every artifact to finish.
+
+---
+
+### `intelligence_jobs`
+
+Purpose: durable queue/work ledger for background shredding.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `ingestion_artifact_id` UUID NULL FK -> `ingestion_artifacts.id`
+* `asset_ingestion_batch_id` UUID NULL FK -> `asset_ingestion_batches.id`
+* `asset_ingestion_item_id` UUID NULL FK -> `asset_ingestion_items.id`
+* `kind` `intelligence_job_kind` NOT NULL
+* `status` `intelligence_job_status` NOT NULL DEFAULT `queued`
+* `priority` INTEGER NOT NULL DEFAULT 100
+* `attempt_count` INTEGER NOT NULL DEFAULT 0
+* `max_attempts` INTEGER NOT NULL DEFAULT 3
+* `progress_percent` INTEGER NOT NULL DEFAULT 0
+* `idempotency_key` VARCHAR NULL
+* `input_json` JSONB NULL
+* `output_json` JSONB NULL
+* `error_message` TEXT NULL
+* `locked_at` TIMESTAMP NULL
+* `locked_by` VARCHAR NULL
+* `scheduled_at` TIMESTAMP NULL
+* `started_at` TIMESTAMP NULL
+* `completed_at` TIMESTAMP NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on `idempotency_key`
+* index on (`user_id`, `status`)
+* index on (`status`, `priority`, `scheduled_at`)
+* index on (`kind`, `status`)
+* indexes on nullable FK columns
+
+#### Notes
+
+* Worker services claim jobs by status/priority/schedule and update lock/progress fields.
+* Job kinds include fast summary, profile shred, connection clustering, message-thread memory, content memory, recommendations proof, job-market memory, and vector embedding.
+
+---
+
+### `intelligence_chunks`
+
+Purpose: reusable strategic memory units produced by background shredding.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `ingestion_artifact_id` UUID NULL FK -> `ingestion_artifacts.id`
+* `intelligence_job_id` UUID NULL FK -> `intelligence_jobs.id`
+* `chunk_kind` `intelligence_chunk_kind` NOT NULL
+* `source_type` VARCHAR NULL
+* `source_id` VARCHAR NULL
+* `external_key` VARCHAR NULL
+* `title` VARCHAR NULL
+* `content` TEXT NOT NULL
+* `summary` TEXT NULL
+* `token_count` INTEGER NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on (`ingestion_artifact_id`, `external_key`)
+* index on (`user_id`, `chunk_kind`)
+* index on (`user_id`, `source_type`, `source_id`)
+* index on `ingestion_artifact_id`
+* index on `intelligence_job_id`
+
+#### Notes
+
+* Chunks are the Postgres system of record for vector memory.
+* Examples include relationship clusters, message-thread summaries, post themes, recommendation proof points, and document sections.
+
+---
+
+### `intelligence_embeddings`
+
+Purpose: embedding/vector-index state for intelligence chunks.
+
+#### Columns
+
+* `id` UUID PK
+* `user_id` UUID NOT NULL FK -> `users.id`
+* `chunk_id` UUID NOT NULL FK -> `intelligence_chunks.id`
+* `provider_name` VARCHAR NOT NULL
+* `model_name` VARCHAR NOT NULL
+* `dimensions` INTEGER NULL
+* `vector_ref` VARCHAR NULL
+* `status` `intelligence_embedding_status` NOT NULL DEFAULT `pending`
+* `attempt_count` INTEGER NOT NULL DEFAULT 0
+* `error_message` TEXT NULL
+* `embedded_at` TIMESTAMP NULL
+* `metadata_json` JSONB NULL
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* unique index on (`chunk_id`, `provider_name`, `model_name`)
+* index on (`user_id`, `status`)
+* index on `vector_ref`
+
+#### Notes
+
+* The vector database indexes `intelligence_chunks`; Postgres owns chunk identity, provenance, and embedding status.
+
+---
+
 ### `calendar_events`
 
 Purpose: future-facing scheduled outcomes linked to opportunities and providers.
@@ -5202,6 +5360,7 @@ Links concepts and proof points to their origin.
 | `id` | `uuid` | PK | |
 | `concept_id` | `uuid` | NULL, FK -> `concept.id` | Link if source is for a concept |
 | `proof_point_id` | `uuid` | NULL, FK -> `proof_point.id` | Link if source is for a proof point |
+| `chunk_id` | `uuid` | NULL, FK -> `intelligence_chunks.id` | Link to exact shredded memory chunk |
 | `source_type` | `concept_source_type` | NOT NULL | |
 | `source_id` | `text` | NOT NULL | Provider IDs are not guaranteed UUID (e.g., Google Drive IDs) |
 | `created_at` | `timestamp` | NOT NULL | |

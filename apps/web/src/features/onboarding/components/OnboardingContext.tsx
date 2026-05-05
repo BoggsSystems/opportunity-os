@@ -3,7 +3,7 @@ import { ApiClient } from '../../../lib/api';
 import { importWebSocketService, ImportEvent } from '../../connections/services/importWebSocket.service';
 import { MOCK_IP_ASSETS, MOCK_SYNTHESIS, MOCK_OFFERINGS, MOCK_CAMPAIGNS } from '../../../lib/onboarding-mocks';
 
-export type Step = 'briefing' | 'account' | 'intent' | 'relationships' | 'discovery-sensing' | 'discovery-synthesis' | 'knowledge' | 'campaigns' | 'analysis' | 'actionLanes' | 'connectivity' | 'channels' | 'activation' | 'workspaceIntro' | 'workspaceHandoff' | 'welcome';
+export type Step = 'briefing' | 'account' | 'intent' | 'relationships' | 'discovery-sensing' | 'linkedin-archive' | 'manual-assets' | 'discovery-synthesis' | 'knowledge' | 'campaigns' | 'analysis' | 'actionLanes' | 'connectivity' | 'channels' | 'activation' | 'workspaceIntro' | 'workspaceHandoff' | 'welcome';
 
 export type OnboardingSnapshot = {
   version: 1;
@@ -110,6 +110,8 @@ export interface OnboardingContextType {
   onSyncEmail?: (() => Promise<void>) | undefined;
   handleStorageSearch: (query: string) => Promise<void>;
   handleImportAssets: () => Promise<void>;
+  handleLinkedInArchiveUpload: (file: File) => Promise<void>;
+  handleManualAssetUpload: (file: File) => Promise<void>;
   triggerStorageScan: (folderId?: string) => Promise<void>;
   initiateProviderSensing: (providerId?: string) => Promise<void>;
   isImporting: boolean;
@@ -377,7 +379,11 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     
     let systemPrompt = "";
     if (step === 'relationships') {
-      systemPrompt = `${narrationHeader} Welcome to the Orchestration flow. Explain that we need their LinkedIn ZIP (Settings > Data Privacy) to map professional leverage and identify warm entry points. Ask them to drop the ZIP.`;
+      systemPrompt = `${narrationHeader} Welcome to the ingestion flow. Explain that cloud connectors are optional accelerators for finding strategic assets, but the core pipeline is LinkedIn archive plus high-signal documents.`;
+    } else if (step === 'linkedin-archive') {
+      systemPrompt = `${narrationHeader} We are moving to LinkedIn archive ingestion. Explain that this is the authoritative way to map the user's relationship graph, connection density, profile, positions, skills, and strategic posture. Ask them to upload the LinkedIn ZIP export if they have it.`;
+    } else if (step === 'manual-assets') {
+      systemPrompt = `${narrationHeader} Network sensing is complete. Now moving to manual asset ingestion. Ask them to upload a resume, book PDF, deck, or other strategic document so you can ground offerings in proof and intellectual property.`;
     } else if (step === 'knowledge') {
       systemPrompt = `${narrationHeader} Network sensing complete. We've identified ${connectionCount || 'their'} professional nodes. Now moving to 'Expertise Grounding'. Ask them to provide strategic assets (PDFs, decks) to sharpen the outreach frameworks.`;
     } else if (step === 'intent') {
@@ -487,7 +493,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
         setTimeout(() => {
           setIsLoading(false);
           setGenerationMessage(null);
-          setCurrentStep('discovery-synthesis' as any);
+          setCurrentStep('linkedin-archive');
         }, 2500);
       }
     } else if (currentStep === 'discovery-synthesis') {
@@ -509,10 +515,20 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const initiateProviderSensing = async (targetProviderId?: string) => {
     setIsSensingActive(true);
     setSensingLogs([]);
-    const selectedIds = targetProviderId ? [targetProviderId] : connectedProviders;
+    const selectedIds = targetProviderId
+      ? [targetProviderId]
+      : connectedProviders.filter(id => ['google_drive', 'onedrive'].includes(id));
+
+    if (selectedIds.length === 0) {
+      setSpotlightData([]);
+      setSpotlightIndex(0);
+      setIsSensingActive(false);
+      setCurrentStep('linkedin-archive');
+      return;
+    }
 
     for (const id of selectedIds) {
-      const provider = { linkedin: 'LinkedIn', google: 'Google', microsoft: 'Outlook' }[id as 'linkedin' | 'google' | 'microsoft'];
+      const provider = { linkedin: 'LinkedIn', google: 'Google Drive', google_drive: 'Google Drive', microsoft: 'OneDrive', onedrive: 'OneDrive' }[id as 'linkedin' | 'google' | 'google_drive' | 'microsoft' | 'onedrive'];
       setProviderStatuses(prev => ({ ...prev, [id]: { status: 'syncing', message: 'Sensing network topography...' } }));
       setSensingLogs(prev => [...prev, { id: `log-${id}`, message: `Scanning ${provider} for relationship depth...`, type: 'info' }]);
       
@@ -695,6 +711,76 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     }
   };
 
+  const handleLinkedInArchiveUpload = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      throw new Error('Please select the LinkedIn data export ZIP file.');
+    }
+
+    setIsLoading(true);
+    setGenerationMessage('Ingesting LinkedIn archive and mapping your relationship graph...');
+
+    try {
+      const result = await api.ingestZip(file, {
+        name: `LinkedIn Archive - ${new Date().toLocaleDateString()}`,
+        source: 'linkedin_export',
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || 'LinkedIn archive ingestion failed.');
+      }
+
+      const draft = result.data.strategicDraft;
+      setStrategicDraft(draft);
+      setConnectionCount(draft?.connectionCount || 0);
+      setActiveImportId(result.data.importId);
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: `LinkedIn archive ingested. I found ${draft?.connectionCount || 0} relationship records and captured your professional posture for offering generation.`
+      }]);
+    } finally {
+      setIsLoading(false);
+      setGenerationMessage(null);
+    }
+  };
+
+  const handleManualAssetUpload = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      throw new Error('For this onboarding pass, please upload a PDF asset.');
+    }
+
+    setIsLoading(true);
+    setGenerationMessage(`Interpreting ${file.name} as strategic proof...`);
+
+    try {
+      const result = await api.auditKnowledge(file, uploadedAssets);
+      if (!result.success) {
+        throw new Error(result.message || 'Asset interpretation failed.');
+      }
+
+      const asset = {
+        title: result.data.title || file.name,
+        interpretation: result.data.interpretation,
+        summary: result.data.summary,
+        frameworks: result.data.frameworks || [],
+      };
+
+      setUploadedAssets(prev => [...prev, asset]);
+      if (result.data.comprehensiveSynthesis) {
+        setComprehensiveSynthesis(result.data.comprehensiveSynthesis);
+      }
+
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: `Asset grounded: ${asset.title}. I captured the strategic thesis and proof points for offering generation.`
+      }]);
+    } finally {
+      setIsLoading(false);
+      setGenerationMessage(null);
+    }
+  };
+
   const triggerStorageScan = async (folderId?: string) => {
     setIsLoading(true);
     console.log('🔍 [OnboardingContext] triggerStorageScan initiated', { folderId });
@@ -788,7 +874,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     setActiveImportId, setWizardMessages, setSelectedCampaigns, setSelectedActionLanes,
     setCurrentActionLaneCampaignIndex, setSpotlightIndex, setGoogleSubStep, api, user,
     onComplete, setSelectedLanes, isWorking, isConductorExpanded, setIsConductorExpanded,
-    handleStorageSearch, handleImportAssets, triggerStorageScan, initiateProviderSensing, isImporting,
+    handleStorageSearch, handleImportAssets, handleLinkedInArchiveUpload, handleManualAssetUpload, triggerStorageScan, initiateProviderSensing, isImporting,
     ingestionStatus, isIngestionModalOpen, ingestionBatchId, setIsIngestionModalOpen,
     onConnectLinkedIn: onConnectLinkedIn ? async () => {
       await onConnectLinkedIn();
