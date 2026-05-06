@@ -866,7 +866,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
 
   const designActionLanes = async () => {
     setIsLoading(true);
-    setGenerationMessage('Designing execution channel workflows...');
+    setGenerationMessage('Synthesizing channel actions...');
     try {
       const res = await api.proposeActionLanes({
         selectedCampaigns: proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)),
@@ -883,9 +883,9 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
         setWizardMessages(prev => [...prev, {
           id: crypto.randomUUID(),
           role: 'assistant',
-          text: "I've turned your selected campaign channels into execution workflows. Review each campaign one at a time and confirm the workflows you want the action engine to use.",
+          text: "I've turned your selected campaign channels into specific channel actions. Review each campaign's execution plan and confirm the actions you want the engine to use.",
         }]);
-        setCurrentStep('actionLanes');
+        setCurrentStep('analysis');
       }
     } finally {
       setIsLoading(false);

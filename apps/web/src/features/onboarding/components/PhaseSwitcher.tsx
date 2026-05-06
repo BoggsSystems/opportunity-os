@@ -10,8 +10,8 @@ import { LinkedInArchivePhase } from './phases/LinkedInArchivePhase';
 import { ManualAssetsPhase } from './phases/ManualAssetsPhase';
 import { StrategicIntentPhase } from './phases/StrategicIntentPhase';
 import { CampaignArchitecturePhase } from './phases/CampaignArchitecturePhase';
-import { TacticalCalibrationPhase } from './phases/TacticalCalibrationPhase';
-import { TacticalArsenalPhase } from './phases/TacticalArsenalPhase';
+import { ActionPlanSynthesisPhase } from './phases/ActionPlanSynthesisPhase';
+import { ChannelActionsPhase } from './phases/ChannelActionsPhase';
 import { ConnectivityPhase } from './phases/ConnectivityPhase';
 import { ActivationPhase } from './phases/ActivationPhase';
 import { WorkspaceHandoffPhase } from './phases/WorkspaceHandoffPhase';
@@ -44,9 +44,9 @@ export const PhaseSwitcher: React.FC = () => {
     case 'campaigns':
       return <CampaignArchitecturePhase />;
     case 'analysis':
-      return <TacticalCalibrationPhase />;
+      return <ActionPlanSynthesisPhase />;
     case 'actionLanes':
-      return <TacticalArsenalPhase />;
+      return <ChannelActionsPhase />;
     case 'connectivity':
       return <ConnectivityPhase />;
     case 'activation':

@@ -2,7 +2,7 @@ import React from 'react';
 import { Rocket, CheckCircle, ArrowRight } from 'lucide-react';
 import { useOnboarding } from '../OnboardingContext';
 
-export const TacticalArsenalPhase: React.FC = () => {
+export const ChannelActionsPhase: React.FC = () => {
   const { 
     proposedCampaigns, selectedCampaigns, proposedActionLanes, 
     selectedActionLanes, setSelectedActionLanes, currentActionLaneCampaignIndex,
@@ -15,12 +15,12 @@ export const TacticalArsenalPhase: React.FC = () => {
     ? currentCampaign.configuration.channels
     : [];
 
-  const workflowsForCurrentCampaign = proposedActionLanes.filter((lane: any) => {
+  const actionsForCurrentCampaign = proposedActionLanes.filter((lane: any) => {
     if (lane.campaignId === currentCampaign?.id) return true;
     if (Array.isArray(lane.campaignIds)) return lane.campaignIds.includes(currentCampaign?.id);
     return false;
   });
-  const hasSelectedCurrentWorkflow = workflowsForCurrentCampaign.some((lane: any) => selectedActionLanes.includes(lane.id));
+  const hasSelectedCurrentAction = actionsForCurrentCampaign.some((lane: any) => selectedActionLanes.includes(lane.id));
   
   const handleToggle = (id: string) => {
     setSelectedActionLanes((prev: string[]) => 
@@ -34,10 +34,10 @@ export const TacticalArsenalPhase: React.FC = () => {
     <div className="onboarding-content">
       <div className="onboarding-header">
         <div className="phase-indicator">
-          Phase 08a: Execution Channels - Campaign {currentActionLaneCampaignIndex + 1} of {activeCampaigns.length}
+          Phase 08a: Channel Actions - Campaign {currentActionLaneCampaignIndex + 1} of {activeCampaigns.length}
         </div>
-        <h1>Configure execution channels for this campaign.</h1>
-        <p>Turn the selected campaign channels into workflows the action engine can execute for <strong>{currentCampaign.title}</strong>.</p>
+        <h1>Configure actions for this campaign.</h1>
+        <p>Turn the selected campaign channels into specific actions the engine will execute for <strong>{currentCampaign.title}</strong>.</p>
       </div>
 
       {currentCampaignChannels.length > 0 && (
@@ -51,13 +51,13 @@ export const TacticalArsenalPhase: React.FC = () => {
         </div>
       )}
 
-      {workflowsForCurrentCampaign.length === 0 ? (
+      {actionsForCurrentCampaign.length === 0 ? (
         <div className="empty-tactical-state">
-          No execution channel workflows were generated for this campaign. Go back and regenerate workflows from the campaign channels.
+          No actions were generated for this campaign. Go back and regenerate the campaign or select different channels.
         </div>
       ) : (
         <div className="action-lane-grid">
-          {workflowsForCurrentCampaign.map((lane: any) => {
+          {actionsForCurrentCampaign.map((lane: any) => {
           const isSelected = selectedActionLanes.includes(lane.id);
           return (
             <div 
@@ -88,9 +88,9 @@ export const TacticalArsenalPhase: React.FC = () => {
               nextStep('connectivity');
             }
           }}
-          disabled={!hasSelectedCurrentWorkflow}
+          disabled={!hasSelectedCurrentAction}
         >
-          {currentActionLaneCampaignIndex < activeCampaigns.length - 1 ? 'Next Campaign' : 'Confirm Channels & Connect Tools'} <ArrowRight size={18} />
+          {currentActionLaneCampaignIndex < activeCampaigns.length - 1 ? 'Next Campaign' : 'Confirm Actions & Connect Tools'} <ArrowRight size={18} />
         </button>
       </div>
     </div>

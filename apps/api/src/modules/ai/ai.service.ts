@@ -893,20 +893,20 @@ IMPORTANT RULES:
 
   async proposeActionLanes(campaigns: any[], comprehensiveSynthesis: string): Promise<any[]> {
     const prompt = `
-    Based on the following confirmed Campaigns and User Strategic Synthesis, turn each campaign's selected channels into executable channel workflows.
+    Based on the following confirmed Campaigns and User Strategic Synthesis, turn each campaign's selected channels into executable Channel Actions.
     
     User Synthesis: ${comprehensiveSynthesis}
     
     Confirmed Campaigns:
     ${JSON.stringify(campaigns, null, 2)}
     
-    User-facing language: call these "Execution Channels" or "Channel Workflows".
+    User-facing language: call these "Channel Actions" or "Channel Action Plans".
     Internal language: the returned objects are still called action lanes for compatibility.
 
-    A Channel Workflow is a specific execution motion used to execute a campaign through a selected channel.
-    Common channel workflow types:
+    A Channel Action is a specific execution motion used to execute a campaign through a selected channel.
+    Common channel action types:
     - "Email Outreach" (direct email or Outlook/Gmail focus)
-    - "LinkedIn DM" (manual-send workflow from selected LinkedIn contacts)
+    - "LinkedIn DM" (manual-send from selected LinkedIn contacts)
     - "LinkedIn Posts" (public thought-leadership/content lane)
     - "Warm Introduction Engine" (request intros from existing relationships)
     - "Relationship Reactivation" (re-engage dormant contacts)
@@ -916,17 +916,17 @@ IMPORTANT RULES:
     Important UX constraint:
     - The user configures one campaign at a time.
     - Each campaign may include configuration.channels from the previous campaign blueprint step.
-    - Prefer to create workflows that operationalize those selected channels.
-    - Do not ask the user to choose the same high-level channels again; this step configures how the chosen channels become executable workflows.
-    - Return 1-4 channel workflows per campaign.
-    - Each returned workflow must include exactly one campaign id in campaignIds so the UI can show workflows campaign-by-campaign.
-    - If a similar workflow is useful for multiple campaigns, duplicate it with a unique id and campaign-specific title/tactics.
+    - Prefer to create actions that operationalize those selected channels.
+    - Do not ask the user to choose the same high-level channels again; this step configures how the chosen channels become executable actions.
+    - Return 1-4 channel actions per campaign.
+    - Each returned action must include exactly one campaign id in campaignIds so the UI can show actions campaign-by-campaign.
+    - If a similar action is useful for multiple campaigns, duplicate it with a unique id and campaign-specific title/tactics.
     
     Return a JSON array of objects:
     {
       "id": "unique-id",
       "type": "email | linkedin_dm | linkedin_posts | warm_intro | relationship_reactivation | commenting | account_research | other",
-      "title": "Clear, campaign-specific workflow title (e.g., 'Founder LinkedIn DM Sprint')",
+      "title": "Clear, campaign-specific action title (e.g., 'Founder LinkedIn DM Sprint')",
       "description": "Short description of the tactical approach",
       "tactics": ["Bullet point 1", "Bullet point 2"],
       "requiredConnectors": ["outlook", "linkedin", etc],
