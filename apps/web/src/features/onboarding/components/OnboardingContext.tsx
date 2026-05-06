@@ -98,6 +98,8 @@ export interface OnboardingContextType {
   setUploadStatus: React.Dispatch<React.SetStateAction<'idle' | 'uploading' | 'success' | 'error'>>;
   setActiveImportId: React.Dispatch<React.SetStateAction<string | null>>;
   setWizardMessages: React.Dispatch<React.SetStateAction<any[]>>;
+  setProposedCampaigns: React.Dispatch<React.SetStateAction<any[]>>;
+  setProposedActionLanes: React.Dispatch<React.SetStateAction<any[]>>;
   setSelectedCampaigns: React.Dispatch<React.SetStateAction<string[]>>;
   setSelectedActionLanes: React.Dispatch<React.SetStateAction<string[]>>;
   setCurrentOfferingIndex: React.Dispatch<React.SetStateAction<number>>;
@@ -990,7 +992,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     storageSuggestions, setStorageSuggestions, selectedAssetIds, setSelectedAssetIds,
     nextStep, triggerStepNarration, handleDiscoveryNext, startSequentialSensing, designActionLanes,
     handleConductorSend, seedState, setConnectedProviders, setDiscoveryCalibration, setUploadStatus,
-    setActiveImportId, setWizardMessages, setSelectedCampaigns, setSelectedActionLanes,
+    setActiveImportId, setWizardMessages, setProposedCampaigns, setProposedActionLanes, setSelectedCampaigns, setSelectedActionLanes,
     setCurrentActionLaneCampaignIndex, setSpotlightIndex, setGoogleSubStep, api, user,
     onComplete, setSelectedLanes, isWorking: finalWorkingState, isConductorExpanded, setIsConductorExpanded,
     handleStorageSearch, handleImportAssets, handleLinkedInArchiveUpload, handleManualAssetUpload, triggerStorageScan, initiateProviderSensing, isImporting,
