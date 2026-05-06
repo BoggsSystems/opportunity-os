@@ -81,8 +81,8 @@ const DIMENSIONS: DimensionMeta[] = [
     icon: Radio,
     oneLine: 'Where the campaign will act.',
     guidance: 'Channels define the execution lanes the action engine can use. Multiple channels work best when they share the same campaign logic.',
-    why: 'LinkedIn DM plus email gives you a high-trust manual path and a direct outbound path without overcomplicating the first campaign.',
-    recommended: 'LinkedIn DM + Email',
+    why: 'LinkedIn DM gives you a high-trust manual path for relationship building.',
+    recommended: 'LinkedIn DM',
     options: [
       { label: 'LinkedIn DM', description: 'Best for warm relationship paths and manually reviewed high-trust outreach.' },
       { label: 'Email', description: 'Best for direct outreach, follow-up, and longer-form positioning.' },

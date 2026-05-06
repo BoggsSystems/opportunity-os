@@ -615,7 +615,7 @@ Return ONLY valid JSON using this exact object shape:
   },
   "audience": { "recommended": "...", "guidance": "...", "why": "...", "options": [...] },
   "hook": { "recommended": "...", "guidance": "...", "why": "...", "options": [...] },
-  "channels": { "recommended": "LinkedIn DM + Email", "guidance": "...", "why": "...", "options": [...] },
+  "channels": { "recommended": "LinkedIn DM", "guidance": "...", "why": "...", "options": [...] },
   "duration": { "recommended": "30 day campaign", "guidance": "...", "why": "...", "options": [...] },
   "cadence": { "recommended": "Moderate daily push", "guidance": "...", "why": "...", "options": [...] },
   "successMetric": { "recommended": "...", "guidance": "...", "why": "...", "options": [...] }
@@ -626,6 +626,7 @@ Rules:
 - The strategic hook should use concrete language from the user's assets, concepts, proof points, posture, or chunks when available.
 - Do not invent proprietary claims not grounded in the context.
 - Channels, duration, and cadence may use standard tactical options, but choose recommendations that fit the offering and workload.
+- NEVER combine multiple channels into a single option or recommendation (e.g. use 'LinkedIn DM' or 'Email', not 'LinkedIn DM + Email').
 - Each dimension needs 3-5 options.
 - Keep labels compact so they work as UI chips.
 `.trim();
