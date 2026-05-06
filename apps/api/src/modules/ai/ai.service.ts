@@ -563,6 +563,289 @@ Rules:
     }
   }
 
+  async proposeCampaignDimensions(context: {
+    userId?: string;
+    offering: any;
+    networkCount?: number;
+    frameworks?: string[];
+    interpretation?: string;
+    strategicDraft?: any;
+    uploadedAssets?: any[];
+    comprehensiveSynthesis?: string | null;
+    existingDimensions?: any;
+  }): Promise<{ source: 'ai_synthesized'; dimensions: Record<string, any> }> {
+    const offeringTitle = context.offering?.title || context.offering?.name || 'Revenue Lane';
+    this.logger.log(`Proposing campaign dimensions for ${offeringTitle}`);
+
+    const fallback = this.buildFallbackCampaignDimensions(offeringTitle);
+    const memory = await this.loadCampaignDimensionMemory(context.userId);
+
+    const prompt = `
+You are the campaign architect inside Opportunity OS. The user is configuring one campaign before it is drafted.
+
+Your job is to propose dimension options that are specific to the user's offering, uploaded IP, professional posture, relationship graph, and any background intelligence chunks that are already available.
+
+OFFERING:
+${JSON.stringify(context.offering || {}, null, 2)}
+
+FAST WIZARD CONTEXT:
+${JSON.stringify({
+  networkCount: context.networkCount || 0,
+  frameworks: context.frameworks || [],
+  interpretation: context.interpretation || '',
+  comprehensiveSynthesis: context.comprehensiveSynthesis || '',
+  strategicDraft: context.strategicDraft || null,
+  uploadedAssets: (context.uploadedAssets || []).map((asset: any) => ({
+    filename: asset.filename || asset.name,
+    frameworks: asset.frameworks || [],
+    interpretation: asset.interpretation || asset.summary || '',
+  })),
+}, null, 2)}
+
+PERSISTED INTELLIGENCE MEMORY:
+${JSON.stringify(memory, null, 2)}
+
+Return ONLY valid JSON using this exact object shape:
+{
+  "objective": {
+    "recommended": "short option label",
+    "guidance": "1-2 sentences explaining this dimension",
+    "why": "1 sentence explaining why the recommendation fits this user/offering",
+    "options": [{"label": "short option label", "description": "short option explanation"}]
+  },
+  "audience": { "recommended": "...", "guidance": "...", "why": "...", "options": [...] },
+  "hook": { "recommended": "...", "guidance": "...", "why": "...", "options": [...] },
+  "channels": { "recommended": "LinkedIn DM + Email", "guidance": "...", "why": "...", "options": [...] },
+  "duration": { "recommended": "30 day campaign", "guidance": "...", "why": "...", "options": [...] },
+  "cadence": { "recommended": "Moderate daily push", "guidance": "...", "why": "...", "options": [...] },
+  "successMetric": { "recommended": "...", "guidance": "...", "why": "...", "options": [...] }
+}
+
+Rules:
+- Objective, audience, and hook must be tailored to the user's actual IP and offering.
+- The strategic hook should use concrete language from the user's assets, concepts, proof points, posture, or chunks when available.
+- Do not invent proprietary claims not grounded in the context.
+- Channels, duration, and cadence may use standard tactical options, but choose recommendations that fit the offering and workload.
+- Each dimension needs 3-5 options.
+- Keep labels compact so they work as UI chips.
+`.trim();
+
+    try {
+      const response = await this.aiProviderFactory.getProvider().generateText({
+        prompt,
+        temperature: 0.35,
+        maxTokens: 2500,
+      });
+      const parsed = JSON.parse(this.extractJsonPayload(response.content));
+      return {
+        source: 'ai_synthesized',
+        dimensions: this.normalizeCampaignDimensions(parsed, fallback),
+      };
+    } catch (error) {
+      this.logger.error('Failed to synthesize campaign dimensions', error);
+      throw error;
+    }
+  }
+
+  private async loadCampaignDimensionMemory(userId?: string): Promise<Record<string, any>> {
+    if (!userId) {
+      return {
+        source: 'wizard_context_only',
+        note: 'No authenticated user memory was available for this dimension synthesis.',
+      };
+    }
+
+    try {
+      const [posture, concepts, proofPoints, chunks, importBatches] = await Promise.all([
+        prisma.userPosture.findUnique({
+          where: { userId },
+          select: {
+            title: true,
+            description: true,
+            postureText: true,
+            objectives: true,
+            preferredTone: true,
+          },
+        }),
+        prisma.concept.findMany({
+          where: { userId },
+          orderBy: [{ isPromoted: 'desc' }, { createdAt: 'desc' }],
+          take: 12,
+          select: {
+            title: true,
+            category: true,
+            description: true,
+            isPromoted: true,
+            metadataJson: true,
+          },
+        }),
+        prisma.proofPoint.findMany({
+          where: { userId },
+          orderBy: [{ isPromoted: 'desc' }, { createdAt: 'desc' }],
+          take: 12,
+          select: {
+            title: true,
+            content: true,
+            isPromoted: true,
+          },
+        }),
+        prisma.intelligenceChunk.findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+          take: 18,
+          select: {
+            chunkKind: true,
+            sourceType: true,
+            title: true,
+            summary: true,
+            content: true,
+            metadataJson: true,
+          },
+        }),
+        prisma.connectionImportBatch.findMany({
+          where: { userId },
+          orderBy: { createdAt: 'desc' },
+          take: 3,
+          select: {
+            source: true,
+            filename: true,
+            totalRows: true,
+            createdPeopleCount: true,
+            updatedPeopleCount: true,
+            status: true,
+          },
+        }),
+      ]);
+
+      return {
+        source: chunks.length > 0 ? 'background_intelligence_plus_fast_memory' : 'fast_memory',
+        posture,
+        concepts,
+        proofPoints,
+        importBatches,
+        intelligenceChunks: chunks.map((chunk) => ({
+          ...chunk,
+          content: this.truncateForPrompt(chunk.summary || chunk.content, 900),
+        })),
+      };
+    } catch (error) {
+      this.logger.warn(`Unable to load campaign dimension memory for user ${userId}: ${error}`);
+      return {
+        source: 'memory_load_failed',
+        note: 'Falling back to wizard context.',
+      };
+    }
+  }
+
+  private buildFallbackCampaignDimensions(offeringTitle: string): Record<string, any> {
+    return {
+      objective: {
+        recommended: 'AI synthesis required',
+        guidance: `Objective for ${offeringTitle} must be synthesized by AI from user intelligence.`,
+        why: 'No generic strategic objective should be used for campaign drafting.',
+        options: [],
+      },
+      audience: {
+        recommended: 'AI synthesis required',
+        guidance: `Audience for ${offeringTitle} must be synthesized by AI from user intelligence.`,
+        why: 'No generic strategic audience should be used for campaign drafting.',
+        options: [],
+      },
+      hook: {
+        recommended: 'AI synthesis required',
+        guidance: `Strategic hook for ${offeringTitle} must be synthesized by AI from user intelligence.`,
+        why: 'No generic strategic hook should be used for campaign drafting.',
+        options: [],
+      },
+      channels: {
+        recommended: 'LinkedIn DM + Email',
+        guidance: 'Channels define the execution lanes the action engine can use. Multiple channels work best when they share the same campaign logic.',
+        why: 'LinkedIn DM plus email gives the campaign a high-trust manual path and a direct outbound path.',
+        options: [
+          { label: 'LinkedIn DM', description: 'Best for warm relationship paths and manually reviewed outreach.' },
+          { label: 'Email', description: 'Best for direct outreach, follow-up, and longer-form positioning.' },
+          { label: 'LinkedIn posts', description: 'Best for public authority and proof-layer content.' },
+          { label: 'Warm intros', description: 'Best when mutual connections can improve trust.' },
+          { label: 'Comments/replies', description: 'Best for engaging before direct outreach.' },
+        ],
+      },
+      duration: {
+        recommended: '30 day campaign',
+        guidance: 'Length defines the operating window and determines how much time the engine has to execute, observe replies, learn, and recommend follow-ups.',
+        why: 'A 30 day campaign is long enough to produce real signal without becoming indefinite.',
+        options: [
+          { label: '1 week sprint', description: 'Test a sharp message or promote a time-sensitive asset.' },
+          { label: '2 week campaign', description: 'Run focused validation without committing to a full month.' },
+          { label: '30 day campaign', description: 'Default for outreach plus follow-up, content support, and reply learning.' },
+          { label: '60 day campaign', description: 'Best for slower enterprise audiences or relationship-heavy motions.' },
+          { label: 'Ongoing nurture', description: 'Best for low-pressure thought leadership and long-term relationship development.' },
+        ],
+      },
+      cadence: {
+        recommended: 'Moderate daily push',
+        guidance: 'Cadence defines the action volume and follow-up pressure. It combines with campaign length to determine workload.',
+        why: 'Moderate daily push provides momentum while keeping manual review realistic.',
+        options: [
+          { label: 'Conservative daily touch', description: 'Best when quality and personalization matter more than speed.' },
+          { label: 'Moderate daily push', description: 'Best default for momentum without overwhelming the operator.' },
+          { label: 'Aggressive launch sprint', description: 'Best for high action volume and daily review capacity.' },
+        ],
+      },
+      successMetric: {
+        recommended: 'AI synthesis required',
+        guidance: `Success metric for ${offeringTitle} must be synthesized by AI from user intelligence.`,
+        why: 'No generic success metric should be used for campaign drafting.',
+        options: [],
+      },
+    };
+  }
+
+  private normalizeCampaignDimensions(parsed: any, fallback: Record<string, any>): Record<string, any> {
+    const output: Record<string, any> = {};
+    const aiRequiredKeys = ['objective', 'audience', 'hook', 'successMetric'];
+
+    for (const key of aiRequiredKeys) {
+      const candidate = parsed?.[key];
+      if (
+        !candidate?.recommended ||
+        !candidate?.guidance ||
+        !candidate?.why ||
+        !Array.isArray(candidate?.options) ||
+        candidate.options.filter((option: any) => option?.label).length < 2
+      ) {
+        throw new Error(`AI campaign dimension synthesis missing required ${key} dimension`);
+      }
+    }
+
+    for (const key of Object.keys(fallback)) {
+      const candidate = parsed?.[key] || {};
+      const fallbackDimension = fallback[key];
+      const options = Array.isArray(candidate.options) && candidate.options.length > 0
+        ? candidate.options
+            .filter((option: any) => option?.label)
+            .slice(0, 5)
+            .map((option: any) => ({
+              label: String(option.label),
+              description: String(option.description || (aiRequiredKeys.includes(key) ? '' : fallbackDimension.options[0]?.description || '')),
+            }))
+        : fallbackDimension.options;
+
+      output[key] = {
+        recommended: String(candidate.recommended || fallbackDimension.recommended),
+        guidance: String(candidate.guidance || fallbackDimension.guidance),
+        why: String(candidate.why || fallbackDimension.why),
+        options,
+      };
+    }
+
+    return output;
+  }
+
+  private truncateForPrompt(value: string | null | undefined, maxLength: number): string {
+    if (!value) return '';
+    return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+  }
+
   async refineCampaigns(currentCampaigns: any[], feedback: string, context: {
     selectedLanes: any[];
     networkCount: number;

@@ -282,6 +282,28 @@ export class ApiClient {
     });
   }
 
+  async proposeCampaignDimensions(context: {
+    offering: any;
+    networkCount?: number;
+    frameworks?: string[];
+    interpretation?: string;
+    strategicDraft?: any;
+    uploadedAssets?: any[];
+    comprehensiveSynthesis?: string | null;
+    existingDimensions?: any;
+  }) {
+    return this.request<{
+      success: boolean;
+      source?: 'ai_synthesized' | 'ai_failed';
+      dimensions?: Record<string, any>;
+      error?: string;
+      message?: string;
+    }>('/onboarding/campaign-dimensions/propose', {
+      method: 'POST',
+      body: context,
+    });
+  }
+
   async refineCampaigns(body: { currentCampaigns: any[]; feedback: string; selectedLanes: any[]; networkCount: number; frameworks: string[]; interpretation: string }) {
     return this.request<{ success: boolean; campaigns: any[] }>('/onboarding/campaigns/refine', {
       method: 'POST',

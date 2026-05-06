@@ -5,6 +5,7 @@ import {
   UseInterceptors,
   Logger,
   Body,
+  Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
@@ -48,6 +49,39 @@ export class OnboardingController {
     this.logger.log(`Proposing campaigns for ${body.selectedLanes.length} lanes`);
     const campaigns = await this.aiService.proposeCampaigns(body);
     return { success: true, campaigns };
+  }
+
+  @Post('campaign-dimensions/propose')
+  @ApiOperation({ summary: 'Propose configurable campaign dimensions for one revenue lane' })
+  async proposeCampaignDimensions(
+    @Req() req: any,
+    @Body() body: {
+      offering: any;
+      networkCount?: number;
+      frameworks?: string[];
+      interpretation?: string;
+      strategicDraft?: any;
+      uploadedAssets?: any[];
+      comprehensiveSynthesis?: string | null;
+      existingDimensions?: any;
+    },
+  ) {
+    this.logger.log(`Proposing campaign dimensions for offering=${body.offering?.title || body.offering?.name || 'unknown'}`);
+    try {
+      const result = await this.aiService.proposeCampaignDimensions({
+        ...body,
+        userId: req?.user?.id,
+      });
+      return { success: true, ...result };
+    } catch (error: any) {
+      this.logger.error('Campaign dimension synthesis failed', error?.stack || error);
+      return {
+        success: false,
+        source: 'ai_failed',
+        error: 'CAMPAIGN_DIMENSION_SYNTHESIS_FAILED',
+        message: 'I could not synthesize campaign dimensions from your intelligence yet.',
+      };
+    }
   }
 
   @Post('campaigns/refine')

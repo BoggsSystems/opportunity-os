@@ -3245,6 +3245,55 @@
   line-height: 1.45;
 }
 
+.campaign-blueprint-status {
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #075985;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 6px 12px;
+}
+
+.campaign-blueprint-status.loading {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+.campaign-blueprint-status.ready {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+.campaign-blueprint-status.blocked {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #c2410c;
+}
+
+.campaign-blueprint-blocked {
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  background: #fff7ed;
+  padding: 14px;
+  color: #7c2d12;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.campaign-blueprint-blocked strong {
+  color: #7c2d12;
+}
+
+.campaign-blueprint-blocked span {
+  color: #9a3412;
+  line-height: 1.4;
+}
+
 .campaign-blueprint-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3270,6 +3319,17 @@
   border-color: #93c5fd;
   background: white;
   box-shadow: 0 8px 18px rgba(37, 99, 235, 0.07);
+}
+
+.campaign-blueprint-card.locked {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+.campaign-blueprint-card.locked:hover {
+  border-color: #dbe4ef;
+  background: #f8fafc;
+  box-shadow: none;
 }
 
 .campaign-blueprint-icon {
