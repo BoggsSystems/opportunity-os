@@ -873,12 +873,12 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
         comprehensiveSynthesis: comprehensiveSynthesis || ''
       });
       if (res.success) {
-        const normalizedWorkflows = res.actionLanes.map((lane: any) => ({
+        const normalizedActions = res.actionLanes.map((lane: any) => ({
           ...lane,
           campaignId: lane.campaignId || (Array.isArray(lane.campaignIds) ? lane.campaignIds[0] : undefined),
         }));
-        setProposedActionLanes(normalizedWorkflows);
-        setSelectedActionLanes(normalizedWorkflows.map((l: any) => l.id));
+        setProposedActionLanes(normalizedActions);
+        setSelectedActionLanes(normalizedActions.map((l: any) => l.id));
         setCurrentActionLaneCampaignIndex(0);
         setWizardMessages(prev => [...prev, {
           id: crypto.randomUUID(),

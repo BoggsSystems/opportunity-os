@@ -1135,7 +1135,7 @@ export function App() {
       const result = await api.promoteDiscoveryTargets(scanId);
       setNotice({
         title: 'Targets promoted',
-        detail: `${result.promoted} accepted targets were added to the campaign workflow.`,
+        detail: `${result.promoted} accepted targets were added to the campaign.`,
         tone: 'success',
       });
       await loadWorkspace();
