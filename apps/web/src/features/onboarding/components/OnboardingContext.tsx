@@ -163,13 +163,14 @@ interface OnboardingProviderProps {
   onConnectSalesforce?: (token: string) => Promise<void>;
   onSyncEmail?: () => Promise<void>;
   onComplete: () => void;
+  isWorking?: boolean;
 }
 
 export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({ 
   children, api, user,
   onAuth, onConnectOutlook, onConnectGoogle, onConnectLinkedIn,
   onConnectHubSpot, onConnectShopify, onConnectSalesforce, onSyncEmail,
-  onComplete
+  onComplete, isWorking: isWorkingProp
 }) => {
   const restoredSnapshot = useRef<OnboardingSnapshot | null>(loadOnboardingSnapshot(user?.id)).current;
 
