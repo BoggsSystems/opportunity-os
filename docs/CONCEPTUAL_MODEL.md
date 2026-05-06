@@ -1726,14 +1726,15 @@ Represents:
 * executive briefing campaign
 * warm-network activation campaign
 * targeted discovery and follow-up motion
-* a coordinated push made up of multiple ActionLanes
+* a coordinated push made up of multiple selected Channels and internal ActionLanes
 
 Relationships:
 
 * belongs to one User when authenticated
 * belongs to one Goal
 * may belong to one Offering
-* has many ActionLanes
+* has many CampaignChannels
+* has many ActionLanes through CampaignChannels
 * may have many Opportunities
 * may have many lane execution records
 
@@ -1748,23 +1749,24 @@ MVP: yes
 The product loop should be modeled like this:
 
 ```text
-Goal -> Offering -> Discovery -> Campaign -> ActionLanes -> Execution -> Results -> Next prioritization
+Goal -> Offering -> Discovery -> Campaign -> Channels -> ActionLanes -> Execution -> Results -> Next prioritization
 ```
 
-The Goal defines the outcome. The Offering defines what is being advanced. Discovery surfaces relevant opportunities and targets. The Campaign organizes the pursuit. ActionLanes define channel-specific motions. Execution produces Tasks, Activities, and results that feed the next prioritization pass.
+The Goal defines the outcome. The Offering defines what is being advanced. Discovery surfaces relevant opportunities and targets. The Campaign organizes the pursuit. Channels define where the campaign will act. ActionLanes define the internal execution pattern for each selected campaign channel. Execution produces Tasks, Activities, and results that feed the next prioritization pass.
 
 ---
 
 ### K. Campaign Orchestration
 
-This domain represents coordinated multi-stream campaign management, enabling users to pursue one campaign through multiple execution lanes.
+This domain represents coordinated multi-stream campaign management, enabling users to pursue one campaign through multiple channels and internal execution lanes.
 
 It answers:
 
 * what campaign objective is being pursued?
-* which execution streams (lanes) are active?
-* how are lanes balanced and prioritized?
-* what is the next best execution move across all lanes?
+* which channels are selected for the campaign?
+* which internal action lanes are active for those channels?
+* how are channels and lanes balanced and prioritized?
+* what is the next best execution move across all campaign channels?
 * how do results feed back into prioritization?
 * what did the market say back, and how should the campaign learn from it?
 
@@ -1788,7 +1790,8 @@ Relationships:
 * may belong to one Offering (if promoting specific value)
 * may belong to one Goal (if advancing desired outcome)
 * is configured one campaign at a time during onboarding/activation
-* has many ActionLanes
+* has many CampaignChannels
+* has many ActionLanes, usually generated from CampaignChannels
 * has many ActionCycles as execution windows
 * has many ActionItems as concrete work units
 * has many ConversationThreads that capture replies, comments, screenshots, and content engagement
@@ -1796,16 +1799,63 @@ Relationships:
 
 MVP: yes
 
-**ActionLane**
+**Channel**
 
-A coordinated execution stream within a campaign. A lane is a repeatable go-to-market motion, often but not always equivalent to a channel.
+A canonical user-facing medium or surface where campaign execution can happen.
 
 Represents:
 
-* Email outreach lane
-* LinkedIn DM lane
-* LinkedIn content/posting lane
-* LinkedIn commenting/engagement lane
+* Email
+* LinkedIn DM
+* LinkedIn posts
+* LinkedIn comments/replies
+* Warm introductions
+* Webinars
+* YouTube Shorts
+* Phone calls
+* Events
+* Account research
+
+Relationships:
+
+* may require one or more Connectors
+* may be selected by many Campaigns through CampaignChannel
+* may be used by many ActionLanes as the execution surface
+* is a reusable catalog concept, not a campaign-specific plan
+
+MVP: yes
+
+**CampaignChannel**
+
+The selected use of a Channel for one Campaign. This is the bridge between campaign strategy and execution.
+
+Represents:
+
+* use Email for the AI-Native SDLC Audit campaign
+* use LinkedIn DM for the book-led professor outreach campaign
+* use LinkedIn posts for authority-building around Opportunity OS
+* use Warm Introductions for a capital markets consulting campaign
+
+Relationships:
+
+* belongs to one Campaign
+* references one canonical Channel when available
+* has campaign-specific rationale, cadence hints, success metric hints, and priority
+* has many ActionLanes
+* can be AI-recommended or user-selected
+
+MVP: yes
+
+**ActionLane**
+
+A coordinated internal execution stream within a campaign channel. A lane is not the channel itself; it is the action engine's plan for turning a selected channel into concrete actions.
+
+Represents:
+
+* Email outreach lane for a selected Email campaign channel
+* LinkedIn DM lane for a selected LinkedIn DM campaign channel
+* LinkedIn content/posting lane for a selected LinkedIn Posts campaign channel
+* LinkedIn commenting/engagement lane for a selected LinkedIn Comments campaign channel
 * Warm contact/referral lane
 * Relationship reactivation lane
 * Account research/signal tracking lane
@@ -1817,6 +1867,8 @@ Represents:
 Relationships:
 
 * belongs to one Campaign
+* usually belongs to one CampaignChannel
+* may reference one canonical Channel for filtering and analytics
 * has a LaneType (email, linkedin_dm, linkedin_content, linkedin_commenting, warm_intro, relationship_reactivation, account_research, etc.)
 * has LaneStrategy (cadence, target criteria, approach)
 * has many ActionCycles
@@ -1849,7 +1901,7 @@ Relationships:
 Important clarification:
 
 * the product cycle is not the same thing as an ActionCycle
-* the product cycle is Goal -> Offering -> Discovery -> Campaign -> ActionLane execution -> Results -> Next prioritization
+* the product cycle is Goal -> Offering -> Discovery -> Campaign -> Channel -> ActionLane execution -> Results -> Next prioritization
 * ActionCycle is the lane-level execution window; ActionItem is the concrete target/action record
 
 MVP: yes

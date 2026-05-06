@@ -893,15 +893,18 @@ IMPORTANT RULES:
 
   async proposeActionLanes(campaigns: any[], comprehensiveSynthesis: string): Promise<any[]> {
     const prompt = `
-    Based on the following confirmed Campaigns and User Strategic Synthesis, propose action lanes for each campaign.
+    Based on the following confirmed Campaigns and User Strategic Synthesis, turn each campaign's selected channels into executable channel workflows.
     
     User Synthesis: ${comprehensiveSynthesis}
     
     Confirmed Campaigns:
     ${JSON.stringify(campaigns, null, 2)}
     
-    An Action Lane is a specific execution motion used to execute a campaign.
-    Common types: 
+    User-facing language: call these "Execution Channels" or "Channel Workflows".
+    Internal language: the returned objects are still called action lanes for compatibility.
+
+    A Channel Workflow is a specific execution motion used to execute a campaign through a selected channel.
+    Common channel workflow types:
     - "Email Outreach" (direct email or Outlook/Gmail focus)
     - "LinkedIn DM" (manual-send workflow from selected LinkedIn contacts)
     - "LinkedIn Posts" (public thought-leadership/content lane)
@@ -912,15 +915,18 @@ IMPORTANT RULES:
     
     Important UX constraint:
     - The user configures one campaign at a time.
-    - Return 2-4 action lanes per campaign.
-    - Each returned lane must include exactly one campaign id in campaignIds so the UI can show lanes campaign-by-campaign.
-    - If a similar lane is useful for multiple campaigns, duplicate it with a unique id and campaign-specific title/tactics.
+    - Each campaign may include configuration.channels from the previous campaign blueprint step.
+    - Prefer to create workflows that operationalize those selected channels.
+    - Do not ask the user to choose the same high-level channels again; this step configures how the chosen channels become executable workflows.
+    - Return 1-4 channel workflows per campaign.
+    - Each returned workflow must include exactly one campaign id in campaignIds so the UI can show workflows campaign-by-campaign.
+    - If a similar workflow is useful for multiple campaigns, duplicate it with a unique id and campaign-specific title/tactics.
     
     Return a JSON array of objects:
     {
       "id": "unique-id",
       "type": "email | linkedin_dm | linkedin_posts | warm_intro | relationship_reactivation | commenting | account_research | other",
-      "title": "Clear, campaign-specific title (e.g., 'Founder LinkedIn DM Sprint')",
+      "title": "Clear, campaign-specific workflow title (e.g., 'Founder LinkedIn DM Sprint')",
       "description": "Short description of the tactical approach",
       "tactics": ["Bullet point 1", "Bullet point 2"],
       "requiredConnectors": ["outlook", "linkedin", etc],
@@ -940,16 +946,17 @@ IMPORTANT RULES:
 
   async refineActionLanes(currentLanes: any[], feedback: string, campaigns: any[], comprehensiveSynthesis: string): Promise<any[]> {
     const prompt = `
-    The user wants to refine their Action Lanes (Tactical Channels).
+    The user wants to refine their Execution Channels / Channel Workflows.
+    Internal compatibility note: return the same action-lane object shape.
     
-    Current Lanes: ${JSON.stringify(currentLanes)}
+    Current Workflows: ${JSON.stringify(currentLanes)}
     Feedback: ${feedback}
     Context:
     - Campaigns: ${JSON.stringify(campaigns)}
     - Synthesis: ${comprehensiveSynthesis}
     
-    Return the updated list of 3-4 Action Lanes as a JSON array. 
-    Respect the user's feedback. If they want to remove or change a lane, do so.
+    Return the updated list of 1-4 workflows per campaign as a JSON array.
+    Respect the user's feedback. If they want to remove or change a workflow, do so.
     Return only JSON.
     `;
 

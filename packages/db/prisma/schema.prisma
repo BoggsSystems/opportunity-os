@@ -3294,6 +3294,7 @@ model Campaign {
   campaignMetrics     CampaignMetric[]
   campaignConnectors  CampaignConnector[]
   commandQueueItems   CommandQueueItem[]
+  campaignChannels    CampaignChannel[]
 
   @@index([userId])
   @@index([guestSessionId])
@@ -3304,6 +3305,47 @@ model Campaign {
   @@index([timeframeStart])
   @@index([timeframeEnd])
   @@map("campaigns")
+}
+
+model Channel {
+  id                       String   @id @default(uuid()) @db.Uuid
+  code                     String   @unique
+  name                     String
+  category                 String
+  requiresConnector        Boolean  @default(false)
+  defaultConnectorProvider String?
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  campaignChannels CampaignChannel[]
+  actionLanes      ActionLane[]
+
+  @@map("channels")
+}
+
+model CampaignChannel {
+  id              String   @id @default(uuid()) @db.Uuid
+  campaignId      String   @db.Uuid
+  channelId       String?  @db.Uuid
+  channelCode     String
+  priority        Int      @default(50)
+  rationale       String?
+  recommendedByAi Boolean  @default(false)
+  cadenceHint     String?
+  successMetric   String?
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  campaign    Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  channel     Channel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  actionLanes ActionLane[]
+
+  @@index([campaignId])
+  @@index([channelId])
+  @@index([channelCode])
+  @@map("campaign_channels")
 }
 
 model ActionLane {
@@ -3319,6 +3361,8 @@ model ActionLane {
   priorityScore      Int              @default(50)
   metricsJson        Json?
   metadataJson       Json?
+  campaignChannelId  String?          @db.Uuid
+  channelId          String?          @db.Uuid
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
 
@@ -3328,6 +3372,8 @@ model ActionLane {
   conversationThreads ConversationThread[]
   campaignMetrics     CampaignMetric[]
   commandQueueItems   CommandQueueItem[]
+  campaignChannel     CampaignChannel?     @relation(fields: [campaignChannelId], references: [id], onDelete: SetNull)
+  channel             Channel?             @relation(fields: [channelId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
   @@index([laneType])

@@ -10,7 +10,7 @@ export const ConnectivityPhase: React.FC = () => {
       <div className="onboarding-header">
         <div className="phase-indicator">Phase 09: Connectivity Hub</div>
         <h1>Establish your data bridges.</h1>
-        <p>To fuel your selected tactical arsenal, we need to establish these technical connections.</p>
+        <p>To fuel your selected execution channels, we need to establish these technical connections.</p>
       </div>
 
       <div className="connector-hub-grid">

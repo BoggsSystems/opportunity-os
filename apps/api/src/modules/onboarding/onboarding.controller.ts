@@ -93,17 +93,17 @@ export class OnboardingController {
   }
   
   @Post('action-lanes/propose')
-  @ApiOperation({ summary: 'Propose tactical action lanes for confirmed campaigns' })
+  @ApiOperation({ summary: 'Propose execution channel workflows for confirmed campaigns' })
   async proposeActionLanes(@Body() body: { selectedCampaigns: any[]; comprehensiveSynthesis: string }) {
-    this.logger.log(`Proposing action lanes for ${body.selectedCampaigns.length} campaigns`);
+    this.logger.log(`Proposing execution channel workflows for ${body.selectedCampaigns.length} campaigns`);
     const actionLanes = await this.aiService.proposeActionLanes(body.selectedCampaigns, body.comprehensiveSynthesis);
     return { success: true, actionLanes };
   }
 
   @Post('action-lanes/refine')
-  @ApiOperation({ summary: 'Refine tactical action lanes based on feedback' })
+  @ApiOperation({ summary: 'Refine execution channel workflows based on feedback' })
   async refineActionLanes(@Body() body: { currentActionLanes: any[]; feedback: string; selectedCampaigns: any[]; comprehensiveSynthesis: string }) {
-    this.logger.log(`Refining action lanes with feedback: ${body.feedback}`);
+    this.logger.log(`Refining execution channel workflows with feedback: ${body.feedback}`);
     const actionLanes = await this.aiService.refineActionLanes(body.currentActionLanes, body.feedback, body.selectedCampaigns, body.comprehensiveSynthesis);
     return { success: true, actionLanes };
   }

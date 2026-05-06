@@ -92,13 +92,27 @@ export class CampaignOrchestrationService {
               onboardingCampaignId: campaign.id,
               laneTitle: campaign.laneTitle,
               duration: campaign.duration,
-              channel: campaign.channel,
+              channels: campaign.channels, // Use plural from DTO
               comprehensiveSynthesis: data.comprehensiveSynthesis,
             },
           },
         });
         campaignIdMap.set(campaign.id, persistedCampaign.id);
         persistedCampaigns.push(persistedCampaign);
+
+        // Create CampaignChannels for this campaign
+        if (campaign.channels?.length) {
+          for (const channelCode of campaign.channels) {
+            await tx.campaignChannel.create({
+              data: {
+                campaignId: persistedCampaign.id,
+                channelCode,
+                recommendedByAi: true,
+                status: 'active',
+              },
+            });
+          }
+        }
       }
 
       for (const lane of selectedLanes) {
@@ -110,10 +124,21 @@ export class CampaignOrchestrationService {
           const campaignId = campaignIdMap.get(onboardingCampaignId);
           if (!campaignId) continue;
 
+          // Find relevant CampaignChannel if possible
+          const laneType = this.inferActionLaneType(lane);
+          const campaignChannels = await tx.campaignChannel.findMany({
+            where: { campaignId },
+          });
+          
+          // Map lane type to channel code for linking
+          const channelCode = this.mapLaneTypeToChannelCode(laneType);
+          const campaignChannel = campaignChannels.find(cc => cc.channelCode === channelCode) || campaignChannels[0];
+
           const persistedLane = await tx.actionLane.create({
             data: {
               campaignId,
-              laneType: this.inferActionLaneType(lane),
+              campaignChannelId: campaignChannel?.id,
+              laneType,
               title: lane.title,
               description: lane.description,
               strategy: lane.tactics?.join("\n") || lane.description,
@@ -2298,5 +2323,19 @@ export class CampaignOrchestrationService {
     }
 
     return `${laneType} lane is steady - continue current approach and monitor performance`;
+  }
+
+  private mapLaneTypeToChannelCode(laneType: ActionLaneType): string {
+    const type = laneType.toString();
+    if (type.includes("email")) return "email";
+    if (type.includes("linkedin_messaging") || type.includes("linkedin_dm"))
+      return "linkedin_dm";
+    if (type.includes("linkedin_content")) return "linkedin_post";
+    if (type.includes("linkedin_commenting")) return "linkedin_comment";
+    if (type.includes("referral") || type.includes("warm_intro"))
+      return "warm_intro";
+    if (type.includes("event") || type.includes("webinar")) return "webinar";
+    if (type.includes("research")) return "research";
+    return "other";
   }
 }

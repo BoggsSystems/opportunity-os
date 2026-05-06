@@ -539,8 +539,8 @@ class OnboardingCampaignInputDto {
   duration?: string;
 
   @IsOptional()
-  @IsString()
-  channel?: string;
+  @IsString({ each: true })
+  channels?: string[];
 }
 
 class OnboardingActionLaneInputDto {

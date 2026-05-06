@@ -2352,6 +2352,62 @@ Purpose: tactical motions designed to advance a goal, usually for a specific aud
 
 * `offering_id` intentionally duplicates the offering context available through `goal_id` so campaign/workspace queries do not need to join through goals.
 * This is distinct from later sequence/outreach campaign tables.
+* Every Campaign has one or more **CampaignChannels** selected during configuration.
+
+---
+
+### `channels`
+
+Purpose: canonical catalog of external surfaces where campaign execution can happen.
+
+#### Columns
+
+* `id` UUID PK
+* `code` VARCHAR NOT NULL UNIQUE (e.g., 'email', 'linkedin_dm', 'linkedin_post')
+* `name` VARCHAR NOT NULL (e.g., 'Email', 'LinkedIn DM', 'LinkedIn Post')
+* `category` VARCHAR NOT NULL (e.g., 'outreach', 'content', 'social', 'offline')
+* `requires_connector` BOOLEAN NOT NULL DEFAULT false
+* `default_connector_provider` VARCHAR NULL
+* `is_active` BOOLEAN NOT NULL DEFAULT true
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Notes
+
+* This is a static/seed catalog for the system.
+
+---
+
+### `campaign_channels`
+
+Purpose: the strategic selection and configuration of a channel for a specific campaign.
+
+#### Columns
+
+* `id` UUID PK
+* `campaign_id` UUID NOT NULL FK -> `campaigns.id`
+* `channel_id` UUID NULL FK -> `channels.id`
+* `channel_code` VARCHAR NOT NULL
+* `priority` INTEGER NOT NULL DEFAULT 50
+* `rationale` TEXT NULL
+* `recommended_by_ai` BOOLEAN NOT NULL DEFAULT false
+* `cadence_hint` VARCHAR NULL
+* `success_metric` VARCHAR NULL
+* `status` VARCHAR NOT NULL DEFAULT 'active'
+* `created_at` TIMESTAMP NOT NULL
+* `updated_at` TIMESTAMP NOT NULL
+
+#### Indexes
+
+* index on `campaign_id`
+* index on `channel_id`
+* index on `channel_code`
+
+#### Notes
+
+* This is the user-facing "Channel" selection.
+* AI propose dimensions (Objective, Hook, etc.) apply at this level or the Campaign level.
+* Internal **ActionLanes** are produced for each CampaignChannel.
 
 ---
 
@@ -3286,6 +3342,7 @@ Purpose: coordinated execution streams within a campaign, representing specific 
 
 * `id` UUID PK
 * `campaign_id` UUID NOT NULL FK -> `campaigns.id`
+* `campaign_channel_id` UUID NULL FK -> `campaign_channels.id`
 * `lane_type` `action_lane_type` NOT NULL
 * `title` VARCHAR NOT NULL
 * `description` TEXT NULL

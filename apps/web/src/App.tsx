@@ -1433,24 +1433,99 @@ export function App() {
     await runCommand({ type: 'complete_cycle', cycleId }, 'Cycle completed');
   }
 
-  const handleOnboardingComplete = useCallback(() => {
+  const handleOnboardingComplete = useCallback(async () => {
     if (!session) return;
-    const pendingActivation = readWorkspaceActivationPayload();
-    setActivationPayload(pendingActivation);
-    if (pendingActivation) {
-      setMessages([
-        {
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          text: `We're now in the workspace. I've staged your first action cycle: ${pendingActivation.lane.title} for ${pendingActivation.campaign.title}. First, I’ll orient you to the Canvas and Conductor, then we’ll prepare the first action for your approval.`,
-        },
-      ]);
+    
+    setIsWorking(true);
+    try {
+      // 1. Load the onboarding snapshot from localStorage
+      const snapshotRaw = localStorage.getItem(userOnboardingDraftKey(session.user.id)) || 
+                         localStorage.getItem(GUEST_ONBOARDING_DRAFT_KEY);
+      
+      if (snapshotRaw) {
+        const snapshot = JSON.parse(snapshotRaw);
+        
+        // 2. Persist the plan to the backend
+        const result = await api.finalizeOnboardingPlan({
+          campaigns: snapshot.proposedCampaigns.map((c: any) => ({
+            ...c,
+            channels: c.configuration?.channels || (c.channel ? [c.channel] : []),
+          })),
+          actionLanes: snapshot.proposedActionLanes,
+          selectedCampaignIds: snapshot.selectedCampaigns,
+          selectedActionLaneIds: snapshot.selectedActionLanes,
+          comprehensiveSynthesis: snapshot.comprehensiveSynthesis,
+          activationSelection: {
+            campaignId: snapshot.selectedCampaigns[0],
+            laneId: snapshot.selectedActionLanes[0],
+          }
+        });
+
+        // 3. Prepare activation payload for the workspace
+        const selectedCampaign = snapshot.proposedCampaigns.find((c: any) => c.id === snapshot.selectedCampaigns[0]);
+        const selectedLane = snapshot.proposedActionLanes.find((l: any) => l.id === snapshot.selectedActionLanes[0]);
+
+        if (selectedCampaign && selectedLane) {
+          const payload: WorkspaceActivationPayload = {
+            campaign: {
+              id: selectedCampaign.id,
+              title: selectedCampaign.title,
+              description: selectedCampaign.description,
+              targetSegment: selectedCampaign.targetSegment,
+              goalMetric: selectedCampaign.goalMetric,
+            },
+            lane: {
+              id: selectedLane.id,
+              title: selectedLane.title,
+              description: selectedLane.description,
+              tactics: selectedLane.tactics,
+              requiredConnectors: selectedLane.requiredConnectors,
+            },
+            selectedCampaignCount: snapshot.selectedCampaigns.length,
+            selectedActionLaneCount: snapshot.selectedActionLanes.length,
+            connectorReady: true,
+            createdAt: new Date().toISOString(),
+            persisted: {
+              campaignId: result.campaigns?.[0]?.id,
+              actionLaneId: result.actionLanes?.[0]?.id,
+              actionCycleId: result.firstActionCycle?.id,
+              actionItemId: result.firstActionItem?.id,
+            }
+          };
+
+          localStorage.setItem(WORKSPACE_ACTIVATION_PAYLOAD_KEY, JSON.stringify(payload));
+          setActivationPayload(payload);
+          
+          if (payload.persisted?.actionItemId) {
+            const canvasPayload = await api.getActionItemCanvas(payload.persisted.actionItemId).catch(() => null);
+            setActionCanvasPayload(canvasPayload);
+          }
+
+          setMessages([
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              text: `We're now in the workspace. I've staged your first action cycle: ${payload.lane.title} for ${payload.campaign.title}. First, I’ll orient you to the Canvas and Conductor, then we’ll prepare the first action for your approval.`,
+            },
+          ]);
+        }
+      }
+
+      localStorage.setItem(`onboarding_completed_${session.user.id}`, 'true');
+      setOnboardingOpen(false);
+      setPodiumMode(false);
+      await loadWorkspace();
+    } catch (error) {
+      console.error('Finalization failed', error);
+      setNotice({
+        title: 'Plan activation failed',
+        detail: error instanceof Error ? error.message : 'Could not synchronize your strategy to the workspace.',
+        tone: 'error'
+      });
+    } finally {
+      setIsWorking(false);
     }
-    localStorage.setItem(`onboarding_completed_${session.user.id}`, 'true');
-    setOnboardingOpen(false);
-    setPodiumMode(false);
-    void loadWorkspace();
-  }, [session, loadWorkspace, setOnboardingOpen, setPodiumMode]);
+  }, [session, api, loadWorkspace, setOnboardingOpen, setPodiumMode]);
 
   if (!session) {
     if (view === 'landing') {

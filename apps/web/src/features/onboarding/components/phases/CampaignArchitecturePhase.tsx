@@ -380,7 +380,7 @@ export const CampaignArchitecturePhase: React.FC = () => {
           <div className="architecture-complete-state">
             <div className="success-icon">✓</div>
             <h2>All Campaigns Drafted</h2>
-            <p>Your strategic map has {proposedCampaigns.length} campaign drafts. Next we will choose the action lanes for execution.</p>
+            <p>Your strategic map has {proposedCampaigns.length} campaign drafts. Next we will turn the selected channels into execution workflows.</p>
           </div>
         )}
 
@@ -550,7 +550,7 @@ export const CampaignArchitecturePhase: React.FC = () => {
             onClick={() => void designActionLanes()}
             disabled={selectedCampaigns.length === 0 || isLoading}
           >
-            {isLoading ? 'Designing Tactics...' : 'Choose Action Lanes'} <ArrowRight size={18} />
+            {isLoading ? 'Designing Workflows...' : 'Configure Execution Channels'} <ArrowRight size={18} />
           </button>
         )}
       </div>

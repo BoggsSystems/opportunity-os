@@ -866,16 +866,25 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
 
   const designActionLanes = async () => {
     setIsLoading(true);
-    setGenerationMessage('Designing tactical execution lanes...');
+    setGenerationMessage('Designing execution channel workflows...');
     try {
       const res = await api.proposeActionLanes({
         selectedCampaigns: proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)),
         comprehensiveSynthesis: comprehensiveSynthesis || ''
       });
       if (res.success) {
-        setProposedActionLanes(res.actionLanes);
-        setSelectedActionLanes(res.actionLanes.map((l: any) => l.id));
+        const normalizedWorkflows = res.actionLanes.map((lane: any) => ({
+          ...lane,
+          campaignId: lane.campaignId || (Array.isArray(lane.campaignIds) ? lane.campaignIds[0] : undefined),
+        }));
+        setProposedActionLanes(normalizedWorkflows);
+        setSelectedActionLanes(normalizedWorkflows.map((l: any) => l.id));
         setCurrentActionLaneCampaignIndex(0);
+        setWizardMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: "I've turned your selected campaign channels into execution workflows. Review each campaign one at a time and confirm the workflows you want the action engine to use.",
+        }]);
         setCurrentStep('actionLanes');
       }
     } finally {

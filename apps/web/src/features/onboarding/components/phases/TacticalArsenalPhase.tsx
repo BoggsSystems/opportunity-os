@@ -11,6 +11,16 @@ export const TacticalArsenalPhase: React.FC = () => {
 
   const activeCampaigns = proposedCampaigns.filter(c => selectedCampaigns.includes(c.id));
   const currentCampaign = activeCampaigns[currentActionLaneCampaignIndex];
+  const currentCampaignChannels = Array.isArray(currentCampaign?.configuration?.channels)
+    ? currentCampaign.configuration.channels
+    : [];
+
+  const workflowsForCurrentCampaign = proposedActionLanes.filter((lane: any) => {
+    if (lane.campaignId === currentCampaign?.id) return true;
+    if (Array.isArray(lane.campaignIds)) return lane.campaignIds.includes(currentCampaign?.id);
+    return false;
+  });
+  const hasSelectedCurrentWorkflow = workflowsForCurrentCampaign.some((lane: any) => selectedActionLanes.includes(lane.id));
   
   const handleToggle = (id: string) => {
     setSelectedActionLanes((prev: string[]) => 
@@ -24,14 +34,30 @@ export const TacticalArsenalPhase: React.FC = () => {
     <div className="onboarding-content">
       <div className="onboarding-header">
         <div className="phase-indicator">
-          Phase 08a: Tactical Arsenal - Campaign {currentActionLaneCampaignIndex + 1} of {activeCampaigns.length}
+          Phase 08a: Execution Channels - Campaign {currentActionLaneCampaignIndex + 1} of {activeCampaigns.length}
         </div>
-        <h1>Choose action lanes for this campaign.</h1>
-        <p>Approve the execution motions for <strong>{currentCampaign.title}</strong>.</p>
+        <h1>Configure execution channels for this campaign.</h1>
+        <p>Turn the selected campaign channels into workflows the action engine can execute for <strong>{currentCampaign.title}</strong>.</p>
       </div>
 
-      <div className="action-lane-grid">
-        {proposedActionLanes.filter((lane: any) => lane.campaignId === currentCampaign.id).map((lane: any) => {
+      {currentCampaignChannels.length > 0 && (
+        <div className="selected-channel-strip">
+          <span>Selected campaign channels</span>
+          <div>
+            {currentCampaignChannels.map((channel: string) => (
+              <strong key={channel}>{channel}</strong>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {workflowsForCurrentCampaign.length === 0 ? (
+        <div className="empty-tactical-state">
+          No execution channel workflows were generated for this campaign. Go back and regenerate workflows from the campaign channels.
+        </div>
+      ) : (
+        <div className="action-lane-grid">
+          {workflowsForCurrentCampaign.map((lane: any) => {
           const isSelected = selectedActionLanes.includes(lane.id);
           return (
             <div 
@@ -47,8 +73,9 @@ export const TacticalArsenalPhase: React.FC = () => {
               <p>{lane.description}</p>
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
 
       <div className="onboarding-footer">
         <button className="onboarding-btn-secondary" onClick={() => nextStep('campaigns')}>Back</button>
@@ -61,9 +88,9 @@ export const TacticalArsenalPhase: React.FC = () => {
               nextStep('connectivity');
             }
           }}
-          disabled={selectedActionLanes.length === 0}
+          disabled={!hasSelectedCurrentWorkflow}
         >
-          {currentActionLaneCampaignIndex < activeCampaigns.length - 1 ? 'Next Campaign' : 'Confirm Arsenal & Connect Tools'} <ArrowRight size={18} />
+          {currentActionLaneCampaignIndex < activeCampaigns.length - 1 ? 'Next Campaign' : 'Confirm Channels & Connect Tools'} <ArrowRight size={18} />
         </button>
       </div>
     </div>
