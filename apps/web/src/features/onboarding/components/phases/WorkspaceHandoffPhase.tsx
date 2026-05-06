@@ -3,7 +3,7 @@ import { Rocket, RefreshCw } from 'lucide-react';
 import { useOnboarding } from '../OnboardingContext';
 
 export const WorkspaceHandoffPhase: React.FC = () => {
-  const { onComplete, isLoading } = useOnboarding();
+  const { onComplete, isWorking } = useOnboarding();
 
   return (
     <div className="onboarding-content">
@@ -28,7 +28,7 @@ export const WorkspaceHandoffPhase: React.FC = () => {
         <button 
           className="onboarding-btn-primary" 
           onClick={onComplete}
-          disabled={isLoading}
+          disabled={isWorking}
         >
           Open Workspace <Rocket size={18} />
         </button>

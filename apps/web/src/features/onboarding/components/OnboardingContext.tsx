@@ -219,7 +219,8 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   } | null>(null);
   const [pollingErrorCount, setPollingErrorCount] = useState(0);
   const MAX_POLLING_ERRORS = 5;
-  const isWorking = isLoading || isImporting; // Alias for compatibility
+  const isInternalWorking = isLoading || isImporting; // Alias for compatibility
+  const finalWorkingState = isInternalWorking || isWorkingProp;
 
   const [guestSessionId] = useState(() => crypto.randomUUID());
 
@@ -990,7 +991,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     handleConductorSend, seedState, setConnectedProviders, setDiscoveryCalibration, setUploadStatus,
     setActiveImportId, setWizardMessages, setSelectedCampaigns, setSelectedActionLanes,
     setCurrentActionLaneCampaignIndex, setSpotlightIndex, setGoogleSubStep, api, user,
-    onComplete, setSelectedLanes, isWorking, isConductorExpanded, setIsConductorExpanded,
+    onComplete, setSelectedLanes, isWorking: finalWorkingState, isConductorExpanded, setIsConductorExpanded,
     handleStorageSearch, handleImportAssets, handleLinkedInArchiveUpload, handleManualAssetUpload, triggerStorageScan, initiateProviderSensing, isImporting,
     ingestionStatus, isIngestionModalOpen, ingestionBatchId, intelligenceArtifacts, intelligenceJobs, intelligenceChunks,
     setIsIngestionModalOpen, refreshIntelligenceStatus,

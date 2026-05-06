@@ -1447,23 +1447,26 @@ export function App() {
         
         // 2. Persist the plan to the backend
         const result = await api.finalizeOnboardingPlan({
-          campaigns: snapshot.proposedCampaigns.map((c: any) => ({
+          campaigns: (snapshot.proposedCampaigns || []).map((c: any) => ({
             ...c,
             channels: c.configuration?.channels || (c.channel ? [c.channel] : []),
           })),
-          actionLanes: snapshot.proposedActionLanes,
-          selectedCampaignIds: snapshot.selectedCampaigns,
-          selectedActionLaneIds: snapshot.selectedActionLanes,
+          actionLanes: snapshot.proposedActionLanes || [],
+          selectedCampaignIds: snapshot.selectedCampaigns || [],
+          selectedActionLaneIds: snapshot.selectedActionLanes || [],
           comprehensiveSynthesis: snapshot.comprehensiveSynthesis,
           activationSelection: {
-            campaignId: snapshot.selectedCampaigns[0],
-            laneId: snapshot.selectedActionLanes[0],
+            campaignId: snapshot.selectedCampaigns?.[0],
+            laneId: snapshot.selectedActionLanes?.[0],
           }
         });
 
         // 3. Prepare activation payload for the workspace
-        const selectedCampaign = snapshot.proposedCampaigns.find((c: any) => c.id === snapshot.selectedCampaigns[0]);
-        const selectedLane = snapshot.proposedActionLanes.find((l: any) => l.id === snapshot.selectedActionLanes[0]);
+        const mainCampaignId = snapshot.selectedCampaigns?.[0];
+        const mainLaneId = snapshot.selectedActionLanes?.[0];
+
+        const selectedCampaign = snapshot.proposedCampaigns?.find((c: any) => c.id === mainCampaignId);
+        const selectedLane = snapshot.proposedActionLanes?.find((l: any) => l.id === mainLaneId);
 
         if (selectedCampaign && selectedLane) {
           const payload: WorkspaceActivationPayload = {
