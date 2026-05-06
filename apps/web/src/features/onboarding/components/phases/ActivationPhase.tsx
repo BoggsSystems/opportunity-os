@@ -23,7 +23,7 @@ export const ActivationPhase: React.FC = () => {
 
       <div className="onboarding-footer">
         <button className="onboarding-btn-secondary" onClick={() => nextStep('connectivity')}>Back</button>
-        <button className="onboarding-btn-primary" onClick={() => nextStep('workspaceIntro')}>
+        <button className="onboarding-btn-primary" onClick={() => nextStep('workspaceHandoff')}>
           Initialize Handoff <ArrowRight size={18} />
         </button>
       </div>

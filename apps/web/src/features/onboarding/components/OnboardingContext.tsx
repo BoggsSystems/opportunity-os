@@ -217,12 +217,15 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     percentage: number;
     message?: string;
   } | null>(null);
+  const [pollingErrorCount, setPollingErrorCount] = useState(0);
+  const MAX_POLLING_ERRORS = 5;
   const isWorking = isLoading || isImporting; // Alias for compatibility
 
   const [guestSessionId] = useState(() => crypto.randomUUID());
 
   const refreshIntelligenceStatus = useCallback(async () => {
     if (!user?.id) return;
+    if (pollingErrorCount >= MAX_POLLING_ERRORS) return;
 
     try {
       const [artifacts, jobs, chunks] = await Promise.all([
@@ -233,10 +236,12 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       setIntelligenceArtifacts(Array.isArray(artifacts) ? artifacts : []);
       setIntelligenceJobs(Array.isArray(jobs) ? jobs : []);
       setIntelligenceChunks(Array.isArray(chunks) ? chunks : []);
+      setPollingErrorCount(0); // Reset on success
     } catch (error) {
       console.warn('⚠️ OnboardingContext: Failed to refresh intelligence status:', error);
+      setPollingErrorCount(prev => prev + 1);
     }
-  }, [api, user?.id]);
+  }, [api, user?.id, pollingErrorCount]);
 
   // --- Sync with Real Connectors ---
   useEffect(() => {
@@ -286,13 +291,16 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
 
   useEffect(() => {
     if (!user?.id || !ingestionBatchId) return undefined;
+    // Only poll if we are actually in a "working" or "reviewing" state for ingestion
+    // This stops the churn when the user has moved on to later phases
+    if (pollingErrorCount >= MAX_POLLING_ERRORS) return undefined;
 
     const timer = window.setInterval(() => {
       void refreshIntelligenceStatus();
-    }, 2500);
+    }, 5000); // Relaxed polling to 5s
 
     return () => window.clearInterval(timer);
-  }, [user?.id, ingestionBatchId, refreshIntelligenceStatus]);
+  }, [user?.id, ingestionBatchId, refreshIntelligenceStatus, pollingErrorCount]);
 
   // --- Ensure Spotlight Data exists even if sensing hasn't run ---
   useEffect(() => {
