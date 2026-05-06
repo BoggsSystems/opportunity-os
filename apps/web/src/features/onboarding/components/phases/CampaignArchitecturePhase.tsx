@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, CheckCircle, Edit3, Gauge, Info, MessageSquare, Radio, Target, Timer, Trophy, Users, X, type LucideIcon } from 'lucide-react';
+import { ArrowRight, CheckCircle, Edit3, Info, MessageSquare, Radio, Target, Timer, Trophy, Users, X, type LucideIcon } from 'lucide-react';
 import { useOnboarding } from '../OnboardingContext';
 
 type DimensionKey = 'objective' | 'audience' | 'hook' | 'channels' | 'duration' | 'cadence' | 'successMetric';
@@ -23,13 +23,6 @@ type DimensionMeta = {
   why: string;
   recommended: string;
   options: Array<{ label: string; description: string }>;
-};
-
-type SynthesizedDimension = {
-  recommended?: string;
-  guidance?: string;
-  why?: string;
-  options?: Array<{ label?: string; description?: string }>;
 };
 
 const AI_REQUIRED_DIMENSIONS = new Set<DimensionKey>(['objective', 'audience', 'hook', 'successMetric']);
@@ -100,25 +93,23 @@ const DIMENSIONS: DimensionMeta[] = [
     why: 'A 30 day campaign is long enough to generate real signal without turning the first campaign into an indefinite project.',
     recommended: '30 day campaign',
     options: [
-      { label: '1 week sprint', description: 'Best for testing a sharp message or promoting a time-sensitive asset.' },
-      { label: '2 week campaign', description: 'Best for focused validation without committing to a full month.' },
-      { label: '30 day campaign', description: 'Best default for outreach plus follow-up, content support, and reply learning.' },
-      { label: '60 day campaign', description: 'Best for slower enterprise audiences or relationship-heavy motions.' },
-      { label: 'Ongoing nurture', description: 'Best for low-pressure thought leadership and long-term relationship development.' },
+      { label: '14 day sprint', description: 'Aggressive test for immediate feedback.' },
+      { label: '30 day campaign', description: 'Balanced window for relationship building.' },
+      { label: '60 day sequence', description: 'Extended nurture for complex sales cycles.' },
     ],
   },
   {
     key: 'cadence',
     label: 'Cadence',
-    icon: Gauge,
-    oneLine: 'How much daily pressure to apply.',
-    guidance: 'Cadence defines the action volume and follow-up pressure. It combines with campaign length to determine workload.',
-    why: 'Moderate daily push gives enough momentum for 60-100 actions in a month while keeping manual review realistic.',
+    icon: Timer,
+    oneLine: 'How much pressure to apply.',
+    guidance: 'Cadence determines the rhythm of the action cycles. Higher pressure increases volume but requires more review time.',
+    why: 'A moderate daily push ensures steady progress without overwhelming your review queue.',
     recommended: 'Moderate daily push',
     options: [
-      { label: 'Conservative daily touch', description: 'Best when quality and personalization matter more than speed.' },
-      { label: 'Moderate daily push', description: 'Best default for building momentum without overwhelming the operator.' },
-      { label: 'Aggressive launch sprint', description: 'Best when you want high action volume and are ready to review/send daily.' },
+      { label: 'Steady heartbeat', description: 'Consistent, low-volume background activity.' },
+      { label: 'Moderate daily push', description: 'Balanced activity with daily engagement.' },
+      { label: 'High-intensity blitz', description: 'Maximum volume for short-term objectives.' },
     ],
   },
   {
@@ -126,161 +117,119 @@ const DIMENSIONS: DimensionMeta[] = [
     label: 'Success Metric',
     icon: Trophy,
     oneLine: 'How we know the campaign is working.',
-    guidance: 'Success metric defines what the system should optimize for. I need AI synthesis before proposing this because the metric should match the offer, buyer, hook, and campaign motion.',
+    guidance: 'Success Metric defines the north star. The engine will observe this and adjust tactical recommendations to improve it.',
     why: 'AI synthesis is required for this dimension.',
     recommended: 'AI synthesis required',
     options: [],
   },
 ];
 
-const splitRecommendedChannels = (value: string) => value
-  .split(/\s*\+\s*|,\s*/g)
-  .map(item => item.trim())
-  .filter(Boolean);
-
-const mergeSynthesizedDimensions = (synthesized: Record<string, SynthesizedDimension>): DimensionMeta[] => {
-  return DIMENSIONS.map((base) => {
-    const next = synthesized[base.key];
-    if (!next) return base;
-
-    const normalizedOptions = Array.isArray(next.options)
-      ? next.options
-          .filter(option => option?.label)
-          .slice(0, 5)
-          .map(option => ({
-            label: String(option.label),
-            description: String(option.description || ''),
-          }))
-      : [];
-
-    const options = normalizedOptions.length > 0 ? normalizedOptions : base.options;
-    const recommended = String(next.recommended || base.recommended);
-    const includesRecommendation = options.some(option => option.label === recommended);
-
-    return {
-      ...base,
-      guidance: String(next.guidance || base.guidance),
-      why: String(next.why || base.why),
-      recommended,
-      options: includesRecommendation
-        ? options
-        : [{ label: recommended, description: next.why || base.why }, ...options].slice(0, 5),
-    };
-  });
-};
-
-const selectRecommendedDimensions = (meta: DimensionMeta[]): CampaignDimensions => {
-  const next = meta.reduce((acc, dimension) => ({
-    ...acc,
-    [dimension.key]: dimension.recommended,
-  }), {} as Record<DimensionKey, string>);
-
-  return {
-    objective: next.objective || DEFAULT_DIMENSIONS.objective,
-    audience: next.audience || DEFAULT_DIMENSIONS.audience,
-    hook: next.hook || DEFAULT_DIMENSIONS.hook,
-    channels: splitRecommendedChannels(next.channels || DEFAULT_DIMENSIONS.channels.join(' + ')),
-    duration: next.duration || DEFAULT_DIMENSIONS.duration,
-    cadence: next.cadence || DEFAULT_DIMENSIONS.cadence,
-    successMetric: next.successMetric || DEFAULT_DIMENSIONS.successMetric,
-  };
-};
-
-const hasAiRequiredDimensions = (meta: DimensionMeta[]) => {
-  return Array.from(AI_REQUIRED_DIMENSIONS).every((key) => {
-    const dimension = meta.find(item => item.key === key);
-    return Boolean(
-      dimension &&
-      dimension.recommended !== 'AI synthesis required' &&
-      dimension.options.length >= 2,
-    );
-  });
-};
-
 export const CampaignArchitecturePhase: React.FC = () => {
-  const {
-    api,
-    proposedCampaigns,
-    selectedCampaigns,
-    setSelectedCampaigns,
-    designActionLanes,
-    nextStep,
-    isLoading,
-    connectionCount,
-    uploadedAssets,
-    comprehensiveSynthesis,
-    strategicDraft,
-    proposedOfferings,
-    selectedLanes,
-    currentOfferingIndex,
-    generateNextCampaign,
-    setWizardMessages,
+  const { 
+    selectedLanes, proposedCampaigns, setProposedCampaigns, 
+    selectedCampaigns, setSelectedCampaigns, nextStep, isLoading,
+    comprehensiveSynthesis, uploadedAssets, connectionCount,
+    strategicDraft, setWizardMessages, api, user, designActionLanes
   } = useOnboarding();
 
+  const [currentOfferingIndex, setCurrentOfferingIndex] = React.useState(0);
   const [dimensions, setDimensions] = React.useState<CampaignDimensions>(DEFAULT_DIMENSIONS);
   const [dimensionMeta, setDimensionMeta] = React.useState<DimensionMeta[]>(DIMENSIONS);
-  const [editingKey, setEditingKey] = React.useState<DimensionKey | null>(null);
   const [isSynthesizingDimensions, setIsSynthesizingDimensions] = React.useState(false);
   const [dimensionSynthesisError, setDimensionSynthesisError] = React.useState<string | null>(null);
-  const hasNarratedArchitectureEntry = React.useRef(false);
+  const [editingKey, setEditingKey] = React.useState<DimensionKey | null>(null);
+  
+  // Dynamic Feedback Ticker
+  const [thinkingIndex, setThinkingIndex] = React.useState(0);
+  const thinkingMessages = [
+    'Synthesizing strategic blueprint...',
+    'Aligning objective with network signals...',
+    'Calibrating audience segments...',
+    'Drafting unique strategic hooks...',
+    'Scoring success metrics against IP...',
+    'Finalizing channel architecture...'
+  ];
+
+  React.useEffect(() => {
+    if (!isSynthesizingDimensions) return undefined;
+    const interval = setInterval(() => {
+      setThinkingIndex(prev => (prev + 1) % thinkingMessages.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [isSynthesizingDimensions]);
+
+  const currentOffering = selectedLanes[currentOfferingIndex];
+  const offeringKey = currentOffering?.id || `offering-${currentOfferingIndex}`;
+  
+  const currentCampaign = proposedCampaigns.find(c => 
+    c.id === offeringKey || (c.configuration as any)?.offeringId === offeringKey
+  );
+
+  const aiDimensionsReady = (dimensionMeta.find(m => m.key === 'objective')?.recommended !== 'AI synthesis required');
+
   const narratedSynthesisSuccess = React.useRef(new Set<string>());
   const narratedSynthesisFailure = React.useRef(new Set<string>());
 
-  const currentOfferingId = selectedLanes[currentOfferingIndex];
-  const currentOffering = proposedOfferings.find((offering: any) => offering.id === currentOfferingId);
-
-  const synthesizeDimensions = React.useCallback(() => {
+  const synthesizeDimensions = React.useCallback(async () => {
     if (!currentOffering) return;
     
-    let active = true;
     setIsSynthesizingDimensions(true);
     setDimensionSynthesisError(null);
 
-    api.proposeCampaignDimensions({
-      offering: currentOffering,
-      networkCount: connectionCount || strategicDraft?.connectionCount || 0,
-      frameworks: uploadedAssets.flatMap((asset: any) => asset.frameworks || []),
-      interpretation: comprehensiveSynthesis || strategicDraft?.posture?.text || uploadedAssets.map((asset: any) => asset.interpretation || asset.summary || '').join('\n\n'),
-      strategicDraft,
-      uploadedAssets,
-      comprehensiveSynthesis,
-      existingDimensions: DEFAULT_DIMENSIONS,
-    })
-      .then((response) => {
-        if (!active) return;
-
-        if (!response.success || response.source !== 'ai_synthesized' || !response.dimensions) {
-          setDimensionSynthesisError(response.message || 'I could not synthesize this campaign from your intelligence yet.');
-          return;
-        }
-
-        const nextMeta = mergeSynthesizedDimensions(response.dimensions);
-        if (!hasAiRequiredDimensions(nextMeta)) {
-          setDimensionSynthesisError('The AI response did not include enough campaign strategy detail. Retry synthesis.');
-          return;
-        }
-
-        setDimensionMeta(nextMeta);
-        setDimensions(selectRecommendedDimensions(nextMeta));
-        if (!narratedSynthesisSuccess.current.has(offeringKey)) {
-          narratedSynthesisSuccess.current.add(offeringKey);
-          setWizardMessages(prev => [...prev, {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            text: `I've synthesized a custom campaign strategy for "${currentOffering.title}" based on your unique IP and relationship graph. Review the dimensions and tune them to your liking.`,
-          }]);
-        }
-      })
-      .catch((err) => {
-        if (!active) return;
-        setDimensionSynthesisError('Synthesis failed due to a network error. Please try again.');
-      })
-      .finally(() => {
-        if (active) setIsSynthesizingDimensions(false);
+    try {
+      const response = await api.proposeCampaignDimensions({
+        offering: currentOffering,
+        networkCount: connectionCount || strategicDraft?.connectionCount || 0,
+        frameworks: uploadedAssets.flatMap((asset: any) => asset.frameworks || []),
+        interpretation: comprehensiveSynthesis || strategicDraft?.posture?.text || uploadedAssets.map((asset: any) => asset.interpretation || asset.summary || '').join('\n\n'),
+        strategicDraft,
+        uploadedAssets,
+        comprehensiveSynthesis,
+        existingDimensions: DEFAULT_DIMENSIONS,
       });
 
-    return () => { active = false; };
-  }, [api, currentOffering, connectionCount, strategicDraft, uploadedAssets, comprehensiveSynthesis, offeringKey, setWizardMessages]);
+      if (!response.success || response.source !== 'ai_synthesized' || !response.dimensions) {
+        setDimensionSynthesisError(response.message || 'I could not synthesize this campaign from your intelligence yet.');
+        return;
+      }
+
+      // Merge and validate
+      const nextMeta = DIMENSIONS.map(d => {
+        const synthesized = response.dimensions[d.key];
+        if (!synthesized) return d;
+        return {
+          ...d,
+          recommended: synthesized.recommended,
+          why: synthesized.why,
+          options: synthesized.options || d.options,
+        };
+      });
+
+      setDimensionMeta(nextMeta);
+      setDimensions(prev => {
+        const next = { ...prev };
+        nextMeta.forEach(m => {
+          if (m.recommended && m.recommended !== 'AI synthesis required') {
+            (next as any)[m.key] = m.key === 'channels' ? [m.recommended] : m.recommended;
+          }
+        });
+        return next;
+      });
+
+      if (!narratedSynthesisSuccess.current.has(offeringKey)) {
+        narratedSynthesisSuccess.current.add(offeringKey);
+        setWizardMessages(prev => [...prev, {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: `I've synthesized a custom campaign strategy for "${currentOffering.title}" based on your unique IP and relationship graph. Review the dimensions and tune them to your liking.`,
+        }]);
+      }
+    } catch (err) {
+      setDimensionSynthesisError('Synthesis failed due to a network error. Please try again.');
+    } finally {
+      setIsSynthesizingDimensions(false);
+    }
+  }, [currentOffering, connectionCount, strategicDraft, uploadedAssets, comprehensiveSynthesis, offeringKey, setWizardMessages, api]);
 
   React.useEffect(() => {
     if (currentOffering && !currentCampaign && !aiDimensionsReady && !isSynthesizingDimensions && !dimensionSynthesisError) {
@@ -329,6 +278,8 @@ export const CampaignArchitecturePhase: React.FC = () => {
       nextStep('analysis');
     }
   };
+
+  const editingDimension = editingKey ? dimensionMeta.find(d => d.key === editingKey) : null;
 
   return (
     <div className="onboarding-content">
@@ -428,25 +379,25 @@ export const CampaignArchitecturePhase: React.FC = () => {
               onClick={handleGenerate}
               disabled={isLoading || isSynthesizingDimensions || !aiDimensionsReady}
             >
-            <div className="preview-metrics">
-              <div className="p-metric">
-                <span className="label">Messaging Hook</span>
-                <span className="value">{currentCampaign.messagingHook || currentCampaign.configuration?.hook || dimensions.hook}</span>
-              </div>
-              <div className="p-metric">
-                <span className="label">Mission Goal</span>
-                <span className="value">{currentCampaign.goalMetric || currentCampaign.configuration?.successMetric || dimensions.successMetric}</span>
-              </div>
-            </div>
+              {isSynthesizingDimensions ? 'Synthesizing Strategy...' : 'Generate Campaign Draft'} <ArrowRight size={18} />
+            </button>
+          </div>
+        )}
 
-            <div className="preview-footer">
-              <p>This draft is selected for execution planning. Continue generating the remaining campaign drafts.</p>
-            </div>
+        {currentCampaign && (
+          <div className="onboarding-footer">
+            <button className="onboarding-btn-secondary" onClick={() => {
+              setProposedCampaigns(prev => prev.filter(c => c.id !== offeringKey));
+              setSelectedCampaigns(prev => prev.filter(id => id !== offeringKey));
+            }}>Reset Draft</button>
+            <button className="onboarding-btn-primary" onClick={handleNext}>
+              {currentOfferingIndex < selectedLanes.length - 1 ? 'Next Campaign' : 'Assemble Tactical Arsenal'} <ArrowRight size={18} />
+            </button>
           </div>
         )}
       </div>
 
-      {editingDimension && (
+      {editingKey && editingDimension && (
         <div className="campaign-dimension-modal-backdrop" role="presentation" onMouseDown={() => setEditingKey(null)}>
           <div
             className="campaign-dimension-modal"
@@ -460,7 +411,7 @@ export const CampaignArchitecturePhase: React.FC = () => {
                 <span className="campaign-dimension-modal-kicker">Configure dimension</span>
                 <h2 id="campaign-dimension-modal-title">{editingDimension.label}</h2>
               </div>
-              <button type="button" className="campaign-dimension-modal-close" onClick={() => setEditingKey(null)} aria-label="Close dimension editor">
+              <button type="button" className="campaign-dimension-modal-close" onClick={() => setEditingKey(null)}>
                 <X size={18} />
               </button>
             </div>
@@ -479,14 +430,25 @@ export const CampaignArchitecturePhase: React.FC = () => {
               {editingDimension.options.map(option => {
                 const selected = editingDimension.key === 'channels'
                   ? dimensions.channels.includes(option.label)
-                  : selectedValue(editingDimension.key) === option.label;
+                  : dimensions[editingDimension.key] === option.label;
 
                 return (
                   <button
                     key={option.label}
                     type="button"
                     className={`campaign-dimension-modal-option ${selected ? 'selected' : ''}`}
-                    onClick={() => selectOption(editingDimension.key, option.label)}
+                    onClick={() => {
+                      if (editingDimension.key === 'channels') {
+                        setDimensions(prev => ({
+                          ...prev,
+                          channels: prev.channels.includes(option.label)
+                            ? prev.channels.filter(c => c !== option.label)
+                            : [...prev.channels, option.label]
+                        }));
+                      } else {
+                        setDimensions(prev => ({ ...prev, [editingDimension.key]: option.label }));
+                      }
+                    }}
                   >
                     <span>
                       <strong>{option.label}</strong>
@@ -504,22 +466,6 @@ export const CampaignArchitecturePhase: React.FC = () => {
           </div>
         </div>
       )}
-
-      <div className="onboarding-footer">
-        <button className="onboarding-btn-secondary" onClick={() => nextStep('intent')} disabled={isLoading}>Back</button>
-
-        {currentOfferingIndex < selectedLanes.length ? (
-          <div className="step-count">Campaign {currentOfferingIndex + 1} of {selectedLanes.length}</div>
-        ) : (
-          <button
-            className="onboarding-btn-primary"
-            onClick={() => void designActionLanes()}
-            disabled={selectedCampaigns.length === 0 || isLoading}
-          >
-            {isLoading ? 'Designing Actions...' : 'Configure Channel Actions'} <ArrowRight size={18} />
-          </button>
-        )}
-      </div>
     </div>
   );
 };
