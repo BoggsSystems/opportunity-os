@@ -25,6 +25,7 @@ export type OnboardingSnapshot = {
   selectedCampaigns: string[];
   proposedActionLanes: any[];
   selectedActionLanes: string[];
+  currentOfferingIndex: number;
   currentActionLaneCampaignIndex: number;
   connectedProviders: string[];
 };
@@ -45,6 +46,7 @@ export interface OnboardingContextType {
   selectedCampaigns: string[];
   proposedActionLanes: any[];
   selectedActionLanes: string[];
+  currentOfferingIndex: number;
   currentActionLaneCampaignIndex: number;
   connectedProviders: string[];
   allConnectors: any[];
@@ -86,6 +88,7 @@ export interface OnboardingContextType {
   handleDiscoveryNext: () => Promise<void>;
   startSequentialSensing: () => Promise<void>;
   designActionLanes: () => Promise<void>;
+  generateNextCampaign: (dimensions?: Record<string, unknown>) => Promise<void>;
   handleConductorSend: (text: string) => Promise<void>;
   seedState: () => void;
   
@@ -97,6 +100,7 @@ export interface OnboardingContextType {
   setWizardMessages: React.Dispatch<React.SetStateAction<any[]>>;
   setSelectedCampaigns: React.Dispatch<React.SetStateAction<string[]>>;
   setSelectedActionLanes: React.Dispatch<React.SetStateAction<string[]>>;
+  setCurrentOfferingIndex: React.Dispatch<React.SetStateAction<number>>;
   setCurrentActionLaneCampaignIndex: React.Dispatch<React.SetStateAction<number>>;
   setSpotlightIndex: React.Dispatch<React.SetStateAction<number>>;
   setGoogleSubStep: React.Dispatch<React.SetStateAction<'drive' | 'gmail' | null>>;
@@ -183,6 +187,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>(restoredSnapshot?.selectedCampaigns ?? []);
   const [proposedActionLanes, setProposedActionLanes] = useState<any[]>(restoredSnapshot?.proposedActionLanes ?? []);
   const [selectedActionLanes, setSelectedActionLanes] = useState<string[]>(restoredSnapshot?.selectedActionLanes ?? []);
+  const [currentOfferingIndex, setCurrentOfferingIndex] = useState(restoredSnapshot?.currentOfferingIndex ?? 0);
   const [currentActionLaneCampaignIndex, setCurrentActionLaneCampaignIndex] = useState(restoredSnapshot?.currentActionLaneCampaignIndex ?? 0);
   const [connectedProviders, setConnectedProviders] = useState<string[]>([]);
   const [allConnectors, setAllConnectors] = useState<any[]>([]);
@@ -395,11 +400,12 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       selectedCampaigns,
       proposedActionLanes,
       selectedActionLanes,
+      currentOfferingIndex,
       currentActionLaneCampaignIndex,
       connectedProviders,
     };
     localStorage.setItem(getOnboardingStorageKey(user?.id), JSON.stringify(snapshot));
-  }, [user?.id, currentStep, connectionCount, activeImportId, uploadedAssets, comprehensiveSynthesis, selectedLanes, wizardMessages, strategicDraft, proposedOfferings, proposedCampaigns, selectedCampaigns, proposedActionLanes, selectedActionLanes, currentActionLaneCampaignIndex, connectedProviders]);
+  }, [user?.id, currentStep, connectionCount, activeImportId, uploadedAssets, comprehensiveSynthesis, selectedLanes, wizardMessages, strategicDraft, proposedOfferings, proposedCampaigns, selectedCampaigns, proposedActionLanes, selectedActionLanes, currentOfferingIndex, currentActionLaneCampaignIndex, connectedProviders]);
 
   // --- Logic ---
   const nextStep = useCallback((step: Step) => {
@@ -878,7 +884,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     }
   };
 
-  const generateNextCampaign = async () => {
+  const generateNextCampaign = async (dimensions: Record<string, unknown> = {}) => {
     if (currentOfferingIndex >= selectedLanes.length) return;
 
     const offeringId = selectedLanes[currentOfferingIndex];
@@ -893,19 +899,29 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     
     try {
       const res = await api.proposeCampaigns({
-        offerings: [offering], // SEND ONLY ONE
-        context: {
-          interpretation: comprehensiveSynthesis,
-          posture: strategicDraft?.posture?.text
-        }
+        selectedLanes: [offering],
+        networkCount: connectionCount || strategicDraft?.connectionCount || 0,
+        frameworks: uploadedAssets.flatMap(a => a.frameworks || []),
+        interpretation: [
+          comprehensiveSynthesis || strategicDraft?.posture?.text || '',
+          Object.keys(dimensions).length > 0
+            ? `\nCAMPAIGN CONFIGURATION SELECTED BY USER:\n${JSON.stringify(dimensions, null, 2)}`
+            : ''
+        ].filter(Boolean).join('\n\n')
       });
 
       if (res.success && res.campaigns?.length) {
-        setProposedCampaigns(prev => [...prev, ...res.campaigns]);
+        const campaignsForOffering = res.campaigns.map((campaign: any) => ({
+          ...campaign,
+          offeringId: campaign.offeringId || offeringId,
+          configuration: dimensions,
+        }));
+        setProposedCampaigns(prev => [...prev, ...campaignsForOffering]);
+        setSelectedCampaigns(prev => Array.from(new Set([...prev, ...campaignsForOffering.map((campaign: any) => campaign.id)])));
         setWizardMessages(prev => [...prev, { 
           id: crypto.randomUUID(), 
           role: 'assistant', 
-          text: `I have architected the tactical campaign for "${offering.title}". It focuses on ${res.campaigns[0].title}.` 
+          text: `I have drafted the campaign for "${offering.title}" using your selected objective, audience, channel, cadence, and success metric. Review it before we move to the next lane.`
         }]);
       }
       
@@ -942,6 +958,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     setSelectedLanes(MOCK_OFFERINGS.map(o => o.id));
     setProposedCampaigns(MOCK_CAMPAIGNS);
     setSelectedCampaigns(MOCK_CAMPAIGNS[0] ? [MOCK_CAMPAIGNS[0].id] : []);
+    setCurrentOfferingIndex(0);
     setCurrentStep('intent');
   };
 
