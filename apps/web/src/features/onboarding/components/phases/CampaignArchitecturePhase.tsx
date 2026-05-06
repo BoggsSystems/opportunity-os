@@ -228,15 +228,10 @@ export const CampaignArchitecturePhase: React.FC = () => {
 
   const currentOfferingId = selectedLanes[currentOfferingIndex];
   const currentOffering = proposedOfferings.find((offering: any) => offering.id === currentOfferingId);
-  const currentCampaign = proposedCampaigns.find((campaign: any) => campaign.offeringId === currentOfferingId);
-  const completedCampaigns = proposedCampaigns.filter((campaign: any) => selectedLanes.includes(campaign.offeringId));
-  const editingDimension = dimensionMeta.find(dimension => dimension.key === editingKey);
-  const aiDimensionsReady = hasAiRequiredDimensions(dimensionMeta);
 
   const synthesizeDimensions = React.useCallback(() => {
     if (!currentOffering) return;
-    const offeringKey = currentOfferingId || currentOffering.id || currentOffering.title;
-
+    
     let active = true;
     setIsSynthesizingDimensions(true);
     setDimensionSynthesisError(null);
@@ -262,14 +257,6 @@ export const CampaignArchitecturePhase: React.FC = () => {
         const nextMeta = mergeSynthesizedDimensions(response.dimensions);
         if (!hasAiRequiredDimensions(nextMeta)) {
           setDimensionSynthesisError('The AI response did not include enough campaign strategy detail. Retry synthesis.');
-          if (!narratedSynthesisFailure.current.has(offeringKey)) {
-            narratedSynthesisFailure.current.add(offeringKey);
-            setWizardMessages(prev => [...prev, {
-              id: crypto.randomUUID(),
-              role: 'assistant',
-              text: `I could not synthesize a complete campaign blueprint for "${currentOffering.title}" from your intelligence yet. Retry synthesis before we draft so we do not use generic strategy.`,
-            }]);
-          }
           return;
         }
 
@@ -280,104 +267,80 @@ export const CampaignArchitecturePhase: React.FC = () => {
           setWizardMessages(prev => [...prev, {
             id: crypto.randomUUID(),
             role: 'assistant',
-            text: `I've prepared the campaign blueprint for "${currentOffering.title}". Review the objective, audience, strategic hook, timing, cadence, and success metric before I draft the campaign. If any dimension feels off, tell me what you want to change here and I'll regenerate the blueprint with your feedback.`,
+            text: `I've synthesized a custom campaign strategy for "${currentOffering.title}" based on your unique IP and relationship graph. Review the dimensions and tune them to your liking.`,
           }]);
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!active) return;
-        setDimensionSynthesisError('I could not reach the AI campaign synthesis service. Retry synthesis before drafting this campaign.');
-        if (!narratedSynthesisFailure.current.has(offeringKey)) {
-          narratedSynthesisFailure.current.add(offeringKey);
-          setWizardMessages(prev => [...prev, {
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            text: `I could not synthesize a campaign blueprint for "${currentOffering.title}" from your intelligence yet. Retry synthesis before we draft so we do not use generic strategy.`,
-          }]);
-        }
+        setDimensionSynthesisError('Synthesis failed due to a network error. Please try again.');
       })
       .finally(() => {
         if (active) setIsSynthesizingDimensions(false);
       });
 
-    return () => {
-      active = false;
-    };
-  }, [api, currentOffering, currentOfferingId, connectionCount, uploadedAssets, comprehensiveSynthesis, strategicDraft, setWizardMessages]);
+    return () => { active = false; };
+  }, [api, currentOffering, connectionCount, strategicDraft, uploadedAssets, comprehensiveSynthesis, offeringKey, setWizardMessages]);
 
   React.useEffect(() => {
-    setDimensions(DEFAULT_DIMENSIONS);
-    setDimensionMeta(DIMENSIONS);
-    setEditingKey(null);
-    setDimensionSynthesisError(null);
-    if (currentOffering && !hasNarratedArchitectureEntry.current) {
-      hasNarratedArchitectureEntry.current = true;
-      setWizardMessages(prev => [...prev, {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: 'Now I will turn each selected Revenue Lane into a campaign. For each one, I will synthesize the objective, audience, strategic hook, and success metric from your intelligence before drafting.',
-      }]);
+    if (currentOffering && !currentCampaign && !aiDimensionsReady && !isSynthesizingDimensions && !dimensionSynthesisError) {
+      synthesizeDimensions();
     }
-    return synthesizeDimensions();
-  }, [currentOffering, currentOfferingId, synthesizeDimensions, setWizardMessages]);
+  }, [currentOffering, currentCampaign, aiDimensionsReady, isSynthesizingDimensions, dimensionSynthesisError, synthesizeDimensions]);
 
   const selectedValue = (key: DimensionKey) => {
-    if (key === 'channels') return dimensions.channels.join(' + ');
-    return dimensions[key] || (AI_REQUIRED_DIMENSIONS.has(key) ? 'Waiting for AI synthesis' : '');
-  };
-
-  const selectOption = (key: DimensionKey, option: string) => {
-    if (key === 'channels') {
-      setDimensions(prev => {
-        const channels = prev.channels.includes(option)
-          ? prev.channels.filter(item => item !== option)
-          : [...prev.channels, option];
-        return { ...prev, channels: channels.length > 0 ? channels : [option] };
-      });
-      return;
+    if (AI_REQUIRED_DIMENSIONS.has(key) && !aiDimensionsReady) {
+      return (
+        <span className="skeleton-container">
+          <span className="skeleton-box medium" />
+        </span>
+      );
     }
-
-    setDimensions(prev => ({ ...prev, [key]: option }));
+    const val = dimensions[key];
+    return Array.isArray(val) ? val.join(' + ') : val;
   };
 
   const handleGenerate = () => {
-    if (!aiDimensionsReady) return;
-    void generateNextCampaign(dimensions);
+    const campaignId = offeringKey;
+    const newCampaign = {
+      id: campaignId,
+      title: currentOffering.title,
+      description: currentOffering.description,
+      configuration: {
+        ...dimensions,
+        offeringId: currentOffering.id
+      }
+    };
+
+    setProposedCampaigns(prev => {
+      const filtered = prev.filter(c => c.id !== campaignId);
+      return [...filtered, newCampaign];
+    });
+    setSelectedCampaigns(prev => [...new Set([...prev, campaignId])]);
   };
 
-  const handleToggle = (id: string) => {
-    setSelectedCampaigns((prev: string[]) =>
-      prev.includes(id) ? prev.filter((campaignId: string) => campaignId !== id) : [...prev, id],
-    );
+  const handleNext = () => {
+    if (currentOfferingIndex < selectedLanes.length - 1) {
+      setCurrentOfferingIndex(prev => prev + 1);
+      setDimensionMeta(DIMENSIONS);
+      setDimensions(DEFAULT_DIMENSIONS);
+      setDimensionSynthesisError(null);
+    } else {
+      nextStep('analysis');
+    }
   };
 
   return (
     <div className="onboarding-content">
       <div className="onboarding-header">
         <div className="phase-indicator">Phase 07: Campaign Architecture</div>
-        <h1>Shape each campaign before I draft it.</h1>
-        <p>Configure the campaign blueprint. Open any dimension when you want more guidance or different options.</p>
+        <h1>Architect the campaign blueprint.</h1>
+        <p>I have mapped your intent to specific execution dimensions. Review and tune each dimension before we assemble the tactical arsenal.</p>
       </div>
 
-      <div className="sequential-architecture-hub">
-        {completedCampaigns.length > 0 && (
-          <div className="campaign-progress-strip">
-            {completedCampaigns.map((campaign: any) => (
-              <button
-                key={campaign.id}
-                type="button"
-                className={`campaign-progress-chip ${selectedCampaigns.includes(campaign.id) ? 'selected' : ''}`}
-                onClick={() => handleToggle(campaign.id)}
-              >
-                <CheckCircle size={14} />
-                <span>{campaign.title}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {currentOfferingIndex >= selectedLanes.length && proposedCampaigns.length > 0 && (
-          <div className="architecture-complete-state">
+      <div className="campaign-architecture-view">
+        {currentCampaign && (
+          <div className="architecture-complete-state animate-in">
             <div className="success-icon">✓</div>
             <h2>All Campaigns Drafted</h2>
             <p>Your strategic map has {proposedCampaigns.length} campaign drafts. Next we will turn the selected channels into execution plans.</p>
@@ -392,7 +355,7 @@ export const CampaignArchitecturePhase: React.FC = () => {
               <p>{currentOffering.description}</p>
               <div className={`campaign-blueprint-status ${isSynthesizingDimensions ? 'loading' : aiDimensionsReady ? 'ready' : 'blocked'}`}>
                 {isSynthesizingDimensions
-                  ? 'Synthesizing campaign options from your intelligence memory...'
+                  ? <span className="thinking-dots">{thinkingMessages[thinkingIndex]}</span>
                   : aiDimensionsReady
                     ? 'AI-synthesized campaign strategy loaded'
                     : 'AI campaign synthesis required'}
@@ -400,7 +363,7 @@ export const CampaignArchitecturePhase: React.FC = () => {
             </div>
 
             {dimensionSynthesisError && (
-              <div className="campaign-blueprint-blocked">
+              <div className="campaign-blueprint-blocked animate-in">
                 <strong>Campaign strategy is not ready.</strong>
                 <span>{dimensionSynthesisError}</span>
                 <button type="button" className="onboarding-btn-secondary" onClick={() => { synthesizeDimensions(); }} disabled={isSynthesizingDimensions}>
@@ -410,37 +373,54 @@ export const CampaignArchitecturePhase: React.FC = () => {
             )}
 
             <div className="campaign-blueprint-grid">
-              {dimensionMeta.map(({ key, label, icon: Icon, oneLine }) => (
-                <button
-                  type="button"
-                  className={`campaign-blueprint-card ${AI_REQUIRED_DIMENSIONS.has(key) && !aiDimensionsReady ? 'locked' : ''}`}
-                  key={key}
-                  onClick={() => {
-                    if (AI_REQUIRED_DIMENSIONS.has(key) && !aiDimensionsReady) return;
-                    setEditingKey(key);
-                  }}
-                  disabled={AI_REQUIRED_DIMENSIONS.has(key) && !aiDimensionsReady}
-                >
-                  <span className="campaign-blueprint-icon"><Icon size={17} /></span>
-                  <span className="campaign-blueprint-copy">
-                    <strong>{label}</strong>
-                    <small>{oneLine}</small>
-                    <em>{selectedValue(key)}</em>
-                  </span>
-                  <span className="campaign-blueprint-edit">
-                    <Edit3 size={15} />
-                  </span>
-                </button>
-              ))}
+              {dimensionMeta.map(({ key, label, icon: Icon, oneLine }, idx) => {
+                const isLocked = AI_REQUIRED_DIMENSIONS.has(key) && !aiDimensionsReady;
+                return (
+                  <button
+                    type="button"
+                    className={`campaign-blueprint-card ${isLocked ? 'locked' : 'stagger-in'} stagger-${idx + 1}`}
+                    key={key}
+                    onClick={() => {
+                      if (isLocked) return;
+                      setEditingKey(key);
+                    }}
+                    disabled={isLocked}
+                  >
+                    <span className={`campaign-blueprint-icon ${isSynthesizingDimensions ? 'icon-pulse' : ''}`}>
+                      <Icon size={17} />
+                    </span>
+                    <span className="campaign-blueprint-copy">
+                      <strong>{label}</strong>
+                      <small>{oneLine}</small>
+                      <div className="selected-value-wrapper">
+                        {selectedValue(key)}
+                      </div>
+                    </span>
+                    <span className="campaign-blueprint-edit">
+                      <Edit3 size={15} />
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="campaign-configuration-summary">
               <strong>Campaign draft input</strong>
-              <span>
+              <div className="summary-text-wrapper">
                 {aiDimensionsReady
-                  ? `${dimensions.duration} to ${dimensions.objective.toLowerCase()} with ${dimensions.audience} using ${dimensions.channels.join(' + ')}, at a ${dimensions.cadence.toLowerCase()}, measured by ${dimensions.successMetric.toLowerCase()}.`
-                  : 'Waiting for AI to synthesize the campaign objective, audience, strategic hook, and success metric.'}
-              </span>
+                  ? (
+                    <span className="animate-in">
+                      {dimensions.duration} to {dimensions.objective.toLowerCase()} with {dimensions.audience} using {dimensions.channels.join(' + ')}, at a {dimensions.cadence.toLowerCase()}, measured by {dimensions.successMetric.toLowerCase()}.
+                    </span>
+                  )
+                  : (
+                    <div className="skeleton-summary">
+                      <span className="skeleton-box medium" />
+                      <span className="skeleton-box long" />
+                    </div>
+                  )
+                }
+              </div>
             </div>
 
             <button
@@ -448,20 +428,6 @@ export const CampaignArchitecturePhase: React.FC = () => {
               onClick={handleGenerate}
               disabled={isLoading || isSynthesizingDimensions || !aiDimensionsReady}
             >
-              {isLoading ? 'Drafting Campaign...' : isSynthesizingDimensions ? 'Synthesizing Strategy...' : 'Generate Campaign Draft'}
-              <ArrowRight size={18} />
-            </button>
-          </div>
-        )}
-
-        {currentCampaign && (
-          <div className="campaign-preview-card active-mission animate-in">
-            <div className="preview-header">
-              <div className="mission-tag">CAMPAIGN DRAFT READY</div>
-              <h3>{currentCampaign.title}</h3>
-            </div>
-            <p className="campaign-strategy">{currentCampaign.description}</p>
-
             <div className="preview-metrics">
               <div className="p-metric">
                 <span className="label">Messaging Hook</span>
