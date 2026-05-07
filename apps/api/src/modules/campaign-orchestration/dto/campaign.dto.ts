@@ -507,6 +507,32 @@ export class UpdateActionItemDto {
   metadataJson?: Record<string, any>;
 }
 
+export class BuildRecipientQueueDto {
+  @ApiPropertyOptional({ description: 'Maximum recipients to return', minimum: 1, maximum: 25 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(25)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'Optional user refinement for ranking criteria' })
+  @IsOptional()
+  @IsString()
+  refinement?: string;
+}
+
+export class SelectActionRecipientDto {
+  @ApiPropertyOptional({ description: 'Selected person ID' })
+  @IsOptional()
+  @IsString()
+  personId?: string;
+
+  @ApiPropertyOptional({ description: 'Selected connection record ID' })
+  @IsOptional()
+  @IsString()
+  connectionRecordId?: string;
+}
+
 class OnboardingCampaignInputDto {
   @IsString()
   id: string;
