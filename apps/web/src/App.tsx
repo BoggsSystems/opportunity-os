@@ -1825,9 +1825,9 @@ function WorkspaceTourOverlay(props: {
   const isLast = props.currentStep === workspaceTourSteps.length - 1;
 
   return (
-    <div className={`workspace-tour-overlay position-${step.position}`} role="dialog" aria-modal="true" aria-label="Workspace tour">
+    <>
       <div className="workspace-tour-backdrop" />
-      <div className="workspace-tour-card">
+      <div className={`workspace-tour-card position-${step.position}`} role="dialog" aria-modal="true" aria-label="Workspace tour">
         <div className="workspace-tour-card-header">
           <div>
             <p className="eyebrow">Workspace tour</p>
@@ -1873,7 +1873,7 @@ function WorkspaceTourOverlay(props: {
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
 

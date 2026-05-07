@@ -74,7 +74,7 @@ button:disabled {
 .workspace-tour-step-status .tour-region-status,
 .workspace-tour-step-action .tour-region-action,
 .workspace-tour-step-queue .tour-region-canvas {
-  z-index: 92;
+  z-index: 100;
   outline: 2px solid #68b7ff;
   outline-offset: 6px;
   box-shadow: 0 22px 70px rgba(0, 78, 146, 0.25);
@@ -87,22 +87,21 @@ button:disabled {
 }
 
 .workspace-tour-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  pointer-events: none;
+  display: contents;
 }
 
 .workspace-tour-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
+  z-index: 80;
   background: rgba(9, 18, 34, 0.58);
   backdrop-filter: blur(2px);
+  pointer-events: none;
 }
 
 .workspace-tour-card {
-  position: absolute;
-  z-index: 100;
+  position: fixed;
+  z-index: 140;
   display: grid;
   width: min(430px, calc(100vw - 32px));
   gap: 14px;
@@ -114,23 +113,23 @@ button:disabled {
   pointer-events: auto;
 }
 
-.workspace-tour-overlay.position-left .workspace-tour-card {
+.workspace-tour-card.position-left {
   left: calc(var(--conductor-width, 420px) + 24px);
   top: 190px;
 }
 
-.workspace-tour-overlay.position-center .workspace-tour-card {
+.workspace-tour-card.position-center {
   left: 50%;
   top: 155px;
   transform: translateX(-50%);
 }
 
-.workspace-tour-overlay.position-right .workspace-tour-card {
+.workspace-tour-card.position-right {
   right: 28px;
   top: 118px;
 }
 
-.workspace-tour-overlay.position-bottom-right .workspace-tour-card {
+.workspace-tour-card.position-bottom-right {
   right: 42px;
   bottom: 42px;
 }
