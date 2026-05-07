@@ -1426,6 +1426,50 @@ export function App() {
     }
   }
 
+  async function buildRecipientQueue(input: { campaignId: string; actionLaneId?: string; limit?: number }) {
+    setIsWorking(true);
+    try {
+      const response = await api.executeWorkspaceCommand({
+        type: 'build_recipient_queue',
+        campaignId: input.campaignId,
+        input: {
+          actionLaneId: input.actionLaneId,
+          limit: input.limit,
+        },
+      });
+      return response.result;
+    } catch (e) {
+      console.error('Failed to build recipient queue', e);
+      throw e;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function selectRecipient(input: { actionItemId: string; personId?: string; connectionRecordId?: string }) {
+    setIsWorking(true);
+    try {
+      await api.executeWorkspaceCommand({
+        type: 'select_recipient',
+        input: {
+          actionItemId: input.actionItemId,
+          personId: input.personId,
+          connectionRecordId: input.connectionRecordId,
+        },
+      });
+      
+      // Refresh the canvas to show the new draft
+      const canvasPayload = await api.getActionItemCanvas(input.actionItemId);
+      setActionCanvasPayload(canvasPayload);
+      await loadWorkspace();
+    } catch (e) {
+      console.error('Failed to select recipient', e);
+      throw e;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   async function startCheckout(planCode: string) {
     setIsWorking(true);
     setNotice(null);

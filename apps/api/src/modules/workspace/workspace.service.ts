@@ -599,8 +599,10 @@ export class WorkspaceService {
       refinement,
     });
 
+    console.log(`[DEBUG] AI ranked ${ranked.queue?.length || 0} recipients successfully`);
+
     return {
-      queue: ranked,
+      queue: ranked.queue || [],
       campaignId,
       actionLaneId,
     };

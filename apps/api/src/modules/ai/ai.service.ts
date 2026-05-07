@@ -2928,6 +2928,75 @@ JSON OUTPUT:`;
       };
     }
   }
+
+  async rankRecipients(context: {
+    campaign: {
+      title: string;
+      description?: string;
+      targetSegment?: string;
+      strategicAngle?: string;
+    };
+    candidates: Array<{
+      id: string;
+      name: string;
+      title?: string;
+      company?: string;
+      linkedinUrl?: string;
+      source: 'connection' | 'person';
+    }>;
+    limit: number;
+    refinement?: string;
+  }): Promise<{ queue: any[] }> {
+    this.logger.log(`Ranking ${context.candidates.length} recipients for campaign ${context.campaign.title}`);
+
+    const systemPrompt = `
+You are a High-Signal Strategic Commander. Your task is to rank a list of candidate recipients against a specific campaign strategy.
+
+CAMPAIGN:
+Title: ${context.campaign.title}
+Description: ${context.campaign.description || 'N/A'}
+Target Segment: ${context.campaign.targetSegment || 'N/A'}
+Strategic Angle: ${context.campaign.strategicAngle || 'N/A'}
+
+REFINEMENT INSTRUCTIONS:
+${context.refinement || 'None provided. Use standard strategic fit.'}
+
+INSTRUCTIONS:
+1. Evaluate each candidate based on their title, company, and seniority relative to the campaign goal.
+2. Return a JSON object with a "queue" property containing an array of the top ${context.limit} matches.
+3. Each item in the queue must include:
+   - "id": The candidate's ID.
+   - "name": The candidate's name.
+   - "title": Their title.
+   - "company": Their company.
+   - "score": A match score from 0-100.
+   - "reason": A one-sentence rationale (why them, why now).
+   - "source": The source provided in the candidate list.
+`;
+
+    const userPrompt = `
+CANDIDATES:
+${JSON.stringify(context.candidates, null, 2)}
+`;
+
+    const response = await this.aiProviderFactory.getProvider().generateText({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.1,
+    });
+
+    try {
+      const parsed = JSON.parse(this.extractJsonPayload(response.content));
+      return {
+        queue: Array.isArray(parsed.queue) ? parsed.queue : []
+      };
+    } catch (e) {
+      this.logger.error('Failed to parse AI ranking response', e);
+      return { queue: [] };
+    }
+  }
 }
 
 // Types for goal extraction
