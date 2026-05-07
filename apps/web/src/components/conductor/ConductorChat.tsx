@@ -20,6 +20,7 @@ export const ConductorChat: React.FC<ConductorChatProps> = ({
   suggestedPrompts = []
 }) => {
   const [draftMessage, setDraftMessage] = useState('');
+  const [promptsExpanded, setPromptsExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -73,34 +74,60 @@ export const ConductorChat: React.FC<ConductorChatProps> = ({
         ) : null}
       </div>
 
-      {suggestedPrompts.length ? (
-        <div className="prompt-row">
-          {suggestedPrompts.slice(0, 3).map((prompt) => (
-            <button key={prompt} onClick={() => onSend(prompt)} type="button">
-              {prompt}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <div className={`conductor-interactions ${promptsExpanded ? 'prompts-expanded' : ''}`}>
+        {suggestedPrompts.length ? (
+          <div className="prompts-panel">
+            <div className="prompts-header">
+              <span>Suggested actions</span>
+              <button type="button" onClick={() => setPromptsExpanded(false)} className="close-prompts">
+                Hide
+              </button>
+            </div>
+            <div className="prompt-row">
+              {suggestedPrompts.map((prompt) => (
+                <button key={prompt} onClick={() => { onSend(prompt); setPromptsExpanded(false); }} type="button">
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
-      <form className="composer" onSubmit={handleSubmit}>
-        <textarea
-          aria-label="Message the Conductor"
-          onChange={(event) => setDraftMessage(event.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          rows={variant === 'wizard' ? 1 : 3}
-          value={draftMessage}
-        />
-        <button 
-          className="send-button" 
-          disabled={!draftMessage.trim() || isWorking} 
-          title="Send message" 
-          type="submit"
-        >
-          <Send size={18} />
-        </button>
-      </form>
+        <form className="composer-vertical" onSubmit={handleSubmit}>
+          <textarea
+            aria-label="Message the Conductor"
+            onChange={(event) => setDraftMessage(event.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            rows={variant === 'wizard' ? 1 : 3}
+            value={draftMessage}
+          />
+          <div className="composer-actions">
+            <div className="actions-left">
+              {suggestedPrompts.length && (
+                <button 
+                  type="button" 
+                  className={`expand-prompts-btn ${promptsExpanded ? 'active' : ''}`}
+                  onClick={() => setPromptsExpanded(!promptsExpanded)}
+                  title={promptsExpanded ? "Hide suggested actions" : "View suggested actions"}
+                >
+                  <Zap size={14} />
+                </button>
+              )}
+            </div>
+            <div className="actions-right">
+              <button 
+                className="send-button" 
+                disabled={!draftMessage.trim() || isWorking} 
+                title="Send message" 
+                type="submit"
+              >
+                <Send size={16} />
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };

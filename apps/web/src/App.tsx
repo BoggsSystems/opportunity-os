@@ -1758,6 +1758,8 @@ export function App() {
             onConnectEmail={connectEmail}
             onStartOutlookOAuth={startOutlookOAuth}
             onSyncEmail={syncEmail}
+            onBuildRecipientQueue={buildRecipientQueue}
+            onSelectRecipient={selectRecipient}
             onDraftChange={setDraft}
             onSendDraft={sendDraft}
             onCompleteCycle={completeActiveCycle}

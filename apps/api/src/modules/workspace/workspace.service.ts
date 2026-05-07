@@ -168,6 +168,10 @@ export class WorkspaceService {
         return this.advanceOpportunityFromCommand(userId, dto);
       case 'set_workspace_mode':
         return this.handleSetWorkspaceMode(userId, dto);
+      case 'build_recipient_queue':
+        return this.buildRecipientQueueFromCommand(userId, dto);
+      case 'select_recipient':
+        return this.selectRecipientFromCommand(userId, dto);
       default:
         return assertNever(dto.type);
     }
@@ -534,6 +538,145 @@ export class WorkspaceService {
     }
     
     return { success: true, mode };
+  }
+
+  private async buildRecipientQueueFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const campaignId = dto.campaignId || this.stringInput(dto, 'campaignId');
+    const actionLaneId = this.stringInput(dto, 'actionLaneId');
+    const limit = typeof dto.input?.['limit'] === 'number' ? dto.input['limit'] : 10;
+    const refinement = typeof dto.input?.['refinement'] === 'string' ? dto.input['refinement'] : undefined;
+
+    if (!campaignId) throw new NotFoundException('campaignId is required');
+
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId, userId },
+    });
+    if (!campaign) throw new NotFoundException('Campaign not found');
+
+    // 1. Fetch potential contacts (from ConnectionRecord and Person)
+    const [connections, people] = await Promise.all([
+      prisma.connectionRecord.findMany({
+        where: { userId },
+        take: 200, // Reasonable sample for ranking
+        orderBy: { connectedOn: 'desc' },
+      }),
+      prisma.person.findMany({
+        where: { userId, opportunities: { none: { opportunity: { campaignId } } } },
+        take: 100,
+        orderBy: { updatedAt: 'desc' },
+      })
+    ]);
+
+    // 2. Use AI to rank them
+    const candidates = [
+      ...connections.map(c => ({
+        id: c.id,
+        source: 'connection',
+        name: `${c.firstName} ${c.lastName}`,
+        title: c.title,
+        company: c.company,
+        linkedinUrl: c.linkedinUrl,
+      })),
+      ...people.map(p => ({
+        id: p.id,
+        source: 'person',
+        name: p.fullName,
+        title: p.title,
+        company: p.companyName,
+        linkedinUrl: p.linkedinUrl,
+      }))
+    ];
+
+    const ranked = await this.aiService.rankRecipients({
+      campaign: {
+        title: campaign.title,
+        description: campaign.description,
+        targetSegment: campaign.targetSegment,
+        strategicAngle: campaign.strategicAngle || campaign.hook,
+      },
+      candidates,
+      limit,
+      refinement,
+    });
+
+    return {
+      queue: ranked,
+      campaignId,
+      actionLaneId,
+    };
+  }
+
+  private async selectRecipientFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const actionItemId = this.stringInput(dto, 'actionItemId');
+    const personId = this.stringInput(dto, 'personId');
+    const connectionRecordId = this.stringInput(dto, 'connectionRecordId');
+
+    if (!actionItemId) throw new NotFoundException('actionItemId is required');
+    if (!personId && !connectionRecordId) throw new NotFoundException('Either personId or connectionRecordId is required');
+
+    const actionItem = await prisma.actionItem.findUnique({
+      where: { id: actionItemId },
+      include: { actionCycle: true },
+    });
+    if (!actionItem) throw new NotFoundException('Action item not found');
+
+    let finalPersonId = personId;
+
+    // 1. If it's a connection record, promote it to a Person
+    if (connectionRecordId && !personId) {
+      const conn = await prisma.connectionRecord.findUnique({ where: { id: connectionRecordId } });
+      if (conn) {
+        // Find or create company
+        let companyId: string | undefined;
+        if (conn.company) {
+          const company = await prisma.company.upsert({
+            where: { userId_name: { userId, name: conn.company } },
+            create: { userId, name: conn.company, companyType: 'prospect' },
+            update: {},
+          });
+          companyId = company.id;
+        }
+
+        const person = await prisma.person.upsert({
+          where: { userId_fullName_companyId: { userId, fullName: `${conn.firstName} ${conn.lastName}`, companyId: companyId || '' } },
+          create: {
+            userId,
+            companyId,
+            fullName: `${conn.firstName} ${conn.lastName}`,
+            firstName: conn.firstName,
+            lastName: conn.lastName,
+            email: conn.email,
+            title: conn.title,
+            linkedinUrl: conn.linkedinUrl,
+            contactSource: 'linkedin_import',
+          },
+          update: {
+            linkedinUrl: conn.linkedinUrl || undefined,
+            email: conn.email || undefined,
+          },
+        });
+        finalPersonId = person.id;
+      }
+    }
+
+    // 2. Update the action item with the target
+    await prisma.actionItem.update({
+      where: { id: actionItemId },
+      data: {
+        targetPersonId: finalPersonId,
+        status: 'ready',
+      },
+    });
+
+    // 3. Update the action cycle status if needed
+    if (actionItem.actionCycleId) {
+      await prisma.actionCycle.update({
+        where: { id: actionItem.actionCycleId },
+        data: { status: ActionCycleStatus.pursuing },
+      });
+    }
+
+    return { success: true, personId: finalPersonId };
   }
 
   private async assertOwnedCommandRefs(

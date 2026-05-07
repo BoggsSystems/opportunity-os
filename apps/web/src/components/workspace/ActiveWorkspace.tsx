@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { RefreshCw, CheckCircle, AlertCircle, Info, Send, FileText, User, Layout, ArrowRight, ChevronRight, MessageSquare, Target } from 'lucide-react';
 import type {
   WorkspaceState,
   CampaignWorkspace,
@@ -87,6 +88,8 @@ interface ActiveWorkspaceProps {
   onConnectEmail: (providerName: 'gmail' | 'outlook', accessToken: string, emailAddress?: string) => Promise<void>;
   onStartOutlookOAuth: () => Promise<void>;
   onSyncEmail: () => Promise<void>;
+  onBuildRecipientQueue: (input: { campaignId: string; actionLaneId?: string; limit?: number }) => Promise<any>;
+  onSelectRecipient: (input: { actionItemId: string; personId?: string; connectionRecordId?: string }) => Promise<void>;
   onDraftChange: (draft: OutreachDraft) => void;
   onSendDraft: () => Promise<void>;
   onCompleteCycle: () => Promise<void>;
@@ -213,12 +216,11 @@ const TodayCommandQueue: React.FC<{
 };
 
 const ActionCanvasShell: React.FC<{
-  payload: any;
-  isWorking: boolean;
-  onCaptureActionFeedback: ActiveWorkspaceProps['onCaptureActionFeedback'];
   onConfirmCanvasAction: ActiveWorkspaceProps['onConfirmCanvasAction'];
   onSaveActionDraft: ActiveWorkspaceProps['onSaveActionDraft'];
-}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft }) => {
+  onBuildRecipientQueue: ActiveWorkspaceProps['onBuildRecipientQueue'];
+  onSelectRecipient: ActiveWorkspaceProps['onSelectRecipient'];
+}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft, onBuildRecipientQueue, onSelectRecipient }) => {
   const [feedbackText, setFeedbackText] = useState('');
   const [screenshotUrl, setScreenshotUrl] = useState('');
   const actionItem = payload.actionItem;
@@ -260,6 +262,8 @@ const ActionCanvasShell: React.FC<{
         isWorking={isWorking}
         onConfirmCanvasAction={onConfirmCanvasAction}
         onSaveActionDraft={onSaveActionDraft}
+        onBuild={onBuildRecipientQueue}
+        onSelect={onSelectRecipient}
       />
 
       <section className="action-canvas-card">
@@ -324,68 +328,96 @@ const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onCo
   );
 };
 
-const RecipientQueuePreparation: React.FC<ActionPanelProps> = ({ payload, isWorking }) => {
+const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWorkspaceProps['onBuildRecipientQueue'], onSelect: ActiveWorkspaceProps['onSelectRecipient'] }> = ({ payload, isWorking, onBuild, onSelect }) => {
+  const [queue, setQueue] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(false);
   const channelLabel = payload.actionLane?.title || payload.panelType || 'Channel';
   const campaignTitle = payload.campaign?.title || 'this campaign';
+  const actionItemId = payload.actionItem?.id;
+
+  const fetchQueue = React.useCallback(async () => {
+    if (!payload.campaign?.id) return;
+    setLoading(true);
+    try {
+      const result = await onBuild({ 
+        campaignId: payload.campaign.id, 
+        actionLaneId: payload.actionLane?.id,
+        limit: 10 
+      });
+      if (result.queue) {
+        setQueue(result.queue);
+      }
+    } catch (e) {
+      console.error('Failed to build recipient queue', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [onBuild, payload.campaign?.id, payload.actionLane?.id]);
+
+  React.useEffect(() => {
+    if (queue.length === 0 && !loading) {
+      void fetchQueue();
+    }
+  }, [fetchQueue, queue.length, loading]);
 
   return (
     <section className="recipient-prep-panel">
       <div className="action-canvas-card-header">
         <div>
-          <h4>Build recipient queue first</h4>
+          <h4>Select target recipient</h4>
           <p>
-            This action needs a real target before a draft or send confirmation makes sense. The engine should rank contacts for {campaignTitle} and then ask you to choose who to start with.
+            I&apos;ve ranked your contacts based on their fit for <strong>{campaignTitle}</strong>. Select the best match to start the {channelLabel} action.
           </p>
         </div>
-        <StatusBadge label="Preparing" />
+        <StatusBadge label={loading ? 'Ranking...' : `${queue.length} targets`} />
       </div>
 
-      <div className="recipient-scan-list" aria-label="Recipient preparation checklist">
-        <div className="recipient-scan-row active">
-          <span></span>
-          <div>
-            <strong>Scan relationship graph</strong>
-            <p>Use LinkedIn archive contacts, companies, roles, and warm paths.</p>
+      {loading ? (
+        <div className="recipient-scan-list loading">
+          <div className="recipient-scan-row active">
+            <div className="report-icon"><RefreshCw size={20} className="spin" /></div>
+            <div>
+              <strong>Ranking high-signal targets</strong>
+              <p>Evaluating your LinkedIn archive and contact list against campaign parameters...</p>
+            </div>
           </div>
         </div>
-        <div className="recipient-scan-row">
-          <span></span>
-          <div>
-            <strong>Score campaign fit</strong>
-            <p>Match people to the campaign audience, hook, and success metric.</p>
-          </div>
+      ) : queue.length > 0 ? (
+        <div className="recipient-ranked-list">
+          {queue.map((item) => (
+            <article key={item.id} className="recipient-ranked-card">
+              <div className="recipient-info">
+                <div className="recipient-name-row">
+                  <strong>{item.name}</strong>
+                  <span className="score-pill">{item.score}% match</span>
+                </div>
+                <p className="recipient-title">{item.title} @ {item.company}</p>
+                <p className="recipient-reason">{item.reason}</p>
+              </div>
+              <button 
+                type="button" 
+                className="select-target-btn"
+                onClick={() => onSelect({ 
+                  actionItemId, 
+                  personId: item.source === 'person' ? item.id : undefined,
+                  connectionRecordId: item.source === 'connection' ? item.id : undefined
+                })}
+                disabled={isWorking}
+              >
+                Select & Draft
+              </button>
+            </article>
+          ))}
         </div>
-        <div className="recipient-scan-row">
-          <span></span>
-          <div>
-            <strong>Prepare first action</strong>
-            <p>Only generate the draft after a specific recipient is selected.</p>
-          </div>
+      ) : (
+        <div className="recipient-empty">
+          <p>No suitable targets found in your current contact list. Try importing more contacts or starting a discovery scan.</p>
+          <button onClick={fetchQueue} disabled={isWorking}>Retry ranking</button>
         </div>
-      </div>
-
-      <div className="recipient-placeholder-queue">
-        <article>
-          <span>Channel</span>
-          <strong>{channelLabel}</strong>
-        </article>
-        <article>
-          <span>Target state</span>
-          <strong>Recipient not selected yet</strong>
-        </article>
-        <article>
-          <span>Next canvas state</span>
-          <strong>Ranked recipient queue</strong>
-        </article>
-      </div>
+      )}
 
       <div className="action-command-row">
-        <button type="button" disabled>
-          Recipient ranking preparing
-        </button>
-        <button type="button" disabled>
-          Draft unlocks after recipient selection
-        </button>
+        <p className="footer-note">Selecting a target will automatically promote them to your workspace and generate the initial draft.</p>
       </div>
     </section>
   );
@@ -594,6 +626,8 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
           onCaptureActionFeedback={props.onCaptureActionFeedback}
           onConfirmCanvasAction={props.onConfirmCanvasAction}
           onSaveActionDraft={props.onSaveActionDraft}
+          onBuildRecipientQueue={props.onBuildRecipientQueue}
+          onSelectRecipient={props.onSelectRecipient}
         />
       ) : null}
 

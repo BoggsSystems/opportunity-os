@@ -3551,3 +3551,290 @@ input:focus {
   content: "";
   animation: thinking-dots 2s infinite;
 }
+
+/* Recipient Selection UI */
+.recipient-prep-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem;
+}
+
+.recipient-ranked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.recipient-ranked-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.recipient-ranked-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.recipient-info {
+  flex: 1;
+  margin-right: 1.5rem;
+}
+
+.recipient-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.recipient-name-row strong {
+  font-size: 1.1rem;
+  color: #fff;
+}
+
+.score-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border-radius: 100px;
+  border: 1px solid rgba(129, 140, 248, 0.3);
+}
+
+.recipient-title {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 0.5rem;
+}
+
+.recipient-reason {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.4;
+}
+
+.select-target-btn {
+  padding: 0.6rem 1.25rem;
+  background: #6366f1;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.select-target-btn:hover {
+  background: #4f46e5;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+.select-target-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recipient-empty {
+  padding: 3rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+}
+
+.recipient-empty p {
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 1.5rem;
+}
+
+.footer-note {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  font-style: italic;
+}
+
+/* Conductor Prompts Panel */
+.conductor-interactions {
+  display: flex;
+  flex-direction: column;
+  background: var(--os-white);
+  border-top: 1px solid var(--os-gray-border);
+}
+
+.prompts-panel {
+  max-height: 0;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: #fcfdfe;
+  opacity: 0;
+}
+
+.conductor-interactions.prompts-expanded .prompts-panel {
+  max-height: 300px;
+  opacity: 1;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.prompts-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+}
+
+.prompts-header span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--os-text-muted);
+}
+
+.close-prompts {
+  background: transparent;
+  border: none;
+  font-size: 0.75rem;
+  color: var(--os-blue);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.close-prompts:hover {
+  background: var(--os-blue-light);
+}
+
+.expand-prompts-btn {
+  background: #f1f5f9;
+  border: 1px solid var(--os-gray-border);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--os-blue);
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.expand-prompts-btn:hover {
+  background: var(--os-blue-light);
+  border-color: var(--os-blue);
+  transform: scale(1.05);
+}
+
+.conductor-chat-container .composer {
+  border-top: none; /* Removed as border is now on .conductor-interactions */
+}
+
+.conductor-chat-container .prompt-row {
+  flex-wrap: wrap;
+  padding: 4px 16px 12px;
+}
+
+/* Vertical Composer Redesign */
+.conductor-chat-container .composer-vertical {
+  padding: 12px 16px;
+  background: var(--os-white);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conductor-chat-container .composer-vertical textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 8px 0;
+  font-family: inherit;
+  font-size: 0.95rem;
+  resize: none;
+  color: var(--os-text-main);
+  outline: none;
+  min-height: 60px;
+  max-height: 160px;
+}
+
+.composer-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.composer-actions .actions-left,
+.composer-actions .actions-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Hide wizard composer border if present */
+.conductor-chat-container.wizard .composer-vertical {
+  border-top: none;
+}
+
+/* Icon-only Button Refinement */
+.conductor-chat-container .expand-prompts-btn,
+.conductor-chat-container .send-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.conductor-chat-container .expand-prompts-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--os-text-muted);
+}
+
+.conductor-chat-container .expand-prompts-btn:hover {
+  background: var(--os-gray-light);
+  color: var(--os-blue);
+}
+
+.conductor-chat-container .expand-prompts-btn.active {
+  background: var(--os-blue-light);
+  color: var(--os-blue);
+  border-color: transparent;
+}
+
+.conductor-chat-container .send-button {
+  background: var(--os-blue);
+  color: white;
+  border: none;
+}
+
+.conductor-chat-container .send-button:hover:not(:disabled) {
+  background: var(--os-blue-hover);
+  transform: scale(1.05);
+}
+
+.conductor-chat-container .send-button:disabled {
+  background: var(--os-gray-border);
+  opacity: 0.6;
+}
