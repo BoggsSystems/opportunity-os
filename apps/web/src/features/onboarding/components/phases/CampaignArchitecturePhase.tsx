@@ -126,7 +126,7 @@ const DIMENSIONS: DimensionMeta[] = [
 
 export const CampaignArchitecturePhase: React.FC = () => {
   const { 
-    selectedLanes, proposedCampaigns, setProposedCampaigns, 
+    selectedLanes, proposedOfferings, proposedCampaigns, setProposedCampaigns,
     selectedCampaigns, setSelectedCampaigns, nextStep, isLoading,
     comprehensiveSynthesis, uploadedAssets, connectionCount,
     strategicDraft, setWizardMessages, api, user, designActionLanes
@@ -136,8 +136,11 @@ export const CampaignArchitecturePhase: React.FC = () => {
   const [dimensions, setDimensions] = React.useState<CampaignDimensions>(DEFAULT_DIMENSIONS);
   const [dimensionMeta, setDimensionMeta] = React.useState<DimensionMeta[]>(DIMENSIONS);
   const [isSynthesizingDimensions, setIsSynthesizingDimensions] = React.useState(false);
+  const [isRefiningDimension, setIsRefiningDimension] = React.useState(false);
   const [dimensionSynthesisError, setDimensionSynthesisError] = React.useState<string | null>(null);
   const [editingKey, setEditingKey] = React.useState<DimensionKey | null>(null);
+  const [dimensionRefinementText, setDimensionRefinementText] = React.useState('');
+  const [dimensionRefinementError, setDimensionRefinementError] = React.useState<string | null>(null);
   
   // Dynamic Feedback Ticker
   const [thinkingIndex, setThinkingIndex] = React.useState(0);
@@ -158,7 +161,10 @@ export const CampaignArchitecturePhase: React.FC = () => {
     return () => clearInterval(interval);
   }, [isSynthesizingDimensions]);
 
-  const currentOffering = selectedLanes[currentOfferingIndex];
+  const rawSelectedOffering = selectedLanes[currentOfferingIndex] as any;
+  const currentOffering = typeof rawSelectedOffering === 'string'
+    ? proposedOfferings.find((offering: any) => offering.id === rawSelectedOffering)
+    : rawSelectedOffering;
   const offeringKey = currentOffering?.id || `offering-${currentOfferingIndex}`;
   
   const currentCampaign = proposedCampaigns.find(c => 
@@ -193,9 +199,11 @@ export const CampaignArchitecturePhase: React.FC = () => {
         return;
       }
 
+      const synthesizedDimensions = response.dimensions as Record<string, any>;
+
       // Merge and validate
       const nextMeta = DIMENSIONS.map(d => {
-        const synthesized = response.dimensions[d.key];
+        const synthesized = synthesizedDimensions[d.key];
         if (!synthesized) return d;
         return {
           ...d,
@@ -247,6 +255,73 @@ export const CampaignArchitecturePhase: React.FC = () => {
     }
     const val = dimensions[key];
     return Array.isArray(val) ? val.join(' + ') : val;
+  };
+
+  const applyDimensionUpdate = (key: DimensionKey, nextDimension: Record<string, any>) => {
+    setDimensionMeta(prev => prev.map(d => {
+      if (d.key !== key) return d;
+      return {
+        ...d,
+        recommended: String(nextDimension['recommended'] || d.recommended),
+        guidance: String(nextDimension['guidance'] || d.guidance),
+        why: String(nextDimension['why'] || d.why),
+        options: Array.isArray(nextDimension['options']) && nextDimension['options'].length > 0
+          ? nextDimension['options']
+          : d.options,
+      };
+    }));
+
+    setDimensions(prev => {
+      const recommended = String(nextDimension['recommended'] || '');
+      if (!recommended) return prev;
+      return {
+        ...prev,
+        [key]: key === 'channels' ? [recommended] : recommended,
+      };
+    });
+  };
+
+  const refineCurrentDimension = async () => {
+    if (!currentOffering || !editingDimension || !dimensionRefinementText.trim()) return;
+
+    setIsRefiningDimension(true);
+    setDimensionRefinementError(null);
+    try {
+      const lockedDimensions = DIMENSIONS
+        .map(d => d.key)
+        .filter(key => key !== editingDimension.key);
+      const response = await api.refineCampaignDimension({
+        offering: currentOffering,
+        targetDimension: editingDimension.key,
+        userFeedback: dimensionRefinementText.trim(),
+        currentDimensions: dimensions,
+        currentDimensionMeta: editingDimension,
+        lockedDimensions,
+        networkCount: connectionCount || strategicDraft?.connectionCount || 0,
+        frameworks: uploadedAssets.flatMap((asset: any) => asset.frameworks || []),
+        interpretation: comprehensiveSynthesis || strategicDraft?.posture?.text || uploadedAssets.map((asset: any) => asset.interpretation || asset.summary || '').join('\n\n'),
+        strategicDraft,
+        uploadedAssets,
+        comprehensiveSynthesis,
+      });
+
+      if (!response.success || response.source !== 'ai_synthesized' || !response.dimension) {
+        setDimensionRefinementError(response.message || 'I could not refine this dimension in isolation.');
+        return;
+      }
+
+      applyDimensionUpdate(editingDimension.key, response.dimension);
+      setDimensionRefinementText('');
+      setWizardMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: `I updated only the ${editingDimension.label.toLowerCase()} dimension and preserved the rest of this campaign blueprint.`,
+      }]);
+    } catch (err) {
+      setDimensionRefinementError('Dimension refinement failed due to a network error. Please try again.');
+    } finally {
+      setIsRefiningDimension(false);
+    }
   };
 
   const handleGenerate = () => {
@@ -334,6 +409,8 @@ export const CampaignArchitecturePhase: React.FC = () => {
                     onClick={() => {
                       if (isLocked) return;
                       setEditingKey(key);
+                      setDimensionRefinementText('');
+                      setDimensionRefinementError(null);
                     }}
                     disabled={isLocked}
                   >
@@ -458,6 +535,31 @@ export const CampaignArchitecturePhase: React.FC = () => {
                   </button>
                 );
               })}
+            </div>
+
+            <div className="campaign-dimension-refine-panel">
+              <label htmlFor="campaign-dimension-refine-input">
+                Ask the Conductor to refine only this dimension
+              </label>
+              <textarea
+                id="campaign-dimension-refine-input"
+                value={dimensionRefinementText}
+                onChange={(event) => setDimensionRefinementText(event.target.value)}
+                placeholder={`Example: Use discovery calls booked as the ${editingDimension.label.toLowerCase()} for this campaign.`}
+                rows={3}
+                disabled={isRefiningDimension}
+              />
+              {dimensionRefinementError && (
+                <p className="campaign-dimension-refine-error">{dimensionRefinementError}</p>
+              )}
+              <button
+                type="button"
+                className="onboarding-btn-secondary"
+                onClick={() => void refineCurrentDimension()}
+                disabled={isRefiningDimension || !dimensionRefinementText.trim()}
+              >
+                {isRefiningDimension ? 'Refining...' : 'Refine This Dimension'}
+              </button>
             </div>
 
             <div className="campaign-dimension-modal-footer">

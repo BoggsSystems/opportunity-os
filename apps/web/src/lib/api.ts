@@ -304,6 +304,34 @@ export class ApiClient {
     });
   }
 
+  async refineCampaignDimension(context: {
+    offering: any;
+    targetDimension: string;
+    userFeedback: string;
+    currentDimensions: Record<string, any>;
+    currentDimensionMeta?: Record<string, any>;
+    lockedDimensions?: string[];
+    networkCount?: number;
+    frameworks?: string[];
+    interpretation?: string;
+    strategicDraft?: any;
+    uploadedAssets?: any[];
+    comprehensiveSynthesis?: string | null;
+  }) {
+    return this.request<{
+      success: boolean;
+      source?: 'ai_synthesized' | 'ai_failed';
+      targetDimension?: string;
+      dimension?: Record<string, any>;
+      preservedDimensions?: string[];
+      error?: string;
+      message?: string;
+    }>('/onboarding/campaign-dimensions/refine', {
+      method: 'POST',
+      body: context,
+    });
+  }
+
   async refineCampaigns(body: { currentCampaigns: any[]; feedback: string; selectedLanes: any[]; networkCount: number; frameworks: string[]; interpretation: string }) {
     return this.request<{ success: boolean; campaigns: any[] }>('/onboarding/campaigns/refine', {
       method: 'POST',

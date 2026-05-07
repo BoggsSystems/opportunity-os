@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  ActionCycleStatus,
   ActivityType,
   OpportunityCyclePhase,
   OpportunityCycleStatus,
@@ -42,8 +43,9 @@ export class WorkspaceService {
     const nextActions = await this.nextActionsService.getNextActions(userId);
     await this.ensureSignalsFromNextActions(userId, nextActions);
 
-    const [activeCycle, activeCampaign, signals, activeConversation, velocity, pendingOfferingProposal, activeOffering] = await Promise.all([
-      this.findActiveCycle(userId),
+    const [activeOpportunityCycle, activeCampaignActionCycle, activeCampaign, signals, activeConversation, velocity, pendingOfferingProposal, activeOffering] = await Promise.all([
+      this.findActiveOpportunityCycle(userId),
+      this.findActiveCampaignActionCycle(userId),
       this.findActiveCampaign(userId),
       this.findSignals(userId),
       this.findActiveConversation(userId),
@@ -53,7 +55,11 @@ export class WorkspaceService {
     ]);
 
     const recommendation = nextActions[0] ?? null;
-    const activeCycleSummary = activeCycle ? this.toCycleSummary(activeCycle) : null;
+    const activeCycleSummary = activeOpportunityCycle
+      ? this.toCycleSummary(activeOpportunityCycle)
+      : activeCampaignActionCycle
+        ? this.toCampaignActionCycleSummary(activeCampaignActionCycle)
+        : null;
     const mode = activeCycleSummary?.workspaceMode ?? activeCampaign?.workspaceMode ?? this.workspaceModeFromRecommendation(recommendation);
     const allowedActions = activeCycleSummary?.allowedActions ?? this.allowedActionsForMode(mode, recommendation);
     const canvas = this.buildCanvasState(
@@ -600,10 +606,44 @@ export class WorkspaceService {
     }
   }
 
-  private findActiveCycle(userId: string) {
+  private findActiveOpportunityCycle(userId: string) {
     return prisma.opportunityCycle.findFirst({
       where: { userId, status: OpportunityCycleStatus.active },
       orderBy: [{ priorityScore: 'desc' }, { updatedAt: 'desc' }],
+    });
+  }
+
+  private findActiveCampaignActionCycle(userId: string) {
+    return prisma.actionCycle.findFirst({
+      where: {
+        campaign: { userId },
+        status: {
+          in: [
+            ActionCycleStatus.surfaced,
+            ActionCycleStatus.pursuing,
+            ActionCycleStatus.active,
+            ActionCycleStatus.planned,
+          ],
+        },
+      },
+      include: {
+        campaign: true,
+        actionLane: true,
+        actionItems: {
+          where: {
+            status: {
+              in: ['suggested', 'ready', 'in_progress'],
+            },
+          },
+          orderBy: [{ priorityScore: 'desc' }, { updatedAt: 'desc' }],
+          take: 1,
+        },
+      },
+      orderBy: [
+        { priorityScore: 'desc' },
+        { surfacedAt: 'desc' },
+        { updatedAt: 'desc' },
+      ],
     });
   }
 
@@ -721,6 +761,34 @@ export class WorkspaceService {
         taskId: cycle.taskId ?? undefined,
         discoveredOpportunityId: cycle.discoveredOpportunityId ?? undefined,
         conversationId: cycle.aiConversationId ?? undefined,
+      },
+    };
+  }
+
+  private toCampaignActionCycleSummary(cycle: any): WorkspaceCycleSummary {
+    const actionItem = cycle.actionItems?.[0] ?? null;
+    const phase = cycle.status === ActionCycleStatus.pursuing ? 'pursuing' : 'surfaced';
+    const whyItMatters =
+      cycle.objective ??
+      cycle.generatedReasoningJson?.rationale ??
+      `This is the next staged action for ${cycle.campaign?.title ?? 'the active campaign'}.`;
+
+    return {
+      id: cycle.id,
+      title: cycle.title ?? actionItem?.title ?? 'Campaign action cycle',
+      phase,
+      status: cycle.status,
+      workspaceMode: WorkspaceMode.execution_confirm,
+      whyItMatters,
+      recommendedAction: actionItem?.instructions ?? cycle.objective ?? null,
+      priorityScore: cycle.priorityScore,
+      confidence: null,
+      allowedActions: ['complete_cycle', 'create_task'],
+      refs: {
+        campaignId: cycle.campaignId ?? undefined,
+        actionLaneId: cycle.actionLaneId ?? undefined,
+        actionCycleId: cycle.id ?? undefined,
+        actionItemId: actionItem?.id ?? undefined,
       },
     };
   }

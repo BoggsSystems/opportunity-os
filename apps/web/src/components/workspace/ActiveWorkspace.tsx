@@ -64,6 +64,7 @@ interface ActiveWorkspaceProps {
   campaignFeedback: StrategicPlanResult | null;
   activationPayload: WorkspaceActivationPayload | null;
   actionCanvasPayload: any | null;
+  showWorkspaceTour: boolean;
   isWorking: boolean;
   onCommand: (body: Record<string, unknown>, success: string) => Promise<void>;
   onCaptureActionFeedback: (input: {
@@ -105,6 +106,7 @@ const actionLabel = (action: string): string => {
     review_opportunity: 'Review Opportunity',
     confirm_goal: 'Confirm Goal',
     confirm_campaign: 'Confirm Campaign',
+    confirm_send: 'Review Action',
     discovery_scan: 'Discovery Scan',
     outreach: 'Outreach',
   };
@@ -128,114 +130,6 @@ const EmptyWorkspace: React.FC = () => (
     <p>No active cycle. Start by creating a new opportunity cycle.</p>
   </div>
 );
-
-const WorkspaceActivationTour: React.FC<{
-  payload: WorkspaceActivationPayload;
-  isWorking: boolean;
-  onCaptureActionFeedback: ActiveWorkspaceProps['onCaptureActionFeedback'];
-}> = ({ payload, isWorking, onCaptureActionFeedback }) => {
-  const [replyText, setReplyText] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
-  const [latestInsight, setLatestInsight] = useState<any | null>(null);
-  const actionItemId = payload.persisted?.actionItemId;
-  const canCapture = Boolean(actionItemId && (replyText.trim() || imageUrl.trim()));
-
-  const captureFeedback = async () => {
-    if (!actionItemId || !canCapture) return;
-    const result = await onCaptureActionFeedback({
-      actionItemId,
-      bodyText: replyText,
-      attachmentUrls: imageUrl.trim() ? [imageUrl.trim()] : [],
-      attachmentMimeTypes: imageUrl.trim() ? ['image/png'] : [],
-    });
-    setLatestInsight(result?.insight || null);
-    setReplyText('');
-    setImageUrl('');
-  };
-
-  return (
-    <div className="workspace-activation-tour">
-      <section className="activation-hero">
-        <p className="eyebrow">Workspace tour</p>
-        <h3>First Action Cycle: {payload.lane.title}</h3>
-        <p>{payload.campaign.title}</p>
-      </section>
-
-      <section className="activation-context-grid">
-        <div>
-          <span>Campaign</span>
-          <strong>{payload.campaign.title}</strong>
-        </div>
-        <div>
-          <span>Target</span>
-          <strong>{payload.campaign.targetSegment || 'Defined campaign audience'}</strong>
-        </div>
-        <div>
-          <span>Goal</span>
-          <strong>{payload.campaign.goalMetric || 'Qualified progress'}</strong>
-        </div>
-      </section>
-
-      <section className="activation-tour-card">
-        <h4>What happens first</h4>
-        <ol>
-          <li>Review why this lane is the right starting point.</li>
-          <li>Identify the first contact or target for the action.</li>
-          <li>Draft the LinkedIn DM or lane-specific action.</li>
-          <li>Ask for your approval before anything is sent or logged.</li>
-        </ol>
-      </section>
-
-      {payload.persisted?.actionCycleId ? (
-        <section className="activation-tour-card">
-          <h4>Persisted action cycle</h4>
-          <p>
-            This first cycle is saved to the workspace and ready to continue from action item{' '}
-            <code>{payload.persisted.actionItemId || 'pending'}</code>.
-          </p>
-        </section>
-      ) : null}
-
-      <section className="activation-tour-card">
-        <h4>Capture reply feedback</h4>
-        <p className="activation-card-copy">
-          Paste a prospect reply or attach a screenshot URL. The system will keep it tied to this action cycle and suggest the next move.
-        </p>
-        <textarea
-          className="feedback-textarea"
-          placeholder="Paste the reply, comment, or notes from the screenshot..."
-          value={replyText}
-          onChange={(event) => setReplyText(event.target.value)}
-        />
-        <input
-          className="feedback-input"
-          placeholder="Optional screenshot/image URL"
-          value={imageUrl}
-          onChange={(event) => setImageUrl(event.target.value)}
-        />
-        <button className="feedback-capture-button" onClick={captureFeedback} disabled={isWorking || !canCapture}>
-          Capture and synthesize feedback
-        </button>
-        {latestInsight ? (
-          <div className="feedback-insight">
-            <span>{latestInsight.sentiment}</span>
-            <strong>{latestInsight.recommendedNextAction}</strong>
-            <p>{latestInsight.summary}</p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="activation-tour-card">
-        <h4>Workspace orientation</h4>
-        <div className="tour-step-list">
-          <div><strong>Canvas</strong><span>The active action cycle stays staged here.</span></div>
-          <div><strong>Conductor</strong><span>Use the conversation to revise, approve, or ask why.</span></div>
-          <div><strong>Action context</strong><span>The campaign, lane, target, and goal stay tied together.</span></div>
-        </div>
-      </section>
-    </div>
-  );
-};
 
 const TodayCommandQueue: React.FC<{
   queue: CommandQueueState | null;
@@ -328,7 +222,8 @@ const ActionCanvasShell: React.FC<{
   const [feedbackText, setFeedbackText] = useState('');
   const [screenshotUrl, setScreenshotUrl] = useState('');
   const actionItem = payload.actionItem;
-  const Panel = actionPanelFor(payload.panelType);
+  const shouldPrepareRecipientQueue = needsRecipientQueue(payload);
+  const Panel = shouldPrepareRecipientQueue ? RecipientQueuePreparation : actionPanelFor(payload.panelType);
   const canCapture = Boolean(actionItem?.id && (feedbackText.trim() || screenshotUrl.trim()));
 
   const captureFeedback = async () => {
@@ -344,7 +239,7 @@ const ActionCanvasShell: React.FC<{
   };
 
   return (
-    <div className="action-canvas-shell">
+    <div className="action-canvas-shell tour-region-action">
       <header className="action-canvas-header">
         <div>
           <p className="eyebrow">{payload.actionLane?.laneType?.replace(/_/g, ' ') || payload.panelType}</p>
@@ -423,6 +318,73 @@ const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onCo
         </button>
         <button type="button" onClick={() => onConfirmCanvasAction({ actionItemId: payload.actionItem.id, finalContent: draft })} disabled={isWorking || !draft.trim()}>
           Confirm sent
+        </button>
+      </div>
+    </section>
+  );
+};
+
+const RecipientQueuePreparation: React.FC<ActionPanelProps> = ({ payload, isWorking }) => {
+  const channelLabel = payload.actionLane?.title || payload.panelType || 'Channel';
+  const campaignTitle = payload.campaign?.title || 'this campaign';
+
+  return (
+    <section className="recipient-prep-panel">
+      <div className="action-canvas-card-header">
+        <div>
+          <h4>Build recipient queue first</h4>
+          <p>
+            This action needs a real target before a draft or send confirmation makes sense. The engine should rank contacts for {campaignTitle} and then ask you to choose who to start with.
+          </p>
+        </div>
+        <StatusBadge label="Preparing" />
+      </div>
+
+      <div className="recipient-scan-list" aria-label="Recipient preparation checklist">
+        <div className="recipient-scan-row active">
+          <span></span>
+          <div>
+            <strong>Scan relationship graph</strong>
+            <p>Use LinkedIn archive contacts, companies, roles, and warm paths.</p>
+          </div>
+        </div>
+        <div className="recipient-scan-row">
+          <span></span>
+          <div>
+            <strong>Score campaign fit</strong>
+            <p>Match people to the campaign audience, hook, and success metric.</p>
+          </div>
+        </div>
+        <div className="recipient-scan-row">
+          <span></span>
+          <div>
+            <strong>Prepare first action</strong>
+            <p>Only generate the draft after a specific recipient is selected.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="recipient-placeholder-queue">
+        <article>
+          <span>Channel</span>
+          <strong>{channelLabel}</strong>
+        </article>
+        <article>
+          <span>Target state</span>
+          <strong>Recipient not selected yet</strong>
+        </article>
+        <article>
+          <span>Next canvas state</span>
+          <strong>Ranked recipient queue</strong>
+        </article>
+      </div>
+
+      <div className="action-command-row">
+        <button type="button" disabled>
+          Recipient ranking preparing
+        </button>
+        <button type="button" disabled>
+          Draft unlocks after recipient selection
         </button>
       </div>
     </section>
@@ -515,6 +477,24 @@ function actionPanelFor(panelType: string): React.FC<ActionPanelProps> {
   return GenericActionPanel;
 }
 
+function needsRecipientQueue(payload: any): boolean {
+  const targetLabel = String(payload?.context?.targetLabel || '').trim().toLowerCase();
+  const title = String(payload?.actionItem?.title || '').toLowerCase();
+  const instructions = String(payload?.actionItem?.instructions || '').toLowerCase();
+  const hasConcreteTarget = Boolean(
+    payload?.actionItem?.targetPersonId ||
+    payload?.actionItem?.targetCompanyId ||
+    payload?.context?.targetPersonName ||
+    payload?.context?.targetCompanyName,
+  );
+
+  if (hasConcreteTarget) return false;
+  if (['email', 'linkedin_dm'].includes(payload?.panelType) && ['person', 'company', 'campaign audience', ''].includes(targetLabel)) {
+    return true;
+  }
+  return title.includes('select') || instructions.includes('choose the first contact') || instructions.includes('suggested recipients');
+}
+
 const CycleWorkspace: React.FC<{
   cycle: any;
   recommendation: any;
@@ -577,12 +557,12 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
   const recommendation = props.workspace?.recommendation ?? null;
   const showTimeline = props.view.action !== 'idle';
   const hasCycleContext = Boolean(cycle || recommendation);
-  const showActivationTour = props.view.action === 'idle' && Boolean(props.activationPayload);
-  const showActionCanvas = props.view.action === 'idle' && Boolean(props.actionCanvasPayload);
-  const showCommandQueue = props.view.action === 'idle' && Boolean(props.commandQueue);
+  const showActivationTour = props.showWorkspaceTour && Boolean(props.activationPayload);
+  const showActionCanvas = Boolean(props.actionCanvasPayload);
+  const showCommandQueue = props.view.action === 'idle' && Boolean(props.commandQueue) && !showActivationTour;
 
   return (
-    <section className="active-workspace">
+    <section className="active-workspace tour-region-canvas">
       <div className="canvas-action-header">
         <div>
           <p className="label">Canvas action</p>
@@ -617,19 +597,11 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
         />
       ) : null}
 
-      {!showActionCanvas && showActivationTour && props.activationPayload ? (
-        <WorkspaceActivationTour
-          payload={props.activationPayload}
-          isWorking={props.isWorking}
-          onCaptureActionFeedback={props.onCaptureActionFeedback}
-        />
-      ) : null}
-
       {props.view.action === 'idle' && !showActivationTour && !showActionCanvas && !showCommandQueue ? (
         <EmptyWorkspace />
       ) : null}
 
-      {props.view.action === 'review_opportunity' ? (
+      {!showActionCanvas && props.view.action === 'review_opportunity' ? (
         hasCycleContext ? (
           <CycleWorkspace
             cycle={cycle}
@@ -648,7 +620,7 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
         )
       ) : null}
 
-      {props.view.action === 'confirm_goal' || props.view.action === 'confirm_campaign' ? (
+      {!showActionCanvas && (props.view.action === 'confirm_goal' || props.view.action === 'confirm_campaign') ? (
         props.campaignFeedback ? (
           <StrategicPlanWorkspace
             preview={props.campaignFeedback}

@@ -44,6 +44,7 @@ import { CommonModule } from "./common/common.module";
 import { SimProvidersModule } from "./modules/simulation/sim-providers.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { IntelligenceModule } from "./modules/intelligence/intelligence.module";
+import { BigIntSerializationInterceptor } from "./common/bigint-serialization.interceptor";
 
 @Module({
   imports: [
@@ -101,6 +102,10 @@ import { IntelligenceModule } from "./modules/intelligence/intelligence.module";
     {
       provide: APP_INTERCEPTOR,
       useClass: TimeWarpInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: BigIntSerializationInterceptor,
     },
   ],
 })

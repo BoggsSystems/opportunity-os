@@ -223,7 +223,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   const [pollingErrorCount, setPollingErrorCount] = useState(0);
   const MAX_POLLING_ERRORS = 5;
   const isInternalWorking = isLoading || isImporting; // Alias for compatibility
-  const finalWorkingState = isInternalWorking || isWorkingProp;
+  const finalWorkingState = isInternalWorking || Boolean(isWorkingProp);
 
   const [guestSessionId] = useState(() => crypto.randomUUID());
 
@@ -877,8 +877,14 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
   };
 
   const designActionLanes = async () => {
+    setCurrentStep('analysis');
     setIsLoading(true);
     setGenerationMessage('Synthesizing channel actions...');
+    setWizardMessages(prev => [...prev, {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      text: "I'm turning your selected campaign channels into concrete action plans. This can take a moment while I map each channel to executable daily work.",
+    }]);
     try {
       const res = await api.proposeActionLanes({
         selectedCampaigns: proposedCampaigns.filter(c => selectedCampaigns.includes(c.id)),
@@ -889,6 +895,14 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
           ...lane,
           campaignId: lane.campaignId || (Array.isArray(lane.campaignIds) ? lane.campaignIds[0] : undefined),
         }));
+        if (normalizedActions.length === 0) {
+          setWizardMessages(prev => [...prev, {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: "I could not generate channel actions from the selected campaign channels yet. Go back to the campaign blueprint, confirm at least one channel, and try again.",
+          }]);
+          return;
+        }
         setProposedActionLanes(normalizedActions);
         setSelectedActionLanes(normalizedActions.map((l: any) => l.id));
         setCurrentActionLaneCampaignIndex(0);

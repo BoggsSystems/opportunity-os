@@ -842,6 +842,129 @@ Rules:
     return output;
   }
 
+  async refineCampaignDimension(context: {
+    userId?: string;
+    offering: any;
+    targetDimension: string;
+    userFeedback: string;
+    currentDimensions: Record<string, any>;
+    currentDimensionMeta?: Record<string, any>;
+    lockedDimensions?: string[];
+    networkCount?: number;
+    frameworks?: string[];
+    interpretation?: string;
+    strategicDraft?: any;
+    uploadedAssets?: any[];
+    comprehensiveSynthesis?: string | null;
+  }): Promise<{ source: 'ai_synthesized'; targetDimension: string; dimension: Record<string, any>; preservedDimensions: string[] }> {
+    const offeringTitle = context.offering?.title || context.offering?.name || 'Revenue Lane';
+    const fallback = this.buildFallbackCampaignDimensions(offeringTitle);
+    const targetFallback = fallback[context.targetDimension] || {
+      recommended: '',
+      guidance: '',
+      why: '',
+      options: [],
+    };
+    const memory = await this.loadCampaignDimensionMemory(context.userId);
+    const lockedDimensions = context.lockedDimensions?.length
+      ? context.lockedDimensions
+      : Object.keys(context.currentDimensions || {}).filter((key) => key !== context.targetDimension);
+
+    const prompt = `
+You are the campaign architect inside Opportunity OS. The user is refining exactly ONE campaign dimension.
+
+Target dimension to update: ${context.targetDimension}
+User feedback for this dimension: "${context.userFeedback}"
+
+Hard rule:
+- Update ONLY the target dimension.
+- Treat every locked dimension as already approved by the user.
+- Do not regenerate, rename, or reinterpret locked dimensions.
+- Use locked dimensions only as constraints so the new target dimension fits the existing campaign.
+
+OFFERING:
+${JSON.stringify(context.offering || {}, null, 2)}
+
+CURRENT CAMPAIGN DIMENSIONS:
+${JSON.stringify(context.currentDimensions || {}, null, 2)}
+
+CURRENT TARGET DIMENSION METADATA:
+${JSON.stringify(context.currentDimensionMeta || {}, null, 2)}
+
+LOCKED DIMENSIONS:
+${JSON.stringify(lockedDimensions, null, 2)}
+
+FAST WIZARD CONTEXT:
+${JSON.stringify({
+  networkCount: context.networkCount || 0,
+  frameworks: context.frameworks || [],
+  interpretation: context.interpretation || '',
+  comprehensiveSynthesis: context.comprehensiveSynthesis || '',
+  strategicDraft: context.strategicDraft || null,
+  uploadedAssets: (context.uploadedAssets || []).map((asset: any) => ({
+    filename: asset.filename || asset.name || asset.title,
+    frameworks: asset.frameworks || [],
+    interpretation: asset.interpretation || asset.summary || '',
+  })),
+}, null, 2)}
+
+PERSISTED INTELLIGENCE MEMORY:
+${JSON.stringify(memory, null, 2)}
+
+Return ONLY valid JSON using this exact shape:
+{
+  "recommended": "short option label",
+  "guidance": "1-2 sentences explaining this dimension",
+  "why": "1 sentence explaining why the recommendation fits the current campaign and user feedback",
+  "options": [{"label": "short option label", "description": "short option explanation"}]
+}
+
+Rules:
+- Provide 3-5 options.
+- The recommended value should reflect the user's feedback when it is coherent.
+- Keep labels compact enough for UI chips.
+- For successMetric, prefer observable outcomes such as discovery calls booked, qualified replies, intros opened, meetings booked, or conversions.
+- For channels, never combine multiple channels into a single option or recommendation.
+`.trim();
+
+    try {
+      const response = await this.aiProviderFactory.getProvider().generateText({
+        prompt,
+        temperature: 0.25,
+        maxTokens: 1200,
+      });
+      const parsed = JSON.parse(this.extractJsonPayload(response.content));
+      const options = Array.isArray(parsed?.options)
+        ? parsed.options
+            .filter((option: any) => option?.label)
+            .slice(0, 5)
+            .map((option: any) => ({
+              label: String(option.label),
+              description: String(option.description || ''),
+            }))
+        : [];
+
+      if (!parsed?.recommended || !parsed?.guidance || !parsed?.why || options.length < 2) {
+        throw new Error(`AI campaign dimension refinement missing required ${context.targetDimension} fields`);
+      }
+
+      return {
+        source: 'ai_synthesized',
+        targetDimension: context.targetDimension,
+        dimension: {
+          recommended: String(parsed.recommended || targetFallback.recommended),
+          guidance: String(parsed.guidance || targetFallback.guidance),
+          why: String(parsed.why || targetFallback.why),
+          options,
+        },
+        preservedDimensions: lockedDimensions,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to refine campaign dimension ${context.targetDimension}`, error);
+      throw error;
+    }
+  }
+
   private truncateForPrompt(value: string | null | undefined, maxLength: number): string {
     if (!value) return '';
     return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
@@ -893,13 +1016,21 @@ IMPORTANT RULES:
   }
 
   async proposeActionLanes(campaigns: any[], comprehensiveSynthesis: string): Promise<any[]> {
+    const safeCampaigns = Array.isArray(campaigns) ? campaigns : [];
+    const campaignSummaries = safeCampaigns.map((campaign) => ({
+      id: campaign?.id,
+      title: campaign?.title,
+      channels: this.campaignChannelLabels(campaign),
+    }));
+    this.logger.log(`Proposing channel actions from campaign summaries: ${JSON.stringify(campaignSummaries)}`);
+
     const prompt = `
     Based on the following confirmed Campaigns and User Strategic Synthesis, turn each campaign's selected channels into executable Channel Actions.
     
     User Synthesis: ${comprehensiveSynthesis}
     
     Confirmed Campaigns:
-    ${JSON.stringify(campaigns, null, 2)}
+    ${JSON.stringify(safeCampaigns, null, 2)}
     
     User-facing language: call these "Channel Actions" or "Channel Action Plans".
     Internal language: the returned objects are still called action lanes for compatibility.
@@ -909,6 +1040,7 @@ IMPORTANT RULES:
     - "Email Outreach" (direct email or Outlook/Gmail focus)
     - "LinkedIn DM" (manual-send from selected LinkedIn contacts)
     - "LinkedIn Posts" (public thought-leadership/content lane)
+    - "YouTube Shorts" (short-form content creation and publishing)
     - "Warm Introduction Engine" (request intros from existing relationships)
     - "Relationship Reactivation" (re-engage dormant contacts)
     - "Commenting / Engagement" (comment on target people's posts before direct outreach)
@@ -926,7 +1058,7 @@ IMPORTANT RULES:
     Return a JSON array of objects:
     {
       "id": "unique-id",
-      "type": "email | linkedin_dm | linkedin_posts | warm_intro | relationship_reactivation | commenting | account_research | other",
+      "type": "email | linkedin_dm | linkedin_posts | youtube_shorts | warm_intro | relationship_reactivation | commenting | account_research | other",
       "title": "Clear, campaign-specific action title (e.g., 'Founder LinkedIn DM Sprint')",
       "description": "Short description of the tactical approach",
       "tactics": ["Bullet point 1", "Bullet point 2"],
@@ -937,12 +1069,141 @@ IMPORTANT RULES:
 
     try {
       const response = await this.generateText(prompt, { temperature: 0.3 });
-      const parsed = JSON.parse(response.replace(/```json/gi, '').replace(/```/g, '').trim());
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed = JSON.parse(this.extractJsonPayload(response));
+      const normalized = this.normalizeProposedChannelActions(parsed, safeCampaigns);
+      if (normalized.length > 0) {
+        this.logger.log(`AI channel action proposal normalized to ${normalized.length} actions.`);
+        return normalized;
+      }
+
+      const fallback = this.buildFallbackChannelActions(safeCampaigns);
+      this.logger.warn(`AI channel action proposal normalized to 0 actions. Returning ${fallback.length} deterministic fallback actions.`);
+      return fallback;
     } catch (e) {
       this.logger.error('Failed to parse proposeActionLanes JSON', e);
-      return [];
+      const fallback = this.buildFallbackChannelActions(safeCampaigns);
+      this.logger.warn(`Returning ${fallback.length} deterministic fallback actions after channel action generation failure.`);
+      return fallback;
     }
+  }
+
+  private normalizeProposedChannelActions(parsed: any, campaigns: any[]): any[] {
+    if (!Array.isArray(parsed)) return [];
+
+    const campaignIds = new Set(campaigns.map((campaign) => campaign?.id).filter(Boolean));
+    const normalized: any[] = [];
+
+    for (const action of parsed) {
+      const explicitCampaignId = action?.campaignId;
+      const campaignIdFromList = Array.isArray(action?.campaignIds) ? action.campaignIds.find((id: string) => campaignIds.has(id)) : undefined;
+      const campaignId = campaignIds.has(explicitCampaignId) ? explicitCampaignId : campaignIdFromList;
+
+      if (!campaignId || !action?.title) continue;
+
+      normalized.push({
+        id: action.id || `${campaignId}-${this.channelActionType(action.type || action.title)}-${normalized.length + 1}`,
+        type: this.channelActionType(action.type || action.title),
+        title: String(action.title),
+        description: String(action.description || `Execute ${action.title} for this campaign.`),
+        tactics: Array.isArray(action.tactics) ? action.tactics.map((tactic: any) => String(tactic)) : [],
+        requiredConnectors: Array.isArray(action.requiredConnectors) ? action.requiredConnectors.map((connector: any) => String(connector)) : [],
+        campaignId,
+        campaignIds: [campaignId],
+      });
+    }
+
+    return normalized;
+  }
+
+  private buildFallbackChannelActions(campaigns: any[]): any[] {
+    return campaigns.flatMap((campaign) => {
+      const channels = this.campaignChannelLabels(campaign);
+      return channels.map((channel, index) => {
+        const type = this.channelActionType(channel);
+        const title = this.channelActionTitle(channel, campaign?.title);
+        return {
+          id: `${campaign?.id || 'campaign'}-${type}-${index + 1}`,
+          type,
+          title,
+          description: this.channelActionDescription(channel, campaign?.title),
+          tactics: this.channelActionTactics(channel),
+          requiredConnectors: this.channelActionConnectors(channel),
+          campaignId: campaign?.id,
+          campaignIds: campaign?.id ? [campaign.id] : [],
+        };
+      });
+    }).filter((action) => action.campaignId);
+  }
+
+  private campaignChannelLabels(campaign: any): string[] {
+    const configuredChannels = Array.isArray(campaign?.configuration?.channels)
+      ? campaign.configuration.channels
+      : [];
+    const legacyChannel = campaign?.channel ? [campaign.channel] : [];
+    const channels = [...configuredChannels, ...legacyChannel]
+      .flatMap((channel) => String(channel).split(/\s*\+\s*|,\s*/))
+      .map((channel) => channel.trim())
+      .filter(Boolean);
+
+    return Array.from(new Set(channels));
+  }
+
+  private channelActionType(value: string): string {
+    const normalized = String(value || '').toLowerCase();
+    if (normalized.includes('email') || normalized.includes('gmail') || normalized.includes('outlook')) return 'email';
+    if (normalized.includes('linkedin') && (normalized.includes('dm') || normalized.includes('message'))) return 'linkedin_dm';
+    if (normalized.includes('linkedin') && (normalized.includes('post') || normalized.includes('content'))) return 'linkedin_posts';
+    if (normalized.includes('youtube') || normalized.includes('short')) return 'youtube_shorts';
+    if (normalized.includes('intro') || normalized.includes('referral')) return 'warm_intro';
+    if (normalized.includes('comment') || normalized.includes('reply')) return 'commenting';
+    if (normalized.includes('research') || normalized.includes('signal')) return 'account_research';
+    return 'other';
+  }
+
+  private channelActionTitle(channel: string, campaignTitle?: string): string {
+    const type = this.channelActionType(channel);
+    const suffix = campaignTitle ? ` for ${campaignTitle}` : '';
+    if (type === 'email') return `Email outreach${suffix}`;
+    if (type === 'linkedin_dm') return `LinkedIn DM outreach${suffix}`;
+    if (type === 'linkedin_posts') return `LinkedIn post sequence${suffix}`;
+    if (type === 'youtube_shorts') return `YouTube Shorts content push${suffix}`;
+    if (type === 'warm_intro') return `Warm introduction requests${suffix}`;
+    if (type === 'commenting') return `Comment and reply engagement${suffix}`;
+    if (type === 'account_research') return `Account research and signal tracking${suffix}`;
+    return `${channel} action plan${suffix}`;
+  }
+
+  private channelActionDescription(channel: string, campaignTitle?: string): string {
+    const target = campaignTitle || 'this campaign';
+    const type = this.channelActionType(channel);
+    if (type === 'email') return `Create and review direct email outreach actions for ${target}.`;
+    if (type === 'linkedin_dm') return `Select LinkedIn contacts, prepare DMs, and let the user confirm manual sends for ${target}.`;
+    if (type === 'linkedin_posts') return `Draft authority posts that support ${target} and create visible proof for outreach.`;
+    if (type === 'youtube_shorts') return `Generate short-form video topics and scripts that reinforce ${target}.`;
+    if (type === 'warm_intro') return `Identify warm relationship paths and create introduction request actions for ${target}.`;
+    if (type === 'commenting') return `Find relevant conversations and prepare comments or replies that create context for ${target}.`;
+    if (type === 'account_research') return `Research target accounts and surface trigger signals for ${target}.`;
+    return `Create concrete daily actions for ${channel} in ${target}.`;
+  }
+
+  private channelActionTactics(channel: string): string[] {
+    const type = this.channelActionType(channel);
+    if (type === 'email') return ['Draft personalized outreach emails', 'Queue follow-up actions based on replies or silence'];
+    if (type === 'linkedin_dm') return ['Select high-fit LinkedIn contacts', 'Prepare manual-send DMs and capture send confirmation'];
+    if (type === 'linkedin_posts') return ['Draft posts tied to the campaign hook', 'Track comments and convert promising engagement into follow-up actions'];
+    if (type === 'youtube_shorts') return ['Generate short-form video scripts', 'Map each short to a follow-up post or outreach angle'];
+    if (type === 'warm_intro') return ['Identify mutual connections', 'Draft concise introduction requests'];
+    if (type === 'commenting') return ['Find relevant posts or conversations', 'Draft comments that create warm context'];
+    if (type === 'account_research') return ['Research target accounts', 'Capture trigger signals for next actions'];
+    return ['Create a focused action list', 'Review outcomes and recommend follow-up'];
+  }
+
+  private channelActionConnectors(channel: string): string[] {
+    const type = this.channelActionType(channel);
+    if (type === 'email') return ['gmail', 'outlook'];
+    if (type === 'linkedin_dm' || type === 'linkedin_posts' || type === 'commenting') return ['linkedin'];
+    if (type === 'youtube_shorts') return ['youtube'];
+    return [];
   }
 
   async refineActionLanes(currentLanes: any[], feedback: string, campaigns: any[], comprehensiveSynthesis: string): Promise<any[]> {

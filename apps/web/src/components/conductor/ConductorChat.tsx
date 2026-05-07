@@ -73,13 +73,15 @@ export const ConductorChat: React.FC<ConductorChatProps> = ({
         ) : null}
       </div>
 
-      <div className="prompt-row">
-        {suggestedPrompts.slice(0, 3).map((prompt) => (
-          <button key={prompt} onClick={() => onSend(prompt)} type="button">
-            {prompt}
-          </button>
-        ))}
-      </div>
+      {suggestedPrompts.length ? (
+        <div className="prompt-row">
+          {suggestedPrompts.slice(0, 3).map((prompt) => (
+            <button key={prompt} onClick={() => onSend(prompt)} type="button">
+              {prompt}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <form className="composer" onSubmit={handleSubmit}>
         <textarea

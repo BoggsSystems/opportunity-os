@@ -4,6 +4,9 @@ import { useOnboarding } from '../OnboardingContext';
 
 export const WorkspaceHandoffPhase: React.FC = () => {
   const { onComplete, isWorking } = useOnboarding();
+  const statusText = isWorking
+    ? 'Synchronizing strategy to workspace...'
+    : 'Workspace handoff is ready. Open the workspace when you are ready.';
 
   return (
     <div className="onboarding-content">
@@ -15,11 +18,11 @@ export const WorkspaceHandoffPhase: React.FC = () => {
 
       <div className="handoff-card animate-in">
         <div className="handoff-status">
-          <RefreshCw size={24} className="spin" />
-          <span>Synchronizing strategy to workspace...</span>
+          <RefreshCw size={24} className={isWorking ? 'spin' : ''} />
+          <span>{statusText}</span>
         </div>
         <div className="handoff-progress-bar">
-          <div className="fill" style={{ width: '80%' }}></div>
+          <div className="fill" style={{ width: isWorking ? '80%' : '100%' }}></div>
         </div>
       </div>
 
@@ -30,7 +33,7 @@ export const WorkspaceHandoffPhase: React.FC = () => {
           onClick={onComplete}
           disabled={isWorking}
         >
-          Open Workspace <Rocket size={18} />
+          {isWorking ? 'Opening Workspace...' : 'Open Workspace'} <Rocket size={18} />
         </button>
       </div>
     </div>

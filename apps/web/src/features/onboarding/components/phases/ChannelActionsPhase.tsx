@@ -6,8 +6,9 @@ export const ChannelActionsPhase: React.FC = () => {
   const { 
     proposedCampaigns, selectedCampaigns, proposedActionLanes, 
     selectedActionLanes, setSelectedActionLanes, currentActionLaneCampaignIndex,
-    setCurrentActionLaneCampaignIndex, nextStep 
+    setCurrentActionLaneCampaignIndex, nextStep, designActionLanes, isLoading
   } = useOnboarding();
+  const autoGenerationAttemptedRef = React.useRef(false);
 
   const activeCampaigns = proposedCampaigns.filter(c => selectedCampaigns.includes(c.id));
   const currentCampaign = activeCampaigns[currentActionLaneCampaignIndex];
@@ -21,6 +22,45 @@ export const ChannelActionsPhase: React.FC = () => {
     return false;
   });
   const hasSelectedCurrentAction = actionsForCurrentCampaign.some((lane: any) => selectedActionLanes.includes(lane.id));
+
+  React.useEffect(() => {
+    console.info('[ChannelActionsPhase] state', {
+      selectedCampaignIds: selectedCampaigns,
+      activeCampaignCount: activeCampaigns.length,
+      currentCampaignId: currentCampaign?.id,
+      currentCampaignTitle: currentCampaign?.title,
+      currentCampaignChannels,
+      proposedActionLaneCount: proposedActionLanes.length,
+      actionsForCurrentCampaignCount: actionsForCurrentCampaign.length,
+      selectedActionLaneCount: selectedActionLanes.length,
+      isLoading,
+    });
+
+    if (
+      currentCampaign &&
+      currentCampaignChannels.length > 0 &&
+      actionsForCurrentCampaign.length === 0 &&
+      !isLoading &&
+      !autoGenerationAttemptedRef.current
+    ) {
+      autoGenerationAttemptedRef.current = true;
+      console.warn('[ChannelActionsPhase] Missing channel actions for selected campaign; regenerating once.', {
+        campaignId: currentCampaign.id,
+        channels: currentCampaignChannels,
+      });
+      void designActionLanes();
+    }
+  }, [
+    activeCampaigns.length,
+    actionsForCurrentCampaign.length,
+    currentCampaign,
+    currentCampaignChannels,
+    designActionLanes,
+    isLoading,
+    proposedActionLanes.length,
+    selectedActionLanes.length,
+    selectedCampaigns,
+  ]);
   
   const handleToggle = (id: string) => {
     setSelectedActionLanes((prev: string[]) => 
@@ -53,7 +93,18 @@ export const ChannelActionsPhase: React.FC = () => {
 
       {actionsForCurrentCampaign.length === 0 ? (
         <div className="empty-tactical-state">
-          No actions were generated for this campaign. Go back and regenerate the campaign or select different channels.
+          <p>No actions were generated for this campaign. I am checking the selected channels and can regenerate them here.</p>
+          <button
+            className="onboarding-btn-secondary"
+            type="button"
+            onClick={() => {
+              autoGenerationAttemptedRef.current = true;
+              void designActionLanes();
+            }}
+            disabled={isLoading}
+          >
+            Regenerate Channel Actions
+          </button>
         </div>
       ) : (
         <div className="action-lane-grid">

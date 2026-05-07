@@ -52,7 +52,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = (props) => {
   const aiUsage = props.usage?.usage?.find((item) => item.featureKey === 'ai_requests');
 
   return (
-    <header className="workspace-topbar">
+    <header className="workspace-topbar tour-region-status">
       <div>
         <p className="eyebrow">Canvas</p>
         <h1>{props.workspace?.activeCycle?.title ?? 'Opportunity cycle engine'}</h1>

@@ -63,7 +63,7 @@ export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
   return (
     <aside 
       ref={paneRef}
-      className={`conductor-pane ${isResizing ? 'resizing' : ''} ${props.expanded ? 'expanded' : 'collapsed'}`}
+      className={`conductor-pane tour-region-conductor ${isResizing ? 'resizing' : ''} ${props.expanded ? 'expanded' : 'collapsed'}`}
       style={{ width: props.expanded ? `${paneWidth}px` : '60px' }}
     >
       <header className="conductor-header">

@@ -84,6 +84,43 @@ export class OnboardingController {
     }
   }
 
+  @Post('campaign-dimensions/refine')
+  @ApiOperation({ summary: 'Refine one campaign dimension while preserving approved dimensions' })
+  async refineCampaignDimension(
+    @Req() req: any,
+    @Body() body: {
+      offering: any;
+      targetDimension: string;
+      userFeedback: string;
+      currentDimensions: Record<string, any>;
+      currentDimensionMeta?: Record<string, any>;
+      lockedDimensions?: string[];
+      networkCount?: number;
+      frameworks?: string[];
+      interpretation?: string;
+      strategicDraft?: any;
+      uploadedAssets?: any[];
+      comprehensiveSynthesis?: string | null;
+    },
+  ) {
+    this.logger.log(`Refining campaign dimension=${body.targetDimension} for offering=${body.offering?.title || body.offering?.name || 'unknown'}`);
+    try {
+      const result = await this.aiService.refineCampaignDimension({
+        ...body,
+        userId: req?.user?.id,
+      });
+      return { success: true, ...result };
+    } catch (error: any) {
+      this.logger.error('Campaign dimension refinement failed', error?.stack || error);
+      return {
+        success: false,
+        source: 'ai_failed',
+        error: 'CAMPAIGN_DIMENSION_REFINEMENT_FAILED',
+        message: 'I could not refine that dimension without changing the rest of the campaign.',
+      };
+    }
+  }
+
   @Post('campaigns/refine')
   @ApiOperation({ summary: 'Refine campaigns based on feedback' })
   async refineCampaigns(@Body() body: { currentCampaigns: any[]; feedback: string; selectedLanes: any[]; networkCount: number; frameworks: string[]; interpretation: string }) {
@@ -93,15 +130,17 @@ export class OnboardingController {
   }
   
   @Post('action-lanes/propose')
-  @ApiOperation({ summary: 'Propose execution channel workflows for confirmed campaigns' })
+  @ApiOperation({ summary: 'Propose channel actions for confirmed campaigns' })
   async proposeActionLanes(@Body() body: { selectedCampaigns: any[]; comprehensiveSynthesis: string }) {
-    this.logger.log(`Proposing execution channel workflows for ${body.selectedCampaigns.length} campaigns`);
+    const campaignIds = (body.selectedCampaigns ?? []).map((campaign) => campaign?.id).filter(Boolean).join(', ');
+    this.logger.log(`Proposing channel actions for ${body.selectedCampaigns?.length ?? 0} campaigns campaignIds=${campaignIds || 'none'}`);
     const actionLanes = await this.aiService.proposeActionLanes(body.selectedCampaigns, body.comprehensiveSynthesis);
+    this.logger.log(`Proposed ${actionLanes.length} channel actions for campaignIds=${campaignIds || 'none'}`);
     return { success: true, actionLanes };
   }
 
   @Post('action-lanes/refine')
-  @ApiOperation({ summary: 'Refine execution channel workflows based on feedback' })
+  @ApiOperation({ summary: 'Refine channel actions based on feedback' })
   async refineActionLanes(@Body() body: { currentActionLanes: any[]; feedback: string; selectedCampaigns: any[]; comprehensiveSynthesis: string }) {
     this.logger.log(`Refining execution channel workflows with feedback: ${body.feedback}`);
     const actionLanes = await this.aiService.refineActionLanes(body.currentActionLanes, body.feedback, body.selectedCampaigns, body.comprehensiveSynthesis);

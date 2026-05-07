@@ -63,6 +63,7 @@ const CONTINUE_ONBOARDING_AFTER_AUTH_KEY = 'opportunity-os:continue-onboarding-a
 const GUEST_ONBOARDING_DRAFT_KEY = 'opportunity-os:onboarding-draft:guest';
 const WORKSPACE_ACTIVATION_PAYLOAD_KEY = 'opportunity-os:workspace-activation-payload';
 const userOnboardingDraftKey = (userId: string) => `opportunity-os:onboarding-draft:${userId}`;
+const userWorkspaceTourKey = (userId: string) => `opportunity-os:workspace-tour-completed:${userId}`;
 const TEST_PASSWORD = 'Password123!';
 
 interface StoredSession {
@@ -86,6 +87,7 @@ interface UpgradePromptState {
 type SettingsSection = 'profile' | 'connectors' | 'connections' | 'usage' | 'billing' | 'notifications';
 
 type OutreachExecutionState = 'idle' | 'blocked' | 'sent';
+type WorkspaceTourStepKey = 'conductor' | 'canvas' | 'status' | 'action' | 'queue';
 
 interface WorkspaceViewState {
   action: CanvasAction;
@@ -124,6 +126,50 @@ interface WorkspaceActivationPayload {
     actionItemId?: string;
   } | null;
 }
+
+const workspaceTourSteps: Array<{
+  key: WorkspaceTourStepKey;
+  label: string;
+  title: string;
+  copy: string;
+  position: 'left' | 'center' | 'right' | 'bottom-right';
+}> = [
+  {
+    key: 'conductor',
+    label: 'Conductor',
+    title: 'Start with the strategic operator.',
+    copy: 'The Conductor is where you ask why, revise strategy, narrow a target, or turn feedback into the next action. It carries the context from the wizard into the workspace.',
+    position: 'left',
+  },
+  {
+    key: 'canvas',
+    label: 'Canvas',
+    title: 'The Canvas keeps the current work focused.',
+    copy: 'This is the active surface for the current campaign, action cycle, or approval step. It prevents the workspace from becoming a generic dashboard.',
+    position: 'center',
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    title: 'The top bar shows operating health.',
+    copy: 'Connections, signals, outreach, open tasks, and usage counters tell you whether the operating loop is ready to run.',
+    position: 'right',
+  },
+  {
+    key: 'action',
+    label: 'First action',
+    title: 'The first action starts with preparation.',
+    copy: 'Before drafting or confirming a send, the system should rank recipients and choose a real target. That keeps action execution grounded in your relationship graph.',
+    position: 'bottom-right',
+  },
+  {
+    key: 'queue',
+    label: 'Command queue',
+    title: 'Daily work will flow through the command queue.',
+    copy: 'After this handoff, your morning workflow becomes a prioritized queue of concrete actions across campaigns, with the Conductor available to explain or adjust each item.',
+    position: 'bottom-right',
+  },
+];
 
 function readWorkspaceActivationPayload(): WorkspaceActivationPayload | null {
   try {
@@ -177,6 +223,8 @@ export function App() {
   const [campaignFeedback, setCampaignFeedback] = useState<StrategicPlanResult | null>(null);
   const [activationPayload, setActivationPayload] = useState<WorkspaceActivationPayload | null>(() => readWorkspaceActivationPayload());
   const [actionCanvasPayload, setActionCanvasPayload] = useState<any | null>(null);
+  const [workspaceTourDismissed, setWorkspaceTourDismissed] = useState(false);
+  const [workspaceTourStep, setWorkspaceTourStep] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [upgradePrompt, setUpgradePrompt] = useState<UpgradePromptState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -319,8 +367,11 @@ export function App() {
       setBillingState(billing);
       const pendingActivation = readWorkspaceActivationPayload();
       if (pendingActivation) setActivationPayload(pendingActivation);
-      if (pendingActivation?.persisted?.actionItemId) {
-        const canvasPayload = await api.getActionItemCanvas(pendingActivation.persisted.actionItemId).catch(() => null);
+      const stagedActionItemId =
+        pendingActivation?.persisted?.actionItemId ??
+        workspaceState.activeCycle?.refs.actionItemId;
+      if (stagedActionItemId) {
+        const canvasPayload = await api.getActionItemCanvas(stagedActionItemId).catch(() => null);
         setActionCanvasPayload(canvasPayload);
       } else {
         setActionCanvasPayload(null);
@@ -407,8 +458,36 @@ export function App() {
   }, [api]);
 
   const workspaceView = useMemo(
-    () => buildWorkspaceView(workspace, draft, pendingStrategicSessionId, campaignFeedback),
-    [workspace, draft, pendingStrategicSessionId, campaignFeedback],
+    () => buildWorkspaceView(workspace, draft, pendingStrategicSessionId, campaignFeedback, actionCanvasPayload),
+    [workspace, draft, pendingStrategicSessionId, campaignFeedback, actionCanvasPayload],
+  );
+
+  useEffect(() => {
+    if (!session) {
+      setWorkspaceTourDismissed(false);
+      return;
+    }
+    setWorkspaceTourDismissed(localStorage.getItem(userWorkspaceTourKey(session.user.id)) === 'true');
+  }, [session?.user.id]);
+
+  const showWorkspaceTour = Boolean(session && activationPayload && !workspaceTourDismissed);
+
+  const completeWorkspaceTour = useCallback(() => {
+    if (session) {
+      localStorage.setItem(userWorkspaceTourKey(session.user.id), 'true');
+    }
+    setWorkspaceTourDismissed(true);
+    setWorkspaceTourStep(0);
+  }, [session]);
+
+  const conductorSuggestedPrompts = useMemo(
+    () => buildContextualSuggestedPrompts({
+      showWorkspaceTour,
+      activationPayload,
+      actionCanvasPayload,
+      backendPrompts: workspace?.conductor.suggestedPrompts ?? [],
+    }),
+    [showWorkspaceTour, activationPayload, actionCanvasPayload, workspace?.conductor.suggestedPrompts],
   );
 
   useEffect(() => {
@@ -1446,12 +1525,32 @@ export function App() {
         const snapshot = JSON.parse(snapshotRaw);
         
         // 2. Persist the plan to the backend
+        const campaignsForFinalize = (snapshot.proposedCampaigns || []).map((campaign: any) => ({
+          id: campaign.id,
+          title: campaign.title,
+          description: campaign.description,
+          laneTitle: campaign.laneTitle,
+          targetSegment: campaign.targetSegment,
+          goalMetric: campaign.goalMetric,
+          messagingHook: campaign.messagingHook,
+          duration: campaign.duration,
+          channels: campaign.configuration?.channels || campaign.channels || (campaign.channel ? [campaign.channel] : []),
+        }));
+
+        const actionLanesForFinalize = (snapshot.proposedActionLanes || []).map((lane: any) => ({
+          id: lane.id,
+          title: lane.title,
+          description: lane.description,
+          type: lane.type,
+          campaignIds: Array.isArray(lane.campaignIds) ? lane.campaignIds : (lane.campaignId ? [lane.campaignId] : []),
+          tactics: lane.tactics,
+          requiredConnectors: lane.requiredConnectors,
+        }));
+
+        // 2. Persist the plan to the backend
         const result = await api.finalizeOnboardingPlan({
-          campaigns: (snapshot.proposedCampaigns || []).map((c: any) => ({
-            ...c,
-            channels: c.configuration?.channels || (c.channel ? [c.channel] : []),
-          })),
-          actionLanes: snapshot.proposedActionLanes || [],
+          campaigns: campaignsForFinalize,
+          actionLanes: actionLanesForFinalize,
           selectedCampaignIds: snapshot.selectedCampaigns || [],
           selectedActionLaneIds: snapshot.selectedActionLanes || [],
           comprehensiveSynthesis: snapshot.comprehensiveSynthesis,
@@ -1497,7 +1596,9 @@ export function App() {
           };
 
           localStorage.setItem(WORKSPACE_ACTIVATION_PAYLOAD_KEY, JSON.stringify(payload));
+          localStorage.removeItem(userWorkspaceTourKey(session.user.id));
           setActivationPayload(payload);
+          setWorkspaceTourDismissed(false);
           
           if (payload.persisted?.actionItemId) {
             const canvasPayload = await api.getActionItemCanvas(payload.persisted.actionItemId).catch(() => null);
@@ -1590,11 +1691,11 @@ export function App() {
   }
 
   return (
-    <main className={`app-shell ${conductorExpanded ? 'conductor-expanded' : 'conductor-collapsed'}`}>
+    <main className={`app-shell ${conductorExpanded ? 'conductor-expanded' : 'conductor-collapsed'} ${showWorkspaceTour ? `workspace-tour-active workspace-tour-step-${workspaceTourSteps[workspaceTourStep]?.key ?? 'conductor'}` : ''}`}>
       <ConductorPane
         userEmail={session.user.email}
         messages={messages}
-        suggestedPrompts={workspace?.conductor.suggestedPrompts ?? []}
+        suggestedPrompts={conductorSuggestedPrompts}
         currentReasoningSummary={workspace?.conductor.currentReasoningSummary ?? null}
         isWorking={isWorking}
         onSend={sendMessage}
@@ -1639,6 +1740,7 @@ export function App() {
             campaignFeedback={campaignFeedback}
             activationPayload={activationPayload}
             actionCanvasPayload={actionCanvasPayload}
+            showWorkspaceTour={showWorkspaceTour}
             isWorking={isWorking}
             onCommand={runCommand}
             onCaptureActionFeedback={captureActionFeedback}
@@ -1698,12 +1800,82 @@ export function App() {
           notice={notice}
         />
       ) : null}
+      {showWorkspaceTour && activationPayload ? (
+        <WorkspaceTourOverlay
+          payload={activationPayload}
+          currentStep={workspaceTourStep}
+          isWorking={isWorking}
+          onStepChange={setWorkspaceTourStep}
+          onComplete={completeWorkspaceTour}
+        />
+      ) : null}
     </main>
   );
 }
 
+function WorkspaceTourOverlay(props: {
+  payload: WorkspaceActivationPayload;
+  currentStep: number;
+  isWorking: boolean;
+  onStepChange: (step: number) => void;
+  onComplete: () => void;
+}) {
+  const step = workspaceTourSteps[props.currentStep] ?? workspaceTourSteps[0]!;
+  const isFirst = props.currentStep === 0;
+  const isLast = props.currentStep === workspaceTourSteps.length - 1;
 
-
+  return (
+    <div className={`workspace-tour-overlay position-${step.position}`} role="dialog" aria-modal="true" aria-label="Workspace tour">
+      <div className="workspace-tour-backdrop" />
+      <div className="workspace-tour-card">
+        <div className="workspace-tour-card-header">
+          <div>
+            <p className="eyebrow">Workspace tour</p>
+            <h2>{step.title}</h2>
+          </div>
+          <span>{props.currentStep + 1}/{workspaceTourSteps.length}</span>
+        </div>
+        <p>{step.copy}</p>
+        <div className="workspace-tour-focus">
+          <span>{step.label}</span>
+          <strong>{step.key === 'action' ? props.payload.lane.title : props.payload.campaign.title}</strong>
+        </div>
+        <div className="workspace-tour-progress">
+          {workspaceTourSteps.map((tourStep, index) => (
+            <button
+              key={tourStep.key}
+              type="button"
+              aria-label={`Go to ${tourStep.label}`}
+              className={index === props.currentStep ? 'active' : ''}
+              onClick={() => props.onStepChange(index)}
+            />
+          ))}
+        </div>
+        <div className="workspace-tour-actions">
+          <button type="button" onClick={props.onComplete} disabled={props.isWorking}>
+            Skip
+          </button>
+          <div>
+            <button type="button" onClick={() => props.onStepChange(Math.max(0, props.currentStep - 1))} disabled={props.isWorking || isFirst}>
+              Back
+            </button>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                if (isLast) props.onComplete();
+                else props.onStepChange(props.currentStep + 1);
+              }}
+              disabled={props.isWorking}
+            >
+              {isLast ? 'Finish tour' : 'Next'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SettingsModal(props: {
   user: AuthResponse['user'];
@@ -2620,16 +2792,75 @@ function stepClass(phase: string | undefined, step: string, index: number) {
   return `cycle-step ${active ? 'active' : ''}`;
 }
 
+function buildContextualSuggestedPrompts(input: {
+  showWorkspaceTour: boolean;
+  activationPayload: WorkspaceActivationPayload | null;
+  actionCanvasPayload: any | null;
+  backendPrompts: string[];
+}) {
+  if (input.showWorkspaceTour) {
+    return [
+      'Walk me through the workspace.',
+      'Why is this the first campaign?',
+      'What happens before the first action?',
+    ];
+  }
+
+  if (input.actionCanvasPayload) {
+    const needsRecipient = actionCanvasNeedsRecipientQueue(input.actionCanvasPayload);
+    if (needsRecipient) {
+      return [
+        'Rank recipients for this campaign.',
+        'Explain why this channel goes first.',
+        'Change the recipient criteria.',
+      ];
+    }
+    return [
+      'Explain this action.',
+      'Revise the draft angle.',
+      'What should happen after I send it?',
+    ];
+  }
+
+  const genericPrompts = new Set([
+    'What should I focus on next?',
+    'Show my current momentum.',
+    'Find the next opportunity cycle.',
+  ]);
+  return input.backendPrompts.filter((prompt) => !genericPrompts.has(prompt)).slice(0, 3);
+}
+
+function actionCanvasNeedsRecipientQueue(payload: any): boolean {
+  const targetLabel = String(payload?.context?.targetLabel || '').trim().toLowerCase();
+  const title = String(payload?.actionItem?.title || '').toLowerCase();
+  const instructions = String(payload?.actionItem?.instructions || '').toLowerCase();
+  const hasConcreteTarget = Boolean(
+    payload?.actionItem?.targetPersonId ||
+    payload?.actionItem?.targetCompanyId ||
+    payload?.context?.targetPersonName ||
+    payload?.context?.targetCompanyName,
+  );
+
+  if (hasConcreteTarget) return false;
+  if (['email', 'linkedin_dm'].includes(payload?.panelType) && ['person', 'company', 'campaign audience', ''].includes(targetLabel)) {
+    return true;
+  }
+  return title.includes('select') || instructions.includes('choose the first contact') || instructions.includes('suggested recipients');
+}
+
 function buildWorkspaceView(
   workspace: WorkspaceState | null,
   draft: OutreachDraft | null,
   pendingStrategicSessionId: string | null,
   campaignFeedback: StrategicPlanResult | null,
+  actionCanvasPayload?: any | null,
 ): WorkspaceViewState {
   const backendCanvas = workspace?.canvas;
   const mode = draft
     ? 'draft_edit'
-    : campaignFeedback
+    : actionCanvasPayload
+      ? 'execution_confirm'
+      : campaignFeedback
       ? 'campaign_review'
       : pendingStrategicSessionId
         ? 'goal_planning'
@@ -2638,7 +2869,9 @@ function buildWorkspaceView(
   const recommendation = workspace?.recommendation ?? null;
   const action = draft
     ? 'draft_email'
-    : campaignFeedback
+    : actionCanvasPayload
+      ? 'confirm_send'
+      : campaignFeedback
       ? 'confirm_campaign'
       : pendingStrategicSessionId
         ? 'confirm_goal'
@@ -2647,6 +2880,7 @@ function buildWorkspaceView(
     action,
     title:
       draft?.subject ??
+      actionCanvasPayload?.actionItem?.title ??
       (campaignFeedback ? campaignFeedback.campaign.title : undefined) ??
       (pendingStrategicSessionId ? 'Goal proposal is ready' : undefined) ??
       backendCanvas?.title ??
@@ -2655,6 +2889,7 @@ function buildWorkspaceView(
       (mode === 'goal_planning' ? 'Goal proposal' : 'Opportunity cycle engine'),
     explanation:
       (campaignFeedback ? buildCampaignBriefText(campaignFeedback) : undefined) ??
+      actionCanvasPayload?.context?.primaryInstruction ??
       backendCanvas?.explanation ??
       cycle?.whyItMatters ??
       recommendation?.aiExplanation ??
@@ -2662,6 +2897,8 @@ function buildWorkspaceView(
       'The Conductor will guide the next step and the Canvas will keep the current action focused.',
     phase: draft
       ? 'executed'
+      : actionCanvasPayload?.actionItem?.status
+        ? actionCanvasPayload.actionItem.status
       : campaignFeedback
         ? 'pursued'
         : cycle?.phase ?? backendCanvas?.phase ?? (pendingStrategicSessionId ? 'pursued' : recommendation?.type ?? 'ready'),
@@ -2675,7 +2912,15 @@ function buildWorkspaceView(
             : {}),
           ...(workspace?.conductor.activeConversationId ? { conversationId: workspace.conductor.activeConversationId } : {}),
         }
-      : backendCanvas?.refs ?? cycle?.refs ?? {},
+      : actionCanvasPayload?.actionItem
+        ? {
+            ...(backendCanvas?.refs ?? cycle?.refs ?? {}),
+            campaignId: actionCanvasPayload.actionItem.campaignId,
+            actionLaneId: actionCanvasPayload.actionItem.actionLaneId,
+            actionCycleId: actionCanvasPayload.actionItem.actionCycleId,
+            actionItemId: actionCanvasPayload.actionItem.id,
+          }
+        : backendCanvas?.refs ?? cycle?.refs ?? {},
     allowedActions: new Set(
       campaignFeedback
         ? ['continue']

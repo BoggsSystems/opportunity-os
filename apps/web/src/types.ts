@@ -56,6 +56,9 @@ export interface CanvasState {
     campaignId?: string;
     opportunityId?: string;
     taskId?: string;
+    actionLaneId?: string;
+    actionCycleId?: string;
+    actionItemId?: string;
     discoveredOpportunityId?: string;
     discoveryScanId?: string;
     discoveryTargetId?: string;
@@ -379,6 +382,9 @@ export interface WorkspaceCycleSummary {
     campaignId?: string;
     opportunityId?: string;
     taskId?: string;
+    actionLaneId?: string;
+    actionCycleId?: string;
+    actionItemId?: string;
     discoveredOpportunityId?: string;
     conversationId?: string;
   };
