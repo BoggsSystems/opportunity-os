@@ -974,6 +974,59 @@ Rules:
     }
   }
 
+  async refineOutreachDraft(context: {
+    actionItemId: string;
+    currentContent: string;
+    instructions: string;
+    campaignTitle?: string;
+    targetName?: string;
+    targetTitle?: string;
+    targetCompany?: string;
+  }): Promise<{ content: string; status: 'refined' }> {
+    this.logger.log(`Refining outreach draft for action ${context.actionItemId}`);
+    
+    const prompt = `
+You are the Outreach Strategist for a Go-To-Market team.
+Your task is to refine and rewrite an existing outreach message based on specific user feedback.
+
+TARGET RECIPIENT:
+Name: ${context.targetName || 'Unknown'}
+Title: ${context.targetTitle || 'Unknown'}
+Company: ${context.targetCompany || 'Unknown'}
+
+CAMPAIGN CONTEXT:
+${context.campaignTitle || 'Outreach Campaign'}
+
+CURRENT DRAFT:
+"""
+${context.currentContent}
+"""
+
+USER REFINEMENT INSTRUCTIONS:
+"${context.instructions}"
+
+Your Task:
+Rewrite the draft incorporating the user's feedback. Keep it professional, concise, and focused on driving a response.
+Respond ONLY with the raw text of the new draft. Do not include any explanations, JSON, or markdown blocks like \`\`\`.
+`.trim();
+
+    try {
+      const response = await this.aiProviderFactory.getProvider().generateText({
+        prompt,
+        temperature: 0.4,
+        maxTokens: 800,
+      });
+      return {
+        status: 'refined',
+        content: response.content.trim()
+      };
+    } catch (error) {
+      this.logger.error(`Failed to refine outreach draft ${context.actionItemId}`, error);
+      throw error;
+    }
+  }
+
+
   private truncateForPrompt(value: string | null | undefined, maxLength: number): string {
     if (!value) return '';
     return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;

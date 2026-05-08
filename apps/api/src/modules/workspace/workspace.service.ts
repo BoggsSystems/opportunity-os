@@ -175,6 +175,8 @@ export class WorkspaceService {
         return this.buildRecipientQueueFromCommand(userId, dto);
       case 'select_recipient':
         return this.selectRecipientFromCommand(userId, dto);
+      case 'clear_recipient':
+        return this.clearRecipientFromCommand(userId, dto);
       default:
         return assertNever(dto.type);
     }
@@ -1056,6 +1058,47 @@ export class WorkspaceService {
     }
 
     return { success: true, personId: finalPersonId };
+  }
+
+  private async clearRecipientFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const actionItemId = this.stringInput(dto, 'actionItemId');
+    if (!actionItemId) throw new NotFoundException('actionItemId is required');
+
+    const actionItem = await prisma.actionItem.findUnique({
+      where: { id: actionItemId },
+    });
+    if (!actionItem) throw new NotFoundException('Action item not found');
+    if (actionItem.userId !== userId) throw new NotFoundException('Action item not found');
+
+    const currentPersonId = actionItem.targetPersonId;
+
+    // 1. Reset action item target and status
+    await prisma.actionItem.update({
+      where: { id: actionItemId },
+      data: {
+        targetPersonId: null,
+        targetCompanyId: null,
+        status: 'suggested', // revert back from 'ready'
+      },
+    });
+
+    // 2. Revert queue item status if we had one linked to this person
+    if (currentPersonId) {
+      await prisma.campaignTargetQueueItem.updateMany({
+        where: {
+          userId,
+          campaignId: actionItem.campaignId,
+          actionLaneId: actionItem.actionLaneId,
+          personId: currentPersonId,
+          status: CampaignTargetStatus.SELECTED,
+        },
+        data: {
+          status: CampaignTargetStatus.PROPOSED,
+        },
+      });
+    }
+
+    return { success: true, actionItemId };
   }
 
   private async assertOwnedCommandRefs(

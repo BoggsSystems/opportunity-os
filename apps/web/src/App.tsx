@@ -1266,6 +1266,41 @@ export function App() {
     }
   }
 
+  async function refineOutreachDraft(input: {
+    actionItemId: string;
+    currentContent: string;
+    instructions: string;
+    campaignTitle?: string;
+    targetName?: string;
+    targetTitle?: string;
+    targetCompany?: string;
+  }) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const result = await api.refineDraft(input);
+      
+      const canvasPayload = await api.getActionItemCanvas(input.actionItemId);
+      setActionCanvasPayload(canvasPayload);
+      
+      setNotice({
+        title: 'Draft Refined',
+        detail: 'The AI has updated the draft based on your instructions.',
+        tone: 'success',
+      });
+      return result.content;
+    } catch (error) {
+      setNotice({
+        title: 'Refinement failed',
+        detail: error instanceof Error ? error.message : 'The backend could not refine the draft.',
+        tone: 'error',
+      });
+      throw error;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   async function startDiscoveryScan() {
     setCampaignFeedback(null);
     const campaign = campaignWorkspace?.campaign;
@@ -1616,6 +1651,25 @@ export function App() {
       await loadWorkspace();
     } catch (e) {
       console.error('Failed to select recipient', e);
+      throw e;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function clearRecipient(actionItemId: string) {
+    setIsWorking(true);
+    try {
+      await api.executeWorkspaceCommand({
+        type: 'clear_recipient',
+        input: { actionItemId },
+      });
+      
+      const canvasPayload = await api.getActionItemCanvas(actionItemId);
+      setActionCanvasPayload(canvasPayload);
+      await loadWorkspace();
+    } catch (e) {
+      console.error('Failed to clear recipient', e);
       throw e;
     } finally {
       setIsWorking(false);
@@ -1977,6 +2031,8 @@ export function App() {
             onRefreshCommandQueue={refreshCommandQueue}
             onGenerateDraft={generateDraft}
             onGenerateDraftForOpportunity={generateDraftForOpportunity}
+            onRefineDraft={refineOutreachDraft}
+            onClearRecipient={clearRecipient}
             onStartDiscoveryScan={startDiscoveryScan}
             onAcceptDiscoveryTarget={acceptDiscoveryTarget}
             onRejectDiscoveryTarget={rejectDiscoveryTarget}

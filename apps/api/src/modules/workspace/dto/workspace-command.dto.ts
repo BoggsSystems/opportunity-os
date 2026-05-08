@@ -23,6 +23,7 @@ console.log('[DEBUG] WorkspaceCommandDto module loaded. Allowed types:', [
   'set_workspace_mode',
   'build_recipient_queue',
   'select_recipient',
+  'clear_recipient',
 ]);
 
 export const WORKSPACE_COMMAND_TYPES = [
@@ -43,6 +44,7 @@ export const WORKSPACE_COMMAND_TYPES = [
   'set_workspace_mode',
   'build_recipient_queue',
   'select_recipient',
+  'clear_recipient',
 ] as const;
 
 export type WorkspaceCommandType = (typeof WORKSPACE_COMMAND_TYPES)[number];

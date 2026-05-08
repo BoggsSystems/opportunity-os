@@ -255,11 +255,17 @@ export class ApiClient {
     return this.requestForm<ContentUploadResult>('/discovery/content/upload', formData);
   }
 
-  async executeWorkspaceCommand(body: Record<string, unknown>) {
-    console.log(`[API] Executing workspace command:`, body);
-    return this.request<unknown>('/workspace/commands', {
+  async executeWorkspaceCommand(payload: {
+    type: 'confirm_offering' | 'adjust_offering' | 'reject_offering' | 'start_discovery_scan' | 'accept_discovery_target' | 'reject_discovery_target' | 'promote_discovery_targets' | 'activate_signal' | 'dismiss_signal' | 'dismiss_cycle' | 'complete_cycle' | 'create_task' | 'advance_opportunity' | 'activate_campaign' | 'set_workspace_mode' | 'build_recipient_queue' | 'select_recipient' | 'clear_recipient';
+    signalId?: string;
+    cycleId?: string;
+    campaignId?: string;
+    input?: Record<string, unknown>;
+    reason?: string;
+  }) {
+    return this.request('/workspace/command', {
       method: 'POST',
-      body,
+      body: payload,
     });
   }
 
@@ -685,6 +691,21 @@ export class ApiClient {
 
   async generateFollowUpDraft(opportunityId: string) {
     return this.request<OutreachDraft>(`/outreach/follow-up/${encodeURIComponent(opportunityId)}`);
+  }
+
+  async refineDraft(input: {
+    actionItemId: string;
+    currentContent: string;
+    instructions: string;
+    campaignTitle?: string;
+    targetName?: string;
+    targetTitle?: string;
+    targetCompany?: string;
+  }) {
+    return this.request('/ai/refine-outreach', {
+      method: 'POST',
+      body: input,
+    });
   }
 
   async sendDraft(draft: OutreachDraft) {

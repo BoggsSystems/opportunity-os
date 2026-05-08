@@ -105,6 +105,16 @@ interface ActiveWorkspaceProps {
   onRefreshCommandQueue: () => Promise<void>;
   onGenerateDraft: () => Promise<void>;
   onGenerateDraftForOpportunity: (opportunityId: string, kind?: 'initial' | 'follow_up') => Promise<void>;
+  onRefineDraft: (input: {
+    actionItemId: string;
+    currentContent: string;
+    instructions: string;
+    campaignTitle?: string;
+    targetName?: string;
+    targetTitle?: string;
+    targetCompany?: string;
+  }) => Promise<string>;
+  onClearRecipient: (actionItemId: string) => Promise<void>;
   onStartDiscoveryScan: () => Promise<void>;
   onAcceptDiscoveryTarget: (targetId: string) => Promise<void>;
   onRejectDiscoveryTarget: (targetId: string) => Promise<void>;
@@ -247,8 +257,10 @@ const ActionCanvasShell: React.FC<{
   onSaveActionDraft: ActiveWorkspaceProps['onSaveActionDraft'];
   onBuildRecipientQueue: ActiveWorkspaceProps['onBuildRecipientQueue'];
   onSelectRecipient: ActiveWorkspaceProps['onSelectRecipient'];
+  onClearRecipient: ActiveWorkspaceProps['onClearRecipient'];
+  onRefineDraft: ActiveWorkspaceProps['onRefineDraft'];
   campaignWorkspace: CampaignWorkspace | null;
-}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft, onBuildRecipientQueue, onSelectRecipient, campaignWorkspace }) => {
+}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft, onBuildRecipientQueue, onSelectRecipient, onClearRecipient, onRefineDraft, campaignWorkspace }) => {
   const [feedbackText, setFeedbackText] = useState('');
   const [screenshotUrl, setScreenshotUrl] = useState('');
   const actionItem = payload.actionItem;
@@ -281,7 +293,23 @@ const ActionCanvasShell: React.FC<{
 
       <section className="action-canvas-context">
         <div><span>Lane</span><strong>{payload.actionLane?.title || 'Action lane'}</strong></div>
-        <div><span>Target</span><strong>{payload.context?.targetLabel || 'Campaign audience'}</strong></div>
+        <div>
+          <span>Target</span>
+          <strong>
+            {payload.context?.targetLabel || 'Campaign audience'}
+            {!shouldPrepareRecipientQueue && (payload.actionItem?.targetPersonId || payload.actionItem?.targetCompanyId) && (
+              <button 
+                type="button"
+                className="text-btn btn-sm" 
+                onClick={() => onClearRecipient(payload.actionItem.id)} 
+                disabled={isWorking} 
+                style={{ marginLeft: '12px', fontSize: '0.8em', textDecoration: 'underline' }}
+              >
+                Change Target
+              </button>
+            )}
+          </strong>
+        </div>
         <div><span>Provider</span><strong>{payload.context?.externalProvider || 'Manual'}</strong></div>
       </section>
 
@@ -290,8 +318,7 @@ const ActionCanvasShell: React.FC<{
         isWorking={isWorking}
         onConfirmCanvasAction={onConfirmCanvasAction}
         onSaveActionDraft={onSaveActionDraft}
-        onBuild={onBuildRecipientQueue}
-        onSelect={onSelectRecipient}
+        onRefineDraft={onRefineDraft}
         campaignWorkspace={campaignWorkspace}
       />
 
@@ -329,7 +356,7 @@ const ActionCanvasShell: React.FC<{
   );
 };
 
-const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft }) => {
+const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft, onRefineDraft }) => {
   const [draft, setDraft] = useState(payload.actionItem?.draftContent || payload.actionItem?.instructions || '');
 
   return (
@@ -344,6 +371,21 @@ const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onCo
             placeholder="Draft the email for this recipient and campaign angle..."
           />
         </label>
+        {onRefineDraft && (
+          <DraftRefiner
+            isWorking={isWorking}
+            onRefine={async (instructions) => {
+              const result = await onRefineDraft({
+                actionItemId: payload.actionItem.id,
+                currentContent: draft,
+                instructions,
+                campaignTitle: payload.campaign?.title,
+                targetName: payload.context?.targetPersonName,
+              });
+              setDraft(result);
+            }}
+          />
+        )}
       </div>
       <div className="action-command-row">
         <button type="button" onClick={() => onSaveActionDraft({ actionItemId: payload.actionItem.id, draftContent: draft })} disabled={isWorking || !draft.trim()}>
@@ -602,7 +644,7 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
   );
 };
 
-const LinkedInDmActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft }) => {
+const LinkedInDmActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft, onRefineDraft }) => {
   const [draft, setDraft] = useState(payload.actionItem?.draftContent || payload.actionItem?.instructions || '');
 
   return (
@@ -617,6 +659,21 @@ const LinkedInDmActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking,
             placeholder="Draft the LinkedIn DM or execution notes..."
           />
         </label>
+        {onRefineDraft && (
+          <DraftRefiner
+            isWorking={isWorking}
+            onRefine={async (instructions) => {
+              const result = await onRefineDraft({
+                actionItemId: payload.actionItem.id,
+                currentContent: draft,
+                instructions,
+                campaignTitle: payload.campaign?.title,
+                targetName: payload.context?.targetPersonName,
+              });
+              setDraft(result);
+            }}
+          />
+        )}
       </div>
       <div className="action-command-row">
         {payload.context?.externalUrl ? (
@@ -674,11 +731,44 @@ const GenericActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, on
   </section>
 );
 
+const DraftRefiner: React.FC<{
+  onRefine: (instructions: string) => Promise<void>;
+  isWorking: boolean;
+}> = ({ onRefine, isWorking }) => {
+  const [instructions, setInstructions] = useState('');
+
+  const handleRefine = () => {
+    if (!instructions.trim()) return;
+    void onRefine(instructions).then(() => setInstructions(''));
+  };
+
+  return (
+    <div className="draft-refiner-toolbar" style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+      <input
+        type="text"
+        className="form-control"
+        placeholder="Ask the AI to refine this draft (e.g. 'Make it shorter')"
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleRefine();
+        }}
+        disabled={isWorking}
+        style={{ flex: 1 }}
+      />
+      <button type="button" className="secondary-btn" onClick={handleRefine} disabled={isWorking || !instructions.trim()}>
+        Refine
+      </button>
+    </div>
+  );
+};
+
 interface ActionPanelProps {
   payload: any;
   isWorking: boolean;
   onConfirmCanvasAction: ActiveWorkspaceProps['onConfirmCanvasAction'];
   onSaveActionDraft: ActiveWorkspaceProps['onSaveActionDraft'];
+  onRefineDraft?: ActiveWorkspaceProps['onRefineDraft'];
   campaignWorkspace?: CampaignWorkspace | null;
 }
 
@@ -1577,8 +1667,10 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
           onCaptureActionFeedback={props.onCaptureActionFeedback}
           onConfirmCanvasAction={props.onConfirmCanvasAction}
           onSaveActionDraft={props.onSaveActionDraft}
-          onBuildRecipientQueue={props.onBuildRecipientQueue}
-          onSelectRecipient={props.onSelectRecipient}
+          onBuildRecipientQueue={props.onBuildRecipientQueue!}
+          onSelectRecipient={props.onSelectRecipient!}
+          onClearRecipient={props.onClearRecipient!}
+          onRefineDraft={props.onRefineDraft!}
           campaignWorkspace={props.campaignWorkspace}
         />
       ) : null}

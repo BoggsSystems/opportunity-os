@@ -111,6 +111,50 @@ export class AiController {
     }
   }
 
+  @Post('refine-outreach')
+  async refineOutreachDraft(
+    @Body() body: {
+      actionItemId: string;
+      currentContent: string;
+      instructions: string;
+      campaignTitle?: string;
+      targetName?: string;
+      targetTitle?: string;
+      targetCompany?: string;
+    },
+    @Req() req: any
+  ) {
+    if (!body.actionItemId || !body.currentContent || !body.instructions) {
+      throw new HttpException(
+        { message: 'actionItemId, currentContent, and instructions are required' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      const aiAllowance = await this.consumeAiRequest(req.user?.id);
+      if (aiAllowance) {
+        return aiAllowance;
+      }
+
+      const result = await this.aiService.refineOutreachDraft(body);
+      return {
+        success: true,
+        ...result,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      throw new HttpException(
+        {
+          success: false,
+          message: 'Outreach refinement failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Public()
   @Post('converse')
   async converse(@Body() body: {
