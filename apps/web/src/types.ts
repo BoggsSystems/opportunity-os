@@ -279,7 +279,7 @@ export type OfferingType =
   | 'job_profile'
   | 'role_candidacy'
   | 'other';
-export type OfferingStatus = 'draft' | 'active' | 'archived';
+export type OfferingStatus = 'draft' | 'active' | 'inactive' | 'archived';
 
 export interface OfferingSummary {
   id: string;
@@ -290,6 +290,33 @@ export interface OfferingSummary {
   status: OfferingStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+export type CampaignStatus = 'PLANNING' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED' | string;
+
+export interface CampaignSummary {
+  id: string;
+  userId?: string;
+  title: string;
+  description?: string | null;
+  objective?: string | null;
+  successDefinition?: string | null;
+  strategicAngle?: string | null;
+  targetSegment?: string | null;
+  status: CampaignStatus;
+  offeringId?: string | null;
+  goalId?: string | null;
+  priorityScore?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+  offering?: Pick<OfferingSummary, 'id' | 'title' | 'offeringType'> | null;
+  goal?: { id: string; title: string } | null;
+  _count?: {
+    actionLanes?: number;
+    actionCycles?: number;
+    actionItems?: number;
+  };
+  actionLanes?: Array<any>;
 }
 
 export interface OfferingPositioningSummary {
@@ -491,6 +518,7 @@ export interface CampaignWorkspace {
     goal?: Record<string, unknown> | null;
   };
   prospects: CampaignProspectSummary[];
+  targetQueue: CampaignTargetQueueItemSummary[];
   queues: {
     draft: CampaignProspectSummary[];
     followUp: CampaignProspectSummary[];
@@ -507,6 +535,26 @@ export interface CampaignWorkspace {
   discovery?: {
     scans: DiscoveryScanSummary[];
   };
+}
+
+export interface CampaignTargetQueueItemSummary {
+  id: string;
+  queueItemId: string;
+  campaignId: string;
+  actionLaneId?: string | null;
+  personId?: string | null;
+  connectionRecordId?: string | null;
+  source: 'person' | 'connection';
+  name: string;
+  title?: string | null;
+  company?: string | null;
+  email?: string | null;
+  linkedinUrl?: string | null;
+  score: number;
+  reason?: string | null;
+  criteria?: string | null;
+  status: string;
+  actionLane?: { id: string; title: string } | null;
 }
 
 export type CommandQueueItemStatus =

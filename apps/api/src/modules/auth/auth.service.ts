@@ -1554,10 +1554,14 @@ export class AuthService {
   async scrubUser(userId: string) {
     console.log(`🧹 [AuthService] Scrubbing all data for user: ${userId}`);
     try {
-      // Deleting the user will cascade to almost everything due to 'onDelete: Cascade' in schema
-      await prisma.user.delete({
-        where: { id: userId },
+      await prisma.$transaction(async (tx) => {
+        // Deleting the user cascades through all user-owned workspace records 
+        // including concepts, proof points, campaigns, and connectors.
+        await tx.user.delete({
+          where: { id: userId },
+        });
       });
+
       return { success: true, message: "User and all associated data scrubbed successfully." };
     } catch (error) {
       console.error(`❌ [AuthService] Failed to scrub user ${userId}:`, error);

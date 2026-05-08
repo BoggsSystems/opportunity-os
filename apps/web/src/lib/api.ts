@@ -10,6 +10,7 @@ import type {
   AdminUsersResult,
   CapabilityCheckResult,
   CampaignWorkspace,
+  CampaignSummary,
   CommandQueueState,
   CommandQueueItemStatus,
   CheckoutSession,
@@ -157,6 +158,37 @@ export class ApiClient {
   async updateOffering(id: string, input: Partial<Pick<OfferingSummary, 'title' | 'description' | 'offeringType' | 'status'>>) {
     return this.request<OfferingSummary>(`/offerings/${encodeURIComponent(id)}`, {
       method: 'PATCH',
+      body: input,
+    });
+  }
+
+  async listCampaigns(input: { status?: string } = {}) {
+    const query = new URLSearchParams();
+    if (input.status) query.set('status', input.status);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.request<CampaignSummary[]>(`/campaign-orchestration/campaigns${suffix}`);
+  }
+
+  async createCampaign(input: {
+    title: string;
+    description?: string;
+    objective?: string;
+    successDefinition?: string;
+    strategicAngle?: string;
+    targetSegment?: string;
+    offeringId?: string;
+    goalId?: string;
+    priorityScore?: number;
+  }) {
+    return this.request<CampaignSummary>('/campaign-orchestration/campaigns', {
+      method: 'POST',
+      body: input,
+    });
+  }
+
+  async updateCampaign(id: string, input: Partial<Pick<CampaignSummary, 'title' | 'description' | 'objective' | 'successDefinition' | 'strategicAngle' | 'targetSegment' | 'status' | 'priorityScore'>>) {
+    return this.request<CampaignSummary>(`/campaign-orchestration/campaigns/${encodeURIComponent(id)}`, {
+      method: 'PUT',
       body: input,
     });
   }

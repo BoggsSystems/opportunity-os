@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, UserRound, RefreshCw, Loader2 } from 'lucide-react';
+import { Users, UserRound, RefreshCw, Loader2, RotateCcw } from 'lucide-react';
 import type { WorkspaceState, SubscriptionSummary, UsageSummary, EntitlementSummary } from '../../types';
 
 interface WorkspaceTopBarProps {
@@ -11,6 +11,7 @@ interface WorkspaceTopBarProps {
   isLoading: boolean;
   onRefresh: () => void;
   onOpenSettings: () => void;
+  onPurgeAndSignOut: () => void | Promise<void>;
 }
 
 const emptyVelocity = {
@@ -101,6 +102,9 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = (props) => {
         </button>
         <button className="icon-button" onClick={props.onRefresh} title="Refresh workspace" type="button">
           {props.isLoading ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
+        </button>
+        <button className="danger-icon-button" onClick={() => void props.onPurgeAndSignOut()} title="Scrub backend data and sign out" type="button">
+          <RotateCcw size={18} />
         </button>
       </div>
     </header>

@@ -38,6 +38,7 @@ import type {
   AuthResponse,
   CanvasAction,
   CanvasState,
+  CampaignSummary,
   CampaignWorkspace,
   CampaignProspectSummary,
   CommandQueueItem,
@@ -48,6 +49,8 @@ import type {
   DiscoveryTargetSummary,
   EmailReadiness,
   OutreachDraft,
+  OfferingSummary,
+  OfferingType,
   PlanSummary,
   StrategicPlanResult,
   SubscriptionSummary,
@@ -208,6 +211,8 @@ export function App() {
   const api = useMemo(() => new ApiClient(session?.accessToken ?? null), [session?.accessToken]);
   const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
   const [campaignWorkspace, setCampaignWorkspace] = useState<CampaignWorkspace | null>(null);
+  const [offerings, setOfferings] = useState<OfferingSummary[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
   const [commandQueue, setCommandQueue] = useState<CommandQueueState | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<'command' | 'map'>('command');
   const [intelligenceArtifacts, setIntelligenceArtifacts] = useState<any[]>([]);
@@ -346,10 +351,12 @@ export function App() {
     if (!session) return;
     setIsBooting(true);
     try {
-      const [workspaceState, subscriptionState, usageState] = await Promise.all([
+      const [workspaceState, subscriptionState, usageState, offeringsState, campaignsState] = await Promise.all([
         api.getWorkspace(),
         api.getSubscription(),
         api.getUsage(),
+        api.listOfferings().catch(() => []),
+        api.listCampaigns().catch(() => []),
       ]);
       const queueState = await api.getTodayCommandQueue({ limit: 50 }).catch(() => null);
       const emailState = await api.getEmailReadiness().catch(() => null);
@@ -367,6 +374,8 @@ export function App() {
         : await api.getCurrentCampaignWorkspace().catch(() => null);
       setWorkspace(workspaceState);
       setCampaignWorkspace(campaignState);
+      setOfferings(offeringsState);
+      setCampaigns(campaignsState);
       setCommandQueue(queueState);
       setActiveConversationId((current) => current ?? workspaceState.conductor.activeConversationId);
       setSubscription(subscriptionState);
@@ -619,6 +628,8 @@ export function App() {
     setSession(null);
     setWorkspace(null);
     setCampaignWorkspace(null);
+    setOfferings([]);
+    setCampaigns([]);
     setCommandQueue(null);
     setIntelligenceArtifacts([]);
     setIntelligenceJobs([]);
@@ -640,12 +651,26 @@ export function App() {
     setView('landing');
   }
 
-  function extendedLogoutAndPurge() {
-    const confirmed = window.confirm('Clear local session, onboarding drafts, and cached workspace state for this browser?');
+  async function extendedLogoutAndPurge() {
+    const confirmed = window.confirm(
+      'Scrub this user and all associated backend data, clear local browser state, and sign out? This cannot be undone.',
+    );
     if (!confirmed) return;
-    localStorage.clear();
-    sessionStorage.clear();
-    window.location.href = '/';
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      await api.post('/auth/scrub');
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.href = '/';
+    } catch (error) {
+      setNotice({
+        title: 'Scrub failed',
+        detail: error instanceof Error ? error.message : 'The backend data purge could not be completed.',
+        tone: 'error',
+      });
+      setIsWorking(false);
+    }
   }
 
   async function runCommand(body: Record<string, unknown>, success: string) {
@@ -661,6 +686,98 @@ export function App() {
         detail: error instanceof Error ? error.message : 'The command could not be completed.',
         tone: 'error',
       });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function createMapOffering(input: { title: string; description?: string; offeringType: OfferingType }) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const offering = await api.createOffering(input);
+      setOfferings((current) => [offering, ...current.filter((item) => item.id !== offering.id)]);
+      setNotice({ title: 'Offering created', detail: `${offering.title} is now available in the operating map.`, tone: 'success' });
+      await loadWorkspace();
+      return offering;
+    } catch (error) {
+      setNotice({
+        title: 'Offering save failed',
+        detail: error instanceof Error ? error.message : 'The offering could not be created.',
+        tone: 'error',
+      });
+      return null;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function updateMapOffering(id: string, input: Partial<Pick<OfferingSummary, 'title' | 'description' | 'offeringType' | 'status'>>) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const offering = await api.updateOffering(id, input);
+      setOfferings((current) => current.map((item) => item.id === offering.id ? offering : item));
+      setNotice({ title: 'Offering updated', detail: `${offering.title} has been saved.`, tone: 'success' });
+      await loadWorkspace();
+      return offering;
+    } catch (error) {
+      setNotice({
+        title: 'Offering update failed',
+        detail: error instanceof Error ? error.message : 'The offering could not be updated.',
+        tone: 'error',
+      });
+      return null;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function createMapCampaign(input: {
+    title: string;
+    description?: string;
+    objective?: string;
+    successDefinition?: string;
+    strategicAngle?: string;
+    targetSegment?: string;
+    offeringId?: string;
+  }) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const campaign = await api.createCampaign(input);
+      setCampaigns((current) => [campaign, ...current.filter((item) => item.id !== campaign.id)]);
+      setNotice({ title: 'Campaign created', detail: `${campaign.title} is now part of the MAP structure.`, tone: 'success' });
+      await loadWorkspace();
+      return campaign;
+    } catch (error) {
+      setNotice({
+        title: 'Campaign save failed',
+        detail: error instanceof Error ? error.message : 'The campaign could not be created.',
+        tone: 'error',
+      });
+      return null;
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function updateMapCampaign(id: string, input: Partial<Pick<CampaignSummary, 'title' | 'description' | 'objective' | 'successDefinition' | 'strategicAngle' | 'targetSegment' | 'status'>>) {
+    setIsWorking(true);
+    setNotice(null);
+    try {
+      const campaign = await api.updateCampaign(id, input);
+      setCampaigns((current) => current.map((item) => item.id === campaign.id ? campaign : item));
+      setNotice({ title: 'Campaign updated', detail: `${campaign.title} has been saved.`, tone: 'success' });
+      await loadWorkspace();
+      return campaign;
+    } catch (error) {
+      setNotice({
+        title: 'Campaign update failed',
+        detail: error instanceof Error ? error.message : 'The campaign could not be updated.',
+        tone: 'error',
+      });
+      return null;
     } finally {
       setIsWorking(false);
     }
@@ -1453,7 +1570,7 @@ export function App() {
     }
   }
 
-  async function buildRecipientQueue(input: { campaignId: string; actionLaneId?: string; limit?: number; refinement?: string }) {
+  async function buildRecipientQueue(input: { campaignId: string; actionLaneId?: string; limit?: number; refinement?: string; forceRefresh?: boolean }) {
     setIsWorking(true);
     try {
       const response = await api.executeWorkspaceCommand({
@@ -1463,9 +1580,13 @@ export function App() {
           actionLaneId: input.actionLaneId,
           limit: input.limit,
           refinement: input.refinement,
+          forceRefresh: input.forceRefresh,
         },
       });
-      return (response as any).result;
+      const result = (response as any).result;
+      const updatedWorkspace = await api.getCampaignWorkspace(input.campaignId).catch(() => null);
+      if (updatedWorkspace) setCampaignWorkspace(updatedWorkspace);
+      return result;
     } catch (e) {
       console.error('Failed to build recipient queue', e);
       throw e;
@@ -1474,7 +1595,7 @@ export function App() {
     }
   }
 
-  async function selectRecipient(input: { actionItemId: string; personId?: string; connectionRecordId?: string }) {
+  async function selectRecipient(input: { actionItemId: string; personId?: string; connectionRecordId?: string; targetQueueItemId?: string }) {
     setIsWorking(true);
     try {
       await api.executeWorkspaceCommand({
@@ -1483,6 +1604,7 @@ export function App() {
           actionItemId: input.actionItemId,
           personId: input.personId,
           connectionRecordId: input.connectionRecordId,
+          targetQueueItemId: input.targetQueueItemId,
         },
       });
       
@@ -1786,6 +1908,7 @@ export function App() {
           isLoading={isBooting || isWorking}
           onRefresh={() => void loadWorkspace()}
           onOpenSettings={() => setSettingsOpen(true)}
+          onPurgeAndSignOut={extendedLogoutAndPurge}
         />
 
         {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
@@ -1804,6 +1927,8 @@ export function App() {
           <ActiveWorkspace
             workspace={workspace}
             campaignWorkspace={campaignWorkspace}
+            offerings={offerings}
+            campaigns={campaigns}
             emailReadiness={emailReadiness}
             commandQueue={commandQueue}
             intelligenceArtifacts={intelligenceArtifacts}
@@ -1822,6 +1947,10 @@ export function App() {
             showWorkspaceTour={showWorkspaceTour}
             isWorking={isWorking}
             onCommand={runCommand}
+            onCreateOffering={createMapOffering}
+            onUpdateOffering={updateMapOffering}
+            onCreateCampaign={createMapCampaign}
+            onUpdateCampaign={updateMapCampaign}
             onCaptureActionFeedback={captureActionFeedback}
             onConfirmCanvasAction={confirmCanvasAction}
             onSaveActionDraft={saveCanvasDraft}

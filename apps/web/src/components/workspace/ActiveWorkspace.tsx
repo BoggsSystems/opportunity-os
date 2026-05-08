@@ -3,10 +3,13 @@ import { RefreshCw, CheckCircle, AlertCircle, Info, Send, FileText, User, Layout
 import type {
   WorkspaceState,
   CampaignWorkspace,
+  CampaignSummary,
   CommandQueueItem,
   CommandQueueItemStatus,
   CommandQueueState,
   EmailReadiness,
+  OfferingSummary,
+  OfferingType,
   OutreachDraft,
   StrategicPlanResult
 } from '../../types';
@@ -55,6 +58,8 @@ interface WorkspaceActivationPayload {
 interface ActiveWorkspaceProps {
   workspace: WorkspaceState | null;
   campaignWorkspace: CampaignWorkspace | null;
+  offerings: OfferingSummary[];
+  campaigns: CampaignSummary[];
   emailReadiness: EmailReadiness | null;
   commandQueue: CommandQueueState | null;
   intelligenceArtifacts: any[];
@@ -73,6 +78,18 @@ interface ActiveWorkspaceProps {
   showWorkspaceTour: boolean;
   isWorking: boolean;
   onCommand: (body: Record<string, unknown>, success: string) => Promise<void>;
+  onCreateOffering: (input: { title: string; description?: string; offeringType: OfferingType }) => Promise<OfferingSummary | null>;
+  onUpdateOffering: (id: string, input: Partial<Pick<OfferingSummary, 'title' | 'description' | 'offeringType' | 'status'>>) => Promise<OfferingSummary | null>;
+  onCreateCampaign: (input: {
+    title: string;
+    description?: string;
+    objective?: string;
+    successDefinition?: string;
+    strategicAngle?: string;
+    targetSegment?: string;
+    offeringId?: string;
+  }) => Promise<CampaignSummary | null>;
+  onUpdateCampaign: (id: string, input: Partial<Pick<CampaignSummary, 'title' | 'description' | 'objective' | 'successDefinition' | 'strategicAngle' | 'targetSegment' | 'status'>>) => Promise<CampaignSummary | null>;
   onCaptureActionFeedback: (input: {
     actionItemId: string;
     bodyText: string;
@@ -83,7 +100,7 @@ interface ActiveWorkspaceProps {
   onSaveActionDraft: (input: { actionItemId: string; draftContent: string }) => Promise<any>;
   onSelectCommandQueueItem: (item: CommandQueueItem) => Promise<void>;
   onChangeMode: (mode: 'command' | 'map') => void;
-  onExtendedLogoutAndPurge: () => void;
+  onExtendedLogoutAndPurge: () => void | Promise<void>;
   onUpdateCommandQueueItem: (item: CommandQueueItem, status: CommandQueueItemStatus) => Promise<void>;
   onRefreshCommandQueue: () => Promise<void>;
   onGenerateDraft: () => Promise<void>;
@@ -95,8 +112,8 @@ interface ActiveWorkspaceProps {
   onConnectEmail: (providerName: 'gmail' | 'outlook', accessToken: string, emailAddress?: string) => Promise<void>;
   onStartOutlookOAuth: () => Promise<void>;
   onSyncEmail: () => Promise<void>;
-  onBuildRecipientQueue: (input: { campaignId: string; actionLaneId?: string; limit?: number; refinement?: string }) => Promise<any>;
-  onSelectRecipient: (input: { actionItemId: string; personId?: string; connectionRecordId?: string }) => Promise<void>;
+  onBuildRecipientQueue: (input: { campaignId: string; actionLaneId?: string; limit?: number; refinement?: string; forceRefresh?: boolean }) => Promise<any>;
+  onSelectRecipient: (input: { actionItemId: string; personId?: string; connectionRecordId?: string; targetQueueItemId?: string }) => Promise<void>;
   onDraftChange: (draft: OutreachDraft) => void;
   onSendDraft: () => Promise<void>;
   onCompleteCycle: () => Promise<void>;
@@ -230,7 +247,8 @@ const ActionCanvasShell: React.FC<{
   onSaveActionDraft: ActiveWorkspaceProps['onSaveActionDraft'];
   onBuildRecipientQueue: ActiveWorkspaceProps['onBuildRecipientQueue'];
   onSelectRecipient: ActiveWorkspaceProps['onSelectRecipient'];
-}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft, onBuildRecipientQueue, onSelectRecipient }) => {
+  campaignWorkspace: CampaignWorkspace | null;
+}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft, onBuildRecipientQueue, onSelectRecipient, campaignWorkspace }) => {
   const [feedbackText, setFeedbackText] = useState('');
   const [screenshotUrl, setScreenshotUrl] = useState('');
   const actionItem = payload.actionItem;
@@ -274,6 +292,7 @@ const ActionCanvasShell: React.FC<{
         onSaveActionDraft={onSaveActionDraft}
         onBuild={onBuildRecipientQueue}
         onSelect={onSelectRecipient}
+        campaignWorkspace={campaignWorkspace}
       />
 
       <section className="action-canvas-card">
@@ -338,7 +357,7 @@ const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onCo
   );
 };
 
-const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWorkspaceProps['onBuildRecipientQueue'], onSelect: ActiveWorkspaceProps['onSelectRecipient'] }> = ({ payload, isWorking, onBuild, onSelect }) => {
+const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWorkspaceProps['onBuildRecipientQueue'], onSelect: ActiveWorkspaceProps['onSelectRecipient'] }> = ({ payload, isWorking, onBuild, onSelect, campaignWorkspace }) => {
   const [queue, setQueue] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [attempted, setAttempted] = React.useState(false);
@@ -349,6 +368,19 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
   const channelLabel = payload.actionLane?.title || payload.panelType || 'Channel';
   const campaignTitle = payload.campaign?.title || 'this campaign';
   const actionItemId = payload.actionItem?.id;
+  const persistedQueue = React.useMemo(() => {
+    const laneId = payload.actionLane?.id;
+    return (campaignWorkspace?.targetQueue ?? [])
+      .filter((item) => !laneId || !item.actionLaneId || item.actionLaneId === laneId)
+      .map((item) => ({
+        ...item,
+        id: item.id,
+        queueItemId: item.queueItemId,
+        source: item.source,
+        score: item.score,
+        reason: item.reason || 'Ranked from the durable campaign target queue.',
+      }));
+  }, [campaignWorkspace?.targetQueue, payload.actionLane?.id]);
   const refinementPresets = React.useMemo(() => [
     'Prioritize CTOs, CIOs, and VP Engineering leaders.',
     'Find warmest relationship paths first.',
@@ -364,12 +396,15 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
     setError(null);
     setLoading(true);
     try {
-      const buildInput: { campaignId: string; actionLaneId?: string; limit?: number; refinement?: string } = {
+      const buildInput: { campaignId: string; actionLaneId?: string; limit?: number; refinement?: string; forceRefresh?: boolean } = {
         campaignId: payload.campaign.id, 
         actionLaneId: payload.actionLane?.id,
         limit: 12,
       };
-      if (normalizedRefinement) buildInput.refinement = normalizedRefinement;
+      if (normalizedRefinement) {
+        buildInput.refinement = normalizedRefinement;
+        buildInput.forceRefresh = true;
+      }
       const result = await onBuild(buildInput);
       if (result.error) {
         setError(result.error);
@@ -387,10 +422,15 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
   }, [activeRefinement, onBuild, payload.campaign?.id, payload.actionLane?.id]);
 
   React.useEffect(() => {
-    if (!attempted && queue.length === 0 && !loading) {
+    if (!attempted && queue.length === 0 && persistedQueue.length > 0) {
+      setQueue(persistedQueue);
+      setAttempted(true);
+      return;
+    }
+    if (!attempted && queue.length === 0 && persistedQueue.length === 0 && !loading) {
       void fetchQueue();
     }
-  }, [attempted, fetchQueue, queue.length, loading]);
+  }, [attempted, fetchQueue, persistedQueue, queue.length, loading]);
 
   const displayedQueue = React.useMemo(() => {
     const query = targetSearch.trim().toLowerCase();
@@ -439,18 +479,18 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
           <div className="target-refinement-heading">
             <SlidersHorizontal size={18} />
             <div>
-              <strong>AI target criteria</strong>
-              <span>{activeRefinement ? `Current: ${activeRefinement}` : 'Use natural language to reshape the ranking.'}</span>
+              <strong>Target criteria</strong>
+              <span>{activeRefinement ? `Current: ${activeRefinement}` : 'Use structured search terms to reshape the ranking.'}</span>
             </div>
           </div>
           <div className="target-refinement-input-row">
             <input
               value={refinement}
               onChange={(event) => setRefinement(event.target.value)}
-              placeholder="Example: find CTOs in banks who would care about an AI-native SDLC audit..."
+              placeholder="Example: CTOs in banks who would care about an AI-native SDLC audit..."
             />
             <button type="submit" disabled={loading || isWorking || !refinement.trim()}>
-              Refine ranking
+              Apply criteria
             </button>
           </div>
           <div className="target-preset-row">
@@ -474,7 +514,7 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
             <div className="report-icon"><RefreshCw size={20} className="spin" /></div>
             <div>
               <strong>Ranking high-signal targets</strong>
-              <p>Evaluating your LinkedIn archive and contact list against campaign parameters...</p>
+              <p>Applying role, company, industry, relationship, and campaign-fit scoring rules...</p>
             </div>
           </div>
         </div>
@@ -528,8 +568,9 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
                     className="select-target-btn"
                     onClick={() => onSelect({
                       actionItemId,
-                      personId: item.source === 'person' ? item.id : undefined,
-                      connectionRecordId: item.source === 'connection' ? item.id : undefined
+                      targetQueueItemId: item.queueItemId,
+                      personId: item.personId || (item.source === 'person' ? item.id : undefined),
+                      connectionRecordId: item.connectionRecordId || (item.source === 'connection' ? item.id : undefined)
                     })}
                     disabled={isWorking}
                   >
@@ -638,6 +679,7 @@ interface ActionPanelProps {
   isWorking: boolean;
   onConfirmCanvasAction: ActiveWorkspaceProps['onConfirmCanvasAction'];
   onSaveActionDraft: ActiveWorkspaceProps['onSaveActionDraft'];
+  campaignWorkspace?: CampaignWorkspace | null;
 }
 
 function actionPanelFor(panelType: string): React.FC<ActionPanelProps> {
@@ -754,6 +796,8 @@ function uniqueByIdOrTitle<T extends { id?: string | null; title?: string | null
 const OperatingMapWorkspace: React.FC<{
   workspace: WorkspaceState | null;
   campaignWorkspace: CampaignWorkspace | null;
+  offerings: OfferingSummary[];
+  campaigns: CampaignSummary[];
   emailReadiness: EmailReadiness | null;
   commandQueue: CommandQueueState | null;
   intelligenceArtifacts: any[];
@@ -766,6 +810,10 @@ const OperatingMapWorkspace: React.FC<{
   onSelectCommandQueueItem: ActiveWorkspaceProps['onSelectCommandQueueItem'];
   onChangeMode: ActiveWorkspaceProps['onChangeMode'];
   onExtendedLogoutAndPurge: ActiveWorkspaceProps['onExtendedLogoutAndPurge'];
+  onCreateOffering: ActiveWorkspaceProps['onCreateOffering'];
+  onUpdateOffering: ActiveWorkspaceProps['onUpdateOffering'];
+  onCreateCampaign: ActiveWorkspaceProps['onCreateCampaign'];
+  onUpdateCampaign: ActiveWorkspaceProps['onUpdateCampaign'];
 }> = (props) => {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     commercial: true,
@@ -775,6 +823,21 @@ const OperatingMapWorkspace: React.FC<{
     system: false,
   });
   const [detail, setDetail] = useState<{ title: string; eyebrow: string; data: any } | null>(null);
+  const [mapEditorMode, setMapEditorMode] = useState<'offering' | 'campaign' | null>(null);
+  const [selectedOfferingId, setSelectedOfferingId] = useState<string | null>(null);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [offeringForm, setOfferingForm] = useState<{ title: string; description: string; offeringType: OfferingType }>({
+    title: '',
+    description: '',
+    offeringType: 'service',
+  });
+  const [campaignForm, setCampaignForm] = useState({
+    title: '',
+    description: '',
+    targetSegment: '',
+    objective: '',
+    strategicAngle: '',
+  });
   const activeCampaign = props.actionCanvasPayload?.campaign
     ?? props.campaignWorkspace?.campaign
     ?? props.activationPayload?.campaign
@@ -782,6 +845,18 @@ const OperatingMapWorkspace: React.FC<{
     ?? null;
   const activeOffering = props.commandQueue?.items.find((item) => item.ancestry?.offering)?.ancestry?.offering
     ?? props.campaignWorkspace?.campaign?.offering
+    ?? null;
+  const selectedOffering = props.offerings.find((offering) => offering.id === selectedOfferingId)
+    ?? props.offerings.find((offering) => offering.id === activeOffering?.id)
+    ?? props.offerings[0]
+    ?? null;
+  const campaignsForSelectedOffering = props.campaigns.filter((campaign) => (
+    selectedOffering ? campaign.offeringId === selectedOffering.id : true
+  ));
+  const selectedCampaign = props.campaigns.find((campaign) => campaign.id === selectedCampaignId)
+    ?? campaignsForSelectedOffering.find((campaign) => campaign.id === activeCampaign?.id)
+    ?? campaignsForSelectedOffering[0]
+    ?? props.campaigns[0]
     ?? null;
   const activeAction = props.actionCanvasPayload?.actionItem ?? null;
   const activeLane = props.actionCanvasPayload?.actionLane
@@ -793,10 +868,21 @@ const OperatingMapWorkspace: React.FC<{
     ...(activeLane ? [activeLane] : []),
     ...queueItems.map((item) => item.ancestry?.actionLane).filter(Boolean),
   ] as Array<{ id?: string | null; title?: string | null; name?: string | null; description?: string | null }>);
-  const currentCampaignTitle = compactLabel(activeCampaign?.title ?? activeCampaign?.name, 'No campaign selected');
-  const offeringTitle = compactLabel(activeOffering?.title ?? activeOffering?.name, 'Current offering');
+  const currentCampaignTitle = compactLabel(selectedCampaign?.title ?? activeCampaign?.title ?? activeCampaign?.name, 'No campaign selected');
+  const offeringTitle = compactLabel(selectedOffering?.title ?? activeOffering?.title ?? activeOffering?.name, 'Current offering');
   const openActions = queueItems.filter((item) => !['completed', 'skipped', 'deferred'].includes(item.status)).length;
   const prospects = props.campaignWorkspace?.prospects ?? [];
+  const targetQueue = props.campaignWorkspace?.targetQueue ?? [];
+  const visibleTargets = targetQueue.length > 0 ? targetQueue : prospects.map((prospect) => ({
+    id: prospect.id,
+    name: prospect.primaryPersonName ?? prospect.companyName,
+    title: prospect.primaryPersonTitle ?? prospect.stage,
+    company: prospect.companyName,
+    score: prospect.fitScore ?? prospect.qualificationScore ?? null,
+    reason: prospect.summary,
+    linkedinUrl: null,
+    raw: prospect,
+  }));
   const connectorArtifacts = props.intelligenceArtifacts.filter((artifact) => artifact?.sourceType !== 'knowledge_asset');
   const knowledgeItems = [
     ...props.userAssets.map((asset) => ({
@@ -830,6 +916,123 @@ const OperatingMapWorkspace: React.FC<{
 
   const openDetail = (eyebrow: string, title: string, data: any) => {
     setDetail({ eyebrow, title, data });
+  };
+
+  const loadOfferingForEdit = (offering: OfferingSummary) => {
+    setSelectedOfferingId(offering.id);
+    setMapEditorMode('offering');
+    setOfferingForm({
+      title: offering.title,
+      description: offering.description ?? '',
+      offeringType: offering.offeringType,
+    });
+  };
+
+  const loadCampaignForEdit = (campaign: CampaignSummary) => {
+    setSelectedCampaignId(campaign.id);
+    setMapEditorMode('campaign');
+    setCampaignForm({
+      title: campaign.title,
+      description: campaign.description ?? '',
+      targetSegment: campaign.targetSegment ?? '',
+      objective: campaign.objective ?? '',
+      strategicAngle: campaign.strategicAngle ?? '',
+    });
+  };
+
+  const resetOfferingForm = () => {
+    setSelectedOfferingId(null);
+    setMapEditorMode('offering');
+    setOfferingForm({ title: '', description: '', offeringType: 'service' });
+  };
+
+  const resetCampaignForm = () => {
+    setSelectedCampaignId(null);
+    setMapEditorMode('campaign');
+    setCampaignForm({
+      title: selectedOffering ? `${selectedOffering.title} campaign` : '',
+      description: '',
+      targetSegment: '',
+      objective: '',
+      strategicAngle: '',
+    });
+  };
+
+  const saveOffering = async () => {
+    const title = offeringForm.title.trim();
+    if (!title) return;
+    const input: { title: string; description?: string; offeringType: OfferingType } = {
+      title,
+      offeringType: offeringForm.offeringType,
+    };
+    const description = offeringForm.description.trim();
+    if (description) input.description = description;
+    if (selectedOfferingId) {
+      await props.onUpdateOffering(selectedOfferingId, input);
+      setMapEditorMode(null);
+    } else {
+      const created = await props.onCreateOffering(input);
+      if (created) {
+        setSelectedOfferingId(created.id);
+        setOfferingForm({
+          title: created.title,
+          description: created.description ?? '',
+          offeringType: created.offeringType,
+        });
+        setMapEditorMode(null);
+      }
+    }
+  };
+
+  const saveCampaign = async () => {
+    const title = campaignForm.title.trim();
+    if (!title) return;
+    const input: {
+      title: string;
+      description?: string;
+      targetSegment?: string;
+      objective?: string;
+      strategicAngle?: string;
+      offeringId?: string;
+    } = {
+      title,
+    };
+    const description = campaignForm.description.trim();
+    const targetSegment = campaignForm.targetSegment.trim();
+    const objective = campaignForm.objective.trim();
+    const strategicAngle = campaignForm.strategicAngle.trim();
+    if (description) input.description = description;
+    if (targetSegment) input.targetSegment = targetSegment;
+    if (objective) input.objective = objective;
+    if (strategicAngle) input.strategicAngle = strategicAngle;
+    if (selectedCampaignId) {
+      await props.onUpdateCampaign(selectedCampaignId, input);
+      setMapEditorMode(null);
+    } else {
+      if (selectedOffering?.id) input.offeringId = selectedOffering.id;
+      const created = await props.onCreateCampaign(input);
+      if (created) {
+        setSelectedCampaignId(created.id);
+        setCampaignForm({
+          title: created.title,
+          description: created.description ?? '',
+          targetSegment: created.targetSegment ?? '',
+          objective: created.objective ?? '',
+          strategicAngle: created.strategicAngle ?? '',
+        });
+        setMapEditorMode(null);
+      }
+    }
+  };
+
+  const archiveSelectedOffering = async () => {
+    if (!selectedOffering) return;
+    await props.onUpdateOffering(selectedOffering.id, { status: 'archived' });
+  };
+
+  const pauseSelectedCampaign = async () => {
+    if (!selectedCampaign) return;
+    await props.onUpdateCampaign(selectedCampaign.id, { status: selectedCampaign.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED' });
   };
 
   const renderSection = (
@@ -894,7 +1097,7 @@ const OperatingMapWorkspace: React.FC<{
         </article>
         <article>
           <span>Known Contacts</span>
-          <strong>{prospects.length}</strong>
+          <strong>{targetQueue.length || prospects.length}</strong>
         </article>
         <article>
           <span>Assets</span>
@@ -918,13 +1121,119 @@ const OperatingMapWorkspace: React.FC<{
             ),
             (
               <>
+                <div className="operating-map-toolbar">
+                  <div>
+                    <strong>Structure</strong>
+                    <span>{props.offerings.length} offerings, {props.campaigns.length} campaigns</span>
+                  </div>
+                  <div>
+                    <button type="button" onClick={resetOfferingForm}>Add offering</button>
+                    <button type="button" onClick={resetCampaignForm} disabled={!selectedOffering}>Create campaign</button>
+                  </div>
+                </div>
+
+                {mapEditorMode ? (
+                  <div className="operating-map-crud-grid compact">
+                    {mapEditorMode === 'offering' ? (
+                      <div className="operating-map-editor">
+                        <div className="operating-map-editor-header">
+                          <div>
+                            <span>Offerings</span>
+                            <strong>{selectedOfferingId ? 'Edit offering' : 'Add offering'}</strong>
+                          </div>
+                          <button type="button" onClick={() => setMapEditorMode(null)}>Close</button>
+                        </div>
+                        <label>
+                          Name
+                          <input
+                            value={offeringForm.title}
+                            onChange={(event) => setOfferingForm((current) => ({ ...current, title: event.target.value }))}
+                            placeholder="AI-Native SDLC book"
+                          />
+                        </label>
+                        <label>
+                          Type
+                          <select
+                            value={offeringForm.offeringType}
+                            onChange={(event) => setOfferingForm((current) => ({ ...current, offeringType: event.target.value as OfferingType }))}
+                          >
+                            {['service', 'consulting', 'book', 'product', 'content_series', 'software', 'platform', 'event', 'other'].map((type) => (
+                              <option key={type} value={type}>{type.replace(/_/g, ' ')}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Positioning
+                          <textarea
+                            value={offeringForm.description}
+                            onChange={(event) => setOfferingForm((current) => ({ ...current, description: event.target.value }))}
+                            placeholder="Who it is for, what it helps them do, and the best CTA."
+                          />
+                        </label>
+                        <div className="operating-map-editor-actions">
+                          <button type="button" className="primary-button" onClick={() => void saveOffering()} disabled={props.isWorking || !offeringForm.title.trim()}>
+                            {selectedOfferingId ? 'Save offering' : 'Add offering'}
+                          </button>
+                          <button type="button" onClick={() => void archiveSelectedOffering()} disabled={props.isWorking || !selectedOffering}>
+                            Archive
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {mapEditorMode === 'campaign' ? (
+                      <div className="operating-map-editor">
+                        <div className="operating-map-editor-header">
+                          <div>
+                            <span>Campaigns</span>
+                            <strong>{selectedCampaignId ? 'Edit campaign' : 'Create campaign'}</strong>
+                          </div>
+                          <button type="button" onClick={() => setMapEditorMode(null)}>Close</button>
+                        </div>
+                        <label>
+                          Campaign
+                          <input
+                            value={campaignForm.title}
+                            onChange={(event) => setCampaignForm((current) => ({ ...current, title: event.target.value }))}
+                            placeholder={selectedOffering ? `${selectedOffering.title} campaign` : 'Book launch campaign'}
+                          />
+                        </label>
+                        <label>
+                          Target segment
+                          <input
+                            value={campaignForm.targetSegment}
+                            onChange={(event) => setCampaignForm((current) => ({ ...current, targetSegment: event.target.value }))}
+                            placeholder="Engineering leaders, podcast hosts, bulk buyers..."
+                          />
+                        </label>
+                        <label>
+                          Objective
+                          <textarea
+                            value={campaignForm.objective}
+                            onChange={(event) => setCampaignForm((current) => ({ ...current, objective: event.target.value }))}
+                            placeholder="Sell copies, book talks, generate reader conversations, or create consulting pull-through."
+                          />
+                        </label>
+                        <div className="operating-map-editor-actions">
+                          <button type="button" className="primary-button" onClick={() => void saveCampaign()} disabled={props.isWorking || !campaignForm.title.trim()}>
+                            {selectedCampaignId ? 'Save campaign' : 'Create campaign'}
+                          </button>
+                          <button type="button" onClick={() => void pauseSelectedCampaign()} disabled={props.isWorking || !selectedCampaign}>
+                            {selectedCampaign?.status === 'PAUSED' ? 'Activate' : 'Pause'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <div className="operating-map-tree">
-                  <button type="button" className="map-tree-node" onClick={() => openDetail('Offering', offeringTitle, activeOffering)}>
+                  <button type="button" className="map-tree-node" onClick={() => openDetail('Offering', offeringTitle, selectedOffering ?? activeOffering)}>
                     <span>Offering</span>
                     <strong>{offeringTitle}</strong>
                   </button>
                   <ChevronRight size={18} />
-                  <button type="button" className="map-tree-node" onClick={() => openDetail('Campaign', currentCampaignTitle, activeCampaign)}>
+                  <button type="button" className="map-tree-node" onClick={() => openDetail('Campaign', currentCampaignTitle, selectedCampaign ?? activeCampaign)}>
                     <span>Campaign</span>
                     <strong>{currentCampaignTitle}</strong>
                   </button>
@@ -934,6 +1243,45 @@ const OperatingMapWorkspace: React.FC<{
                     <strong>{compactLabel(activeLane?.title ?? activeLane?.name, 'No channel selected')}</strong>
                   </button>
                 </div>
+
+                <div className="operating-map-list compact">
+                  {props.offerings.length > 0 ? props.offerings.map((offering) => (
+                    <article key={offering.id} className={`operating-map-row ${selectedOffering?.id === offering.id ? 'selected' : ''}`}>
+                      <div>
+                        <strong>{offering.title}</strong>
+                        <p>{compactLabel(offering.description, offering.offeringType.replace(/_/g, ' '))}</p>
+                        <div className="operating-map-tags">
+                          <span>{offering.offeringType.replace(/_/g, ' ')}</span>
+                          <span>{offering.status}</span>
+                          <span>{props.campaigns.filter((campaign) => campaign.offeringId === offering.id).length} campaigns</span>
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => loadOfferingForEdit(offering)}>Edit</button>
+                    </article>
+                  )) : (
+                    <div className="operating-map-empty">No offerings exist yet. Add one here, then create a campaign from it.</div>
+                  )}
+                </div>
+
+                <div className="operating-map-list">
+                  {campaignsForSelectedOffering.length > 0 ? campaignsForSelectedOffering.map((campaign) => (
+                    <article key={campaign.id} className={`operating-map-row ${selectedCampaign?.id === campaign.id ? 'selected' : ''}`}>
+                      <div>
+                        <strong>{campaign.title}</strong>
+                        <p>{compactLabel(campaign.targetSegment ?? campaign.objective ?? campaign.strategicAngle, 'No campaign definition captured yet.')}</p>
+                        <div className="operating-map-tags">
+                          <span>{String(campaign.status).toLowerCase()}</span>
+                          {campaign._count?.actionLanes !== undefined ? <span>{campaign._count.actionLanes} lanes</span> : null}
+                          {campaign._count?.actionItems !== undefined ? <span>{campaign._count.actionItems} actions</span> : null}
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => loadCampaignForEdit(campaign)}>Edit</button>
+                    </article>
+                  )) : (
+                    <div className="operating-map-empty">No campaigns are attached to this offering yet.</div>
+                  )}
+                </div>
+
                 <div className="operating-map-list">
                   {campaignChannels.length > 0 ? campaignChannels.map((channel) => (
                     <article key={channel.id ?? channel.title ?? channel.name} className="operating-map-row">
@@ -1030,22 +1378,27 @@ const OperatingMapWorkspace: React.FC<{
             'contacts',
             <User size={18} />,
             'Contacts & Network',
-            `${prospects.length} visible campaign prospects.`,
+            `${targetQueue.length || prospects.length} visible campaign targets.`,
             (
               <div className="operating-map-mini-grid">
-                <span>{prospects.length} contacts</span>
+                <span>{targetQueue.length || prospects.length} contacts</span>
                 <span>{compactLabel(activeAction?.target?.label, 'Recipient not selected')}</span>
               </div>
             ),
             (
               <div className="operating-map-list compact">
-                {prospects.length > 0 ? prospects.slice(0, 20).map((prospect) => (
-                  <article key={prospect.id} className="operating-map-row">
+                {visibleTargets.length > 0 ? visibleTargets.slice(0, 20).map((target: any) => (
+                  <article key={target.queueItemId ?? target.id} className="operating-map-row">
                     <div>
-                      <strong>{prospect.primaryPersonName ?? prospect.companyName}</strong>
-                      <p>{prospect.primaryPersonTitle ?? prospect.summary ?? prospect.stage}</p>
+                      <strong>{target.name ?? target.primaryPersonName ?? target.companyName}</strong>
+                      <p>{compactLabel([target.title, target.company].filter(Boolean).join(' @ '), target.reason ?? target.stage)}</p>
+                      <div className="operating-map-tags">
+                        {target.score ? <span>{target.score}% match</span> : null}
+                        {target.status ? <span>{String(target.status).toLowerCase()}</span> : null}
+                        {target.linkedinUrl ? <span>LinkedIn ready</span> : null}
+                      </div>
                     </div>
-                    <button type="button" onClick={() => openDetail('Contact', prospect.primaryPersonName ?? prospect.companyName, prospect)}>
+                    <button type="button" onClick={() => openDetail('Contact', target.name ?? target.primaryPersonName ?? target.companyName, target.raw ?? target)}>
                       Inspect
                     </button>
                   </article>
@@ -1062,7 +1415,7 @@ const OperatingMapWorkspace: React.FC<{
             'system',
             <AlertCircle size={18} />,
             'System',
-            'Session, connector, and local reset controls.',
+            'Session, connector, and backend reset controls.',
             (
               <div className="operating-map-mini-grid">
                 <span>{props.emailReadiness?.ready ? 'Email ready' : 'Email not ready'}</span>
@@ -1073,10 +1426,10 @@ const OperatingMapWorkspace: React.FC<{
               <div className="operating-map-system-actions">
                 <div>
                   <strong>Extended logout and purge</strong>
-                  <p>Clears local browser session, onboarding drafts, cached workspace state, and reloads the app.</p>
+                  <p>Deletes this user and associated backend data, clears local browser state, and reloads the app.</p>
                 </div>
-                <button type="button" className="danger-button" onClick={props.onExtendedLogoutAndPurge}>
-                  Logout & purge local state
+                <button type="button" className="danger-button" onClick={() => void props.onExtendedLogoutAndPurge()}>
+                  Scrub data & sign out
                 </button>
               </div>
             ),
@@ -1106,6 +1459,8 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
       <OperatingMapWorkspace
         workspace={props.workspace}
         campaignWorkspace={props.campaignWorkspace}
+        offerings={props.offerings}
+        campaigns={props.campaigns}
         emailReadiness={props.emailReadiness}
         commandQueue={props.commandQueue}
         intelligenceArtifacts={props.intelligenceArtifacts}
@@ -1118,6 +1473,10 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
         onSelectCommandQueueItem={props.onSelectCommandQueueItem}
         onChangeMode={props.onChangeMode}
         onExtendedLogoutAndPurge={props.onExtendedLogoutAndPurge}
+        onCreateOffering={props.onCreateOffering}
+        onUpdateOffering={props.onUpdateOffering}
+        onCreateCampaign={props.onCreateCampaign}
+        onUpdateCampaign={props.onUpdateCampaign}
       />
     );
   }
@@ -1165,6 +1524,7 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
           onSaveActionDraft={props.onSaveActionDraft}
           onBuildRecipientQueue={props.onBuildRecipientQueue}
           onSelectRecipient={props.onSelectRecipient}
+          campaignWorkspace={props.campaignWorkspace}
         />
       ) : null}
 

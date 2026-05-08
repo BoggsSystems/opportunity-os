@@ -5,6 +5,7 @@ import {
   OpportunityCyclePhase,
   OpportunityCycleStatus,
   OpportunityStage,
+  CampaignTargetStatus,
   CampaignStatus,
   Prisma,
   prisma,
@@ -547,6 +548,8 @@ export class WorkspaceService {
     const actionLaneId = this.stringInput(dto, 'actionLaneId');
     const limit = typeof dto.input?.['limit'] === 'number' ? dto.input['limit'] : 10;
     const refinement = typeof dto.input?.['refinement'] === 'string' ? dto.input['refinement'] : undefined;
+    const useAiRerank = dto.input?.['useAiRerank'] === true;
+    const forceRefresh = dto.input?.['forceRefresh'] === true || Boolean(refinement?.trim());
 
     if (!campaignId) throw new NotFoundException('campaignId is required');
 
@@ -555,17 +558,22 @@ export class WorkspaceService {
     });
     if (!campaign) throw new NotFoundException('Campaign not found');
 
-    // ── 1. Extract keyword filters from targetSegment + refinement ──
-    const filterSources = [campaign.targetSegment, refinement].filter(Boolean).join(' ');
+    if (!forceRefresh) {
+      const existingQueue = await this.getPersistedRecipientQueue(userId, campaignId, actionLaneId, limit);
+      if (existingQueue.length > 0) {
+        return { queue: existingQueue, campaignId, actionLaneId, persisted: true };
+      }
+    }
+
+    const filterSources = [campaign.title, campaign.description, campaign.targetSegment, campaign.strategicAngle, refinement].filter(Boolean).join(' ');
     const keywords = this.extractFilterKeywords(filterSources);
+    const rankingIntent = this.buildRecipientRankingIntent(filterSources);
     console.log(`[QUEUE] Campaign "${campaign.title}" — keywords: [${keywords.join(', ')}], refinement: "${refinement || 'none'}"`);
 
-    // ── 2. Pre-filter at the DB level so the AI sees ≤50 relevant candidates ──
-    const MAX_CANDIDATES = 50;
-    let connections = await this.fetchFilteredConnections(userId, keywords, MAX_CANDIDATES);
+    const MAX_CANDIDATES = 250;
+    let connections = await this.fetchFilteredConnections(userId, [...keywords, ...rankingIntent.roleTerms, ...rankingIntent.industryTerms], MAX_CANDIDATES);
 
-    // Fallback: if keyword filters returned too few, pad with most-recent
-    if (connections.length < 10) {
+    if (connections.length < Math.min(limit, 10)) {
       console.log(`[QUEUE] Only ${connections.length} keyword matches — padding with recent connections`);
       const existingIds = new Set(connections.map(c => c.id));
       const recent = await prisma.connectionRecord.findMany({
@@ -579,14 +587,24 @@ export class WorkspaceService {
     const people = await prisma.person.findMany({
       where: { userId },
       include: { company: true },
-      take: 20,
+      take: 75,
       orderBy: { updatedAt: 'desc' },
     });
 
-    console.log(`[QUEUE] ${connections.length} connections + ${people.length} people → sending to AI`);
+    console.log(`[QUEUE] ${connections.length} connections + ${people.length} people → deterministic scoring`);
 
-    // ── 3. Build a compact candidate list: numeric index → real data ──
-    type FullCandidate = { id: string; source: 'connection' | 'person'; name: string; title: string | null; company: string | null; linkedinUrl: string | null };
+    type FullCandidate = {
+      id: string;
+      source: 'connection' | 'person';
+      name: string;
+      title: string | null;
+      company: string | null;
+      email: string | null;
+      linkedinUrl: string | null;
+      connectedOn?: Date | null;
+      personId?: string | null;
+      connectionRecordId?: string | null;
+    };
     const fullCandidates: FullCandidate[] = [
       ...connections.map(c => ({
         id: c.id,
@@ -594,7 +612,11 @@ export class WorkspaceService {
         name: `${c.firstName} ${c.lastName}`,
         title: c.title || null,
         company: c.company || null,
+        email: c.email || null,
         linkedinUrl: c.linkedinUrl || null,
+        connectedOn: c.connectedOn || null,
+        personId: c.personId || null,
+        connectionRecordId: c.id,
       })),
       ...people.map(p => ({
         id: p.id,
@@ -602,7 +624,10 @@ export class WorkspaceService {
         name: p.fullName,
         title: p.title || null,
         company: p.company?.name || null,
+        email: p.email || null,
         linkedinUrl: p.linkedinUrl || null,
+        personId: p.id,
+        connectionRecordId: null,
       })),
     ];
 
@@ -610,44 +635,62 @@ export class WorkspaceService {
       return { queue: [], campaignId, actionLaneId, error: 'No contacts found. Import your LinkedIn connections first.' };
     }
 
-    // Send only index + name/title/company to AI (no UUIDs, no URLs)
-    const slimCandidates = fullCandidates.map((c, i) => ({
-      idx: i,
-      name: c.name,
-      title: c.title || 'N/A',
-      company: c.company || 'N/A',
-    }));
+    const deterministicQueue = fullCandidates
+      .map((candidate) => {
+        const scoring = this.scoreRecipientCandidate(candidate, campaign, keywords, rankingIntent, refinement);
+        return { ...candidate, score: scoring.score, reason: scoring.reason };
+      })
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
-    // ── 4. Call AI with the slim payload ──
-    const ranked = await this.aiService.rankRecipients({
-      campaign: {
-        title: campaign.title,
-        description: campaign.description,
-        targetSegment: campaign.targetSegment,
-        strategicAngle: campaign.strategicAngle,
-      },
-      candidates: slimCandidates,
-      limit,
-      refinement,
-    });
+    let finalQueue = deterministicQueue.slice(0, Math.max(limit, 20));
+    if (useAiRerank) {
+      const aiCandidateLimit = Math.min(25, deterministicQueue.length);
+      const aiCandidates = deterministicQueue.slice(0, aiCandidateLimit);
+      const slimCandidates = aiCandidates.map((c, i) => ({
+        idx: i,
+        name: c.name,
+        title: c.title || 'N/A',
+        company: c.company || 'N/A',
+      }));
+      try {
+        const ranked = await this.aiService.rankRecipients({
+          campaign: {
+            title: campaign.title,
+            description: campaign.description,
+            targetSegment: campaign.targetSegment,
+            strategicAngle: campaign.strategicAngle,
+          },
+          candidates: slimCandidates,
+          limit,
+          refinement,
+        });
 
-    // ── 5. Map AI indices back to real candidates ──
-    const queue = (ranked.queue || []).map((item: any) => {
-      const idx = typeof item.idx === 'number' ? item.idx : parseInt(item.idx, 10);
-      const real = Number.isFinite(idx) && idx >= 0 && idx < fullCandidates.length ? fullCandidates[idx] : null;
-      return {
-        id: real?.id || item.id || `unknown-${idx}`,
-        name: item.name || real?.name || 'Unknown',
-        title: item.title || real?.title || null,
-        company: item.company || real?.company || null,
-        score: item.score ?? 50,
-        reason: item.reason || 'Matched by AI ranking.',
-        source: real?.source || 'connection',
-        linkedinUrl: real?.linkedinUrl || null,
-      };
-    }).filter((item: any) => item.id && !item.id.startsWith('unknown'));
+        const aiRanked = (ranked.queue || []).map((item: any) => {
+          const idx = typeof item.idx === 'number' ? item.idx : parseInt(item.idx, 10);
+          const real = Number.isFinite(idx) && idx >= 0 && idx < aiCandidates.length ? aiCandidates[idx] : null;
+          return real ? {
+            ...real,
+            score: Math.max(real.score, Math.min(99, Number(item.score) || real.score)),
+            reason: item.reason || real.reason,
+          } : null;
+        }).filter(Boolean) as typeof finalQueue;
 
-    console.log(`[QUEUE] AI ranked ${queue.length} recipients successfully`);
+        if (aiRanked.length > 0) {
+          const aiIds = new Set(aiRanked.map((item) => `${item.source}:${item.id}`));
+          finalQueue = [
+            ...aiRanked,
+            ...deterministicQueue.filter((item) => !aiIds.has(`${item.source}:${item.id}`)),
+          ].slice(0, Math.max(limit, aiRanked.length));
+        }
+      } catch (error) {
+        console.warn('[QUEUE] AI rerank failed; using deterministic queue', error);
+      }
+    }
+
+    await this.persistRecipientQueue(userId, campaignId, actionLaneId, finalQueue, refinement);
+    const queue = await this.getPersistedRecipientQueue(userId, campaignId, actionLaneId, Math.max(limit, finalQueue.length));
+
+    console.log(`[QUEUE] Ranked and persisted ${queue.length} recipients successfully`);
 
     return {
       queue,
@@ -668,6 +711,45 @@ export class WorkspaceService {
       .filter(w => w.length >= 3 && !stopWords.has(w));
   }
 
+  private buildRecipientRankingIntent(text: string) {
+    const normalized = text.toLowerCase();
+    const roleSynonyms: Record<string, string[]> = {
+      cto: ['cto', 'chief technology officer', 'technology officer'],
+      cio: ['cio', 'chief information officer', 'information officer'],
+      ceo: ['ceo', 'chief executive officer'],
+      founder: ['founder', 'cofounder', 'co-founder'],
+      vp: ['vp', 'vice president', 'svp', 'evp'],
+      director: ['director', 'head of', 'lead'],
+      engineering: ['engineering', 'software engineering', 'engineering leader', 'vp engineering'],
+      product: ['product', 'chief product officer', 'product leader'],
+      architect: ['architect', 'architecture', 'principal engineer'],
+      recruiter: ['recruiter', 'talent', 'headhunter'],
+    };
+    const industrySynonyms: Record<string, string[]> = {
+      finance: ['finance', 'financial', 'bank', 'banking', 'capital markets', 'trading', 'insurance', 'fintech'],
+      software: ['software', 'saas', 'platform', 'technology', 'engineering'],
+      ai: ['ai', 'artificial intelligence', 'machine learning', 'genai', 'generative ai'],
+      enterprise: ['enterprise', 'large organization', 'corporate'],
+      startup: ['startup', 'founder', 'operator'],
+      education: ['professor', 'university', 'academic', 'college'],
+    };
+
+    const roleTerms = Object.values(roleSynonyms)
+      .filter((terms) => terms.some((term) => normalized.includes(term)))
+      .flat();
+    const industryTerms = Object.values(industrySynonyms)
+      .filter((terms) => terms.some((term) => normalized.includes(term)))
+      .flat();
+
+    return {
+      roleTerms: Array.from(new Set(roleTerms)),
+      industryTerms: Array.from(new Set(industryTerms)),
+      wantsWarmth: /warm|intro|introduction|relationship|referral|mutual|connected/.test(normalized),
+      wantsRecent: /recent|current|active|new|latest/.test(normalized),
+      wantsSenior: /senior|executive|leader|c-suite|c suite|chief|vp|head|director|founder/.test(normalized),
+    };
+  }
+
   /** Fetch ConnectionRecords matching keyword filters via ILIKE */
   private async fetchFilteredConnections(userId: string, keywords: string[], limit: number) {
     if (keywords.length === 0) {
@@ -681,8 +763,12 @@ export class WorkspaceService {
 
     // Build OR conditions: each keyword matches title OR company
     const orConditions = keywords.flatMap(kw => [
+      { firstName: { contains: kw, mode: 'insensitive' as const } },
+      { lastName: { contains: kw, mode: 'insensitive' as const } },
+      { email: { contains: kw, mode: 'insensitive' as const } },
       { title: { contains: kw, mode: 'insensitive' as const } },
       { company: { contains: kw, mode: 'insensitive' as const } },
+      { linkedinUrl: { contains: kw, mode: 'insensitive' as const } },
     ]);
 
     return prisma.connectionRecord.findMany({
@@ -695,10 +781,174 @@ export class WorkspaceService {
     });
   }
 
+  private scoreRecipientCandidate(
+    candidate: { name: string; title: string | null; company: string | null; email: string | null; linkedinUrl: string | null; connectedOn?: Date | null },
+    campaign: { title: string; description: string | null; targetSegment: string | null; strategicAngle: string | null },
+    keywords: string[],
+    rankingIntent: ReturnType<WorkspaceService['buildRecipientRankingIntent']>,
+    refinement?: string,
+  ) {
+    const text = [
+      candidate.name,
+      candidate.title,
+      candidate.company,
+      candidate.email,
+      campaign.title,
+      campaign.targetSegment,
+      refinement,
+    ].filter(Boolean).join(' ').toLowerCase();
+    const candidateText = [candidate.name, candidate.title, candidate.company, candidate.email].filter(Boolean).join(' ').toLowerCase();
+    const matchedKeywords = keywords.filter((keyword) => candidateText.includes(keyword));
+    const seniorTerms = ['cto', 'cio', 'chief', 'vp', 'vice president', 'head', 'director', 'founder', 'ceo', 'partner', 'principal'];
+    const technicalTerms = ['engineering', 'software', 'technology', 'data', 'ai', 'architecture', 'digital', 'platform'];
+    const executiveMatches = seniorTerms.filter((term) => candidateText.includes(term));
+    const technicalMatches = technicalTerms.filter((term) => candidateText.includes(term));
+    const roleMatches = rankingIntent.roleTerms.filter((term) => candidateText.includes(term));
+    const industryMatches = rankingIntent.industryTerms.filter((term) => candidateText.includes(term));
+
+    let score = 45;
+    score += Math.min(25, matchedKeywords.length * 6);
+    score += Math.min(20, executiveMatches.length * 7);
+    score += Math.min(15, technicalMatches.length * 4);
+    score += Math.min(20, roleMatches.length * 6);
+    score += Math.min(18, industryMatches.length * 5);
+    if (rankingIntent.wantsSenior && executiveMatches.length > 0) score += 8;
+    if (rankingIntent.wantsWarmth && candidate.connectedOn) score += 5;
+    if (rankingIntent.wantsRecent && candidate.connectedOn) score += 4;
+    if (candidate.linkedinUrl) score += 4;
+    if (candidate.email) score += 4;
+    if (candidate.connectedOn) score += 2;
+    if (text.includes('finance') && /bank|capital|financ|insurance|trading|markets/i.test(candidateText)) score += 8;
+    if (text.includes('sdlc') && /software|engineering|delivery|technology|platform/i.test(candidateText)) score += 8;
+
+    score = Math.max(35, Math.min(98, score));
+
+    const reasonParts = [];
+    if (executiveMatches.length) reasonParts.push(`senior role signal (${executiveMatches.slice(0, 2).join(', ')})`);
+    if (roleMatches.length) reasonParts.push(`requested role match (${roleMatches.slice(0, 2).join(', ')})`);
+    if (industryMatches.length) reasonParts.push(`requested market match (${industryMatches.slice(0, 2).join(', ')})`);
+    if (technicalMatches.length) reasonParts.push(`technical relevance (${technicalMatches.slice(0, 2).join(', ')})`);
+    if (matchedKeywords.length) reasonParts.push(`campaign keyword overlap (${matchedKeywords.slice(0, 3).join(', ')})`);
+    if (candidate.linkedinUrl) reasonParts.push('LinkedIn profile available');
+
+    return {
+      score,
+      reason: reasonParts.length
+        ? `Ranked by structured matching: ${reasonParts.join('; ')}.`
+        : 'Ranked by relationship freshness and available profile data.',
+    };
+  }
+
+  private async persistRecipientQueue(
+    userId: string,
+    campaignId: string,
+    actionLaneId: string | undefined,
+    queue: Array<{
+      source: 'connection' | 'person';
+      id: string;
+      personId?: string | null;
+      connectionRecordId?: string | null;
+      score: number;
+      reason: string;
+      name: string;
+      title: string | null;
+      company: string | null;
+      email: string | null;
+      linkedinUrl: string | null;
+    }>,
+    refinement?: string,
+  ) {
+    const laneWhere = actionLaneId ? { actionLaneId } : { actionLaneId: null };
+    await prisma.campaignTargetQueueItem.deleteMany({
+      where: {
+        userId,
+        campaignId,
+        ...laneWhere,
+        status: CampaignTargetStatus.PROPOSED,
+      },
+    });
+
+    if (queue.length === 0) return;
+
+    await prisma.campaignTargetQueueItem.createMany({
+      data: queue.map((item) => ({
+        userId,
+        campaignId,
+        actionLaneId: actionLaneId ?? null,
+        personId: item.personId ?? (item.source === 'person' ? item.id : null),
+        connectionRecordId: item.connectionRecordId ?? (item.source === 'connection' ? item.id : null),
+        score: Math.round(item.score),
+        rationale: item.reason,
+        criteria: refinement?.trim() || null,
+        metadataJson: this.toJson({
+          source: item.source,
+          name: item.name,
+          title: item.title,
+          company: item.company,
+          email: item.email,
+          linkedinUrl: item.linkedinUrl,
+        }),
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  private async getPersistedRecipientQueue(userId: string, campaignId: string, actionLaneId?: string, limit = 20) {
+    const queue = await prisma.campaignTargetQueueItem.findMany({
+      where: {
+        userId,
+        campaignId,
+        ...(actionLaneId ? { actionLaneId } : {}),
+        status: { in: [CampaignTargetStatus.PROPOSED, CampaignTargetStatus.SELECTED] },
+      },
+      include: {
+        person: { include: { company: true } },
+        connectionRecord: true,
+        actionLane: true,
+      },
+      orderBy: [{ status: 'desc' }, { score: 'desc' }, { updatedAt: 'desc' }],
+      take: limit,
+    });
+
+    return queue.map((item) => this.toRecipientQueueItem(item));
+  }
+
+  private toRecipientQueueItem(item: any) {
+    const metadata = (item.metadataJson ?? {}) as Record<string, any>;
+    const person = item.person;
+    const connection = item.connectionRecord;
+    const source = connection ? 'connection' : 'person';
+    const sourceId = connection?.id ?? person?.id ?? item.id;
+    const joinedName = [connection?.firstName, connection?.lastName].filter(Boolean).join(' ');
+    const name = person?.fullName ?? (joinedName || metadata['name']) ?? 'Unknown contact';
+    const company = person?.company?.name ?? connection?.company ?? metadata['company'] ?? null;
+
+    return {
+      id: sourceId,
+      queueItemId: item.id,
+      campaignId: item.campaignId,
+      actionLaneId: item.actionLaneId,
+      personId: person?.id ?? item.personId ?? connection?.personId ?? null,
+      connectionRecordId: connection?.id ?? item.connectionRecordId ?? null,
+      source,
+      name,
+      title: person?.title ?? connection?.title ?? metadata['title'] ?? null,
+      company,
+      email: person?.email ?? connection?.email ?? metadata['email'] ?? null,
+      linkedinUrl: person?.linkedinUrl ?? connection?.linkedinUrl ?? metadata['linkedinUrl'] ?? null,
+      score: item.score,
+      reason: item.rationale,
+      criteria: item.criteria,
+      status: item.status,
+      actionLane: item.actionLane ? { id: item.actionLane.id, title: item.actionLane.title } : null,
+    };
+  }
+
   private async selectRecipientFromCommand(userId: string, dto: WorkspaceCommandDto) {
     const actionItemId = this.stringInput(dto, 'actionItemId');
     const personId = this.stringInput(dto, 'personId');
     const connectionRecordId = this.stringInput(dto, 'connectionRecordId');
+    const targetQueueItemId = this.stringInput(dto, 'targetQueueItemId');
 
     if (!actionItemId) throw new NotFoundException('actionItemId is required');
     if (!personId && !connectionRecordId) throw new NotFoundException('Either personId or connectionRecordId is required');
@@ -708,6 +958,7 @@ export class WorkspaceService {
       include: { actionCycle: true },
     });
     if (!actionItem) throw new NotFoundException('Action item not found');
+    if (actionItem.userId !== userId) throw new NotFoundException('Action item not found');
 
     let finalPersonId = personId;
 
@@ -775,6 +1026,32 @@ export class WorkspaceService {
       await prisma.actionCycle.update({
         where: { id: actionItem.actionCycleId },
         data: { status: ActionCycleStatus.pursuing },
+      });
+    }
+
+    if (targetQueueItemId) {
+      await prisma.campaignTargetQueueItem.updateMany({
+        where: { id: targetQueueItemId, userId, campaignId: actionItem.campaignId },
+        data: {
+          status: CampaignTargetStatus.SELECTED,
+          personId: finalPersonId ?? undefined,
+        },
+      });
+    } else {
+      await prisma.campaignTargetQueueItem.updateMany({
+        where: {
+          userId,
+          campaignId: actionItem.campaignId,
+          actionLaneId: actionItem.actionLaneId,
+          OR: [
+            ...(finalPersonId ? [{ personId: finalPersonId }] : []),
+            ...(connectionRecordId ? [{ connectionRecordId }] : []),
+          ],
+        },
+        data: {
+          status: CampaignTargetStatus.SELECTED,
+          personId: finalPersonId ?? undefined,
+        },
       });
     }
 

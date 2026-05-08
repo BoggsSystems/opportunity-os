@@ -3838,7 +3838,7 @@ model Concept {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
-  user         User            @relation(fields: [userId], references: [id])
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   sources      IntelligenceSource[] @relation("ConceptSources")
   proofLinks   ConceptProofLink[]
   parents      ConceptRelationship[] @relation("ConceptChildren")
@@ -3858,7 +3858,7 @@ model ProofPoint {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
-  user         User            @relation(fields: [userId], references: [id])
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   sources      IntelligenceSource[] @relation("ProofPointSources")
   conceptLinks ConceptProofLink[]
   usages       IntelligenceUsage[]
@@ -3875,8 +3875,8 @@ model IntelligenceSource {
   sourceId     String
   createdAt    DateTime          @default(now())
 
-  concept      Concept?          @relation("ConceptSources", fields: [conceptId], references: [id])
-  proofPoint   ProofPoint?       @relation("ProofPointSources", fields: [proofPointId], references: [id])
+  concept      Concept?          @relation("ConceptSources", fields: [conceptId], references: [id], onDelete: Cascade)
+  proofPoint   ProofPoint?       @relation("ProofPointSources", fields: [proofPointId], references: [id], onDelete: Cascade)
   chunk        IntelligenceChunk? @relation(fields: [chunkId], references: [id], onDelete: SetNull)
 
   @@index([chunkId])
@@ -3888,8 +3888,8 @@ model ConceptRelationship {
   childId          String @db.Uuid
   relationshipType String?
 
-  parent Concept @relation("ConceptParents", fields: [parentId], references: [id])
-  child  Concept @relation("ConceptChildren", fields: [childId], references: [id])
+  parent Concept @relation("ConceptParents", fields: [parentId], references: [id], onDelete: Cascade)
+  child  Concept @relation("ConceptChildren", fields: [childId], references: [id], onDelete: Cascade)
 
   @@id([parentId, childId])
   @@map("concept_relationships")
@@ -3899,8 +3899,8 @@ model ConceptProofLink {
   conceptId    String @db.Uuid
   proofPointId String @db.Uuid
 
-  concept    Concept    @relation(fields: [conceptId], references: [id])
-  proofPoint ProofPoint @relation(fields: [proofPointId], references: [id])
+  concept    Concept    @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  proofPoint ProofPoint @relation(fields: [proofPointId], references: [id], onDelete: Cascade)
 
   @@id([conceptId, proofPointId])
   @@map("concept_proof_links")
@@ -3916,9 +3916,9 @@ model IntelligenceUsage {
   outcome      String?
   createdAt    DateTime @default(now())
 
-  user         User     @relation(fields: [userId], references: [id])
-  concept      Concept? @relation(fields: [conceptId], references: [id])
-  proofPoint   ProofPoint? @relation(fields: [proofPointId], references: [id])
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  concept      Concept? @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+  proofPoint   ProofPoint? @relation(fields: [proofPointId], references: [id], onDelete: Cascade)
   actionItem   ActionItem? @relation(fields: [actionItemId], references: [id])
 
   @@map("intelligence_usage")
@@ -3932,7 +3932,7 @@ model ConceptRefinement {
   refinementType String   // "user_edit", "ai_learned"
   createdAt      DateTime @default(now())
 
-  concept        Concept  @relation(fields: [conceptId], references: [id])
+  concept        Concept  @relation(fields: [conceptId], references: [id], onDelete: Cascade)
 
   @@map("concept_refinements")
 }

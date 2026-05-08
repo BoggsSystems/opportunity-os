@@ -4,6 +4,7 @@ import {
   OpportunityCyclePhase,
   OpportunityCycleStatus,
   OpportunityStage,
+  CampaignTargetStatus,
   Prisma,
   TaskPriority,
   TaskStatus,
@@ -41,6 +42,7 @@ export class CampaignsService {
     const prospects = opportunities.map((opportunity) => this.toProspectSummary(opportunity));
     const draftQueue = prospects.filter((prospect) => !prospect.lastEmailAt && prospect.stage !== OpportunityStage.closed_lost);
     const followUpQueue = prospects.filter((prospect) => prospect.lastEmailAt && !prospect.openFollowUpTask);
+    const targetQueue = await this.getCampaignTargetQueue(userId, campaignId);
 
     return {
       campaign: {
@@ -55,6 +57,7 @@ export class CampaignsService {
         goal: campaign.goal,
       },
       prospects,
+      targetQueue,
       queues: {
         draft: draftQueue,
         followUp: followUpQueue,
@@ -240,6 +243,53 @@ export class CampaignsService {
         })),
       })),
     };
+  }
+
+  private async getCampaignTargetQueue(userId: string, campaignId: string) {
+    const queue = await prisma.campaignTargetQueueItem.findMany({
+      where: {
+        userId,
+        campaignId,
+        status: { in: [CampaignTargetStatus.PROPOSED, CampaignTargetStatus.SELECTED] },
+      },
+      include: {
+        person: { include: { company: true } },
+        connectionRecord: true,
+        actionLane: true,
+      },
+      orderBy: [{ status: 'desc' }, { score: 'desc' }, { updatedAt: 'desc' }],
+      take: 100,
+    });
+
+    return queue.map((item) => {
+      const metadata = (item.metadataJson ?? {}) as Record<string, any>;
+      const person = item.person;
+      const connection = item.connectionRecord;
+      const source = connection ? 'connection' : 'person';
+      const sourceId = connection?.id ?? person?.id ?? item.id;
+      const joinedName = [connection?.firstName, connection?.lastName].filter(Boolean).join(' ');
+      const name = person?.fullName ?? (joinedName || metadata['name']) ?? 'Unknown contact';
+
+      return {
+        id: sourceId,
+        queueItemId: item.id,
+        campaignId: item.campaignId,
+        actionLaneId: item.actionLaneId,
+        personId: person?.id ?? item.personId ?? connection?.personId ?? null,
+        connectionRecordId: connection?.id ?? item.connectionRecordId ?? null,
+        source,
+        name,
+        title: person?.title ?? connection?.title ?? metadata['title'] ?? null,
+        company: person?.company?.name ?? connection?.company ?? metadata['company'] ?? null,
+        email: person?.email ?? connection?.email ?? metadata['email'] ?? null,
+        linkedinUrl: person?.linkedinUrl ?? connection?.linkedinUrl ?? metadata['linkedinUrl'] ?? null,
+        score: item.score,
+        reason: item.rationale,
+        criteria: item.criteria,
+        status: item.status,
+        actionLane: item.actionLane ? { id: item.actionLane.id, title: item.actionLane.title } : null,
+      };
+    });
   }
 
   private toProspectSummary(opportunity: any) {
