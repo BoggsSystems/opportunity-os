@@ -883,6 +883,7 @@ model User {
   conversationThreads          ConversationThread[]
   conversationMessages         ConversationThreadMessage[]
   conversationInsights         ConversationThreadInsight[]
+  campaignTargetQueueItems     CampaignTargetQueueItem[]
   strategicTheses              StrategicThesis[]
   userPosture                  UserPosture?
   calendarEvents               CalendarEvent[]
@@ -1328,6 +1329,7 @@ model Person {
   company              Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
   primaryOpportunities Opportunity[]        @relation("PrimaryPersonOpportunities")
   opportunityLinks     OpportunityPerson[]
+  campaignTargetQueueItems CampaignTargetQueueItem[]
   activities           Activity[]
   actionItems          ActionItem[]         @relation("PersonActionItems")
   conversationThreads  ConversationThread[] @relation("PersonConversationThreads")
@@ -1837,7 +1839,8 @@ model ConnectionRecord {
   importBatch ConnectionImportBatch     @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
   user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
   person      Person?                   @relation(fields: [personId], references: [id])
-  segments    ConnectionSegmentMember[]
+  segments                  ConnectionSegmentMember[]
+  campaignTargetQueueItems  CampaignTargetQueueItem[]
 
   @@index([importBatchId])
   @@index([userId])
@@ -3294,7 +3297,8 @@ model Campaign {
   campaignMetrics     CampaignMetric[]
   campaignConnectors  CampaignConnector[]
   commandQueueItems   CommandQueueItem[]
-  campaignChannels    CampaignChannel[]
+  campaignChannels          CampaignChannel[]
+  campaignTargetQueueItems  CampaignTargetQueueItem[]
 
   @@index([userId])
   @@index([guestSessionId])
@@ -3371,8 +3375,9 @@ model ActionLane {
   actionItems         ActionItem[]
   conversationThreads ConversationThread[]
   campaignMetrics     CampaignMetric[]
-  commandQueueItems   CommandQueueItem[]
-  campaignChannel     CampaignChannel?     @relation(fields: [campaignChannelId], references: [id], onDelete: SetNull)
+  commandQueueItems          CommandQueueItem[]
+  campaignTargetQueueItems   CampaignTargetQueueItem[]
+  campaignChannel            CampaignChannel?     @relation(fields: [campaignChannelId], references: [id], onDelete: SetNull)
   channel             Channel?             @relation(fields: [channelId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
@@ -3930,4 +3935,43 @@ model ConceptRefinement {
   concept        Concept  @relation(fields: [conceptId], references: [id])
 
   @@map("concept_refinements")
+}
+
+enum CampaignTargetStatus {
+  PROPOSED
+  SKIPPED
+  SELECTED
+  CONVERTED
+}
+
+model CampaignTargetQueueItem {
+  id                 String               @id @default(uuid()) @db.Uuid
+  userId             String               @db.Uuid
+  campaignId         String               @db.Uuid
+  actionLaneId       String?              @db.Uuid
+  personId           String?              @db.Uuid
+  connectionRecordId String?              @db.Uuid
+  score              Int                  @default(0)
+  rationale          String?
+  criteria           String?
+  status             CampaignTargetStatus @default(PROPOSED)
+  metadataJson       Json?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  actionLane       ActionLane?       @relation(fields: [actionLaneId], references: [id], onDelete: SetNull)
+  person           Person?           @relation(fields: [personId], references: [id], onDelete: SetNull)
+  connectionRecord ConnectionRecord? @relation(fields: [connectionRecordId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([campaignId])
+  @@index([actionLaneId])
+  @@index([personId])
+  @@index([connectionRecordId])
+  @@index([status])
+  @@unique([campaignId, personId])
+  @@unique([campaignId, connectionRecordId])
+  @@map("campaign_target_queue_items")
 }

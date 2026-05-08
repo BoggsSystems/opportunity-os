@@ -2937,20 +2937,21 @@ JSON OUTPUT:`;
       strategicAngle?: string;
     };
     candidates: Array<{
-      id: string;
+      idx: number;
       name: string;
       title?: string;
       company?: string;
-      linkedinUrl?: string;
-      source: 'connection' | 'person';
     }>;
     limit: number;
     refinement?: string;
   }): Promise<{ queue: any[] }> {
-    this.logger.log(`Ranking ${context.candidates.length} recipients for campaign ${context.campaign.title}`);
+    this.logger.log(`Ranking ${context.candidates.length} candidates for campaign "${context.campaign.title}"`);
 
-    const systemPrompt = `
-You are a High-Signal Strategic Commander. Your task is to rank a list of candidate recipients against a specific campaign strategy.
+    if (context.candidates.length === 0) {
+      return { queue: [] };
+    }
+
+    const systemPrompt = `You are a High-Signal Strategic Commander. Rank candidates against a campaign strategy.
 
 CAMPAIGN:
 Title: ${context.campaign.title}
@@ -2958,26 +2959,20 @@ Description: ${context.campaign.description || 'N/A'}
 Target Segment: ${context.campaign.targetSegment || 'N/A'}
 Strategic Angle: ${context.campaign.strategicAngle || 'N/A'}
 
-REFINEMENT INSTRUCTIONS:
-${context.refinement || 'None provided. Use standard strategic fit.'}
+REFINEMENT: ${context.refinement || 'None. Use standard strategic fit.'}
 
 INSTRUCTIONS:
-1. Evaluate each candidate based on their title, company, and seniority relative to the campaign goal.
-2. Return a JSON object with a "queue" property containing an array of the top ${context.limit} matches.
-3. Each item in the queue must include:
-   - "id": The candidate's ID.
-   - "name": The candidate's name.
-   - "title": Their title.
-   - "company": Their company.
-   - "score": A match score from 0-100.
-   - "reason": A one-sentence rationale (why them, why now).
-   - "source": The source provided in the candidate list.
-`;
+1. Evaluate each candidate by title, company, and seniority relative to the campaign.
+2. Return ONLY a JSON object: { "queue": [ ... ] } with the top ${context.limit} matches.
+3. Each item must have: "idx" (the candidate index number), "name", "title", "company", "score" (0-100), "reason" (one sentence).
+4. Order by score descending. Return ONLY valid JSON, no markdown fences.`;
 
-    const userPrompt = `
-CANDIDATES:
-${JSON.stringify(context.candidates, null, 2)}
-`;
+    // Compact text list instead of full JSON — much smaller token footprint
+    const candidateLines = context.candidates.map(c =>
+      `[${c.idx}] ${c.name} | ${c.title} | ${c.company}`
+    ).join('\n');
+
+    const userPrompt = `CANDIDATES:\n${candidateLines}`;
 
     const response = await this.aiProviderFactory.getProvider().generateText({
       messages: [
@@ -2989,12 +2984,13 @@ ${JSON.stringify(context.candidates, null, 2)}
 
     try {
       const parsed = JSON.parse(this.extractJsonPayload(response.content));
-      return {
-        queue: Array.isArray(parsed.queue) ? parsed.queue : []
-      };
+      const queue = Array.isArray(parsed.queue) ? parsed.queue : [];
+      this.logger.log(`AI returned ${queue.length} ranked recipients`);
+      return { queue };
     } catch (e) {
-      this.logger.error('Failed to parse AI ranking response', e);
-      return { queue: [] };
+      this.logger.error(`Failed to parse AI ranking response: ${response.content?.substring(0, 200)}`, e);
+      // Surface the error instead of silently returning empty
+      throw new Error('AI ranking returned an unparseable response. Please retry.');
     }
   }
 }

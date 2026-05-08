@@ -3,11 +3,12 @@ import { NextActionsModule } from '../next-actions/next-actions.module';
 import { CommercialModule } from '../commercial/commercial.module';
 import { DiscoveryModule } from '../discovery/discovery.module';
 import { OfferingsModule } from '../offerings/offerings.module';
+import { AiModule } from '../ai/ai.module';
 import { WorkspaceController } from './workspace.controller';
 import { WorkspaceService } from './workspace.service';
 
 @Module({
-  imports: [NextActionsModule, CommercialModule, DiscoveryModule, OfferingsModule],
+  imports: [NextActionsModule, CommercialModule, DiscoveryModule, OfferingsModule, AiModule],
   controllers: [WorkspaceController],
   providers: [WorkspaceService],
 })

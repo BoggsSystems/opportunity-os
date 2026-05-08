@@ -6,6 +6,8 @@ interface WorkspaceTopBarProps {
   workspace: WorkspaceState | null;
   subscription: SubscriptionSummary | null;
   usage: UsageSummary | null;
+  mode: 'command' | 'map';
+  onModeChange: (mode: 'command' | 'map') => void;
   isLoading: boolean;
   onRefresh: () => void;
   onOpenSettings: () => void;
@@ -56,6 +58,26 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = (props) => {
       <div>
         <p className="eyebrow">Canvas</p>
         <h1>{props.workspace?.activeCycle?.title ?? 'Opportunity cycle engine'}</h1>
+      </div>
+      <div className="workspace-mode-switch" role="tablist" aria-label="Workspace mode">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={props.mode === 'command'}
+          className={props.mode === 'command' ? 'workspace-mode-button active' : 'workspace-mode-button'}
+          onClick={() => props.onModeChange('command')}
+        >
+          Command
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={props.mode === 'map'}
+          className={props.mode === 'map' ? 'workspace-mode-button active' : 'workspace-mode-button'}
+          onClick={() => props.onModeChange('map')}
+        >
+          Map
+        </button>
       </div>
       <div className="topbar-actions">
         <button 

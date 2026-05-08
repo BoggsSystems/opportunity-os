@@ -20,6 +20,7 @@ import { NextActionsService } from '../next-actions/next-actions.service';
 import { CommercialService } from '../commercial/commercial.service';
 import { DiscoveryService } from '../discovery/discovery.service';
 import { OfferingsService } from '../offerings/offerings.service';
+import { AiService } from '../ai/ai.service';
 import { WorkspaceCommandDto } from './dto/workspace-command.dto';
 import {
   CanvasAction,
@@ -37,6 +38,7 @@ export class WorkspaceService {
     private readonly commercialService: CommercialService,
     private readonly discoveryService: DiscoveryService,
     private readonly offeringsService: OfferingsService,
+    private readonly aiService: AiService,
   ) {}
 
   async getWorkspaceState(userId: string): Promise<WorkspaceState> {
@@ -553,59 +555,144 @@ export class WorkspaceService {
     });
     if (!campaign) throw new NotFoundException('Campaign not found');
 
-    // 1. Fetch potential contacts (from ConnectionRecord and Person)
-    const [connections, people] = await Promise.all([
-      prisma.connectionRecord.findMany({
-        where: { userId },
-        take: 200, // Reasonable sample for ranking
-        orderBy: { connectedOn: 'desc' },
-      }),
-      prisma.person.findMany({
-        where: { userId, opportunities: { none: { opportunity: { campaignId } } } },
-        take: 100,
-        orderBy: { updatedAt: 'desc' },
-      })
-    ]);
+    // ── 1. Extract keyword filters from targetSegment + refinement ──
+    const filterSources = [campaign.targetSegment, refinement].filter(Boolean).join(' ');
+    const keywords = this.extractFilterKeywords(filterSources);
+    console.log(`[QUEUE] Campaign "${campaign.title}" — keywords: [${keywords.join(', ')}], refinement: "${refinement || 'none'}"`);
 
-    // 2. Use AI to rank them
-    const candidates = [
+    // ── 2. Pre-filter at the DB level so the AI sees ≤50 relevant candidates ──
+    const MAX_CANDIDATES = 50;
+    let connections = await this.fetchFilteredConnections(userId, keywords, MAX_CANDIDATES);
+
+    // Fallback: if keyword filters returned too few, pad with most-recent
+    if (connections.length < 10) {
+      console.log(`[QUEUE] Only ${connections.length} keyword matches — padding with recent connections`);
+      const existingIds = new Set(connections.map(c => c.id));
+      const recent = await prisma.connectionRecord.findMany({
+        where: { userId, id: { notIn: [...existingIds] } },
+        take: MAX_CANDIDATES - connections.length,
+        orderBy: { connectedOn: 'desc' },
+      });
+      connections = [...connections, ...recent];
+    }
+
+    const people = await prisma.person.findMany({
+      where: { userId },
+      include: { company: true },
+      take: 20,
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    console.log(`[QUEUE] ${connections.length} connections + ${people.length} people → sending to AI`);
+
+    // ── 3. Build a compact candidate list: numeric index → real data ──
+    type FullCandidate = { id: string; source: 'connection' | 'person'; name: string; title: string | null; company: string | null; linkedinUrl: string | null };
+    const fullCandidates: FullCandidate[] = [
       ...connections.map(c => ({
         id: c.id,
-        source: 'connection',
+        source: 'connection' as const,
         name: `${c.firstName} ${c.lastName}`,
-        title: c.title,
-        company: c.company,
-        linkedinUrl: c.linkedinUrl,
+        title: c.title || null,
+        company: c.company || null,
+        linkedinUrl: c.linkedinUrl || null,
       })),
       ...people.map(p => ({
         id: p.id,
-        source: 'person',
+        source: 'person' as const,
         name: p.fullName,
-        title: p.title,
-        company: p.companyName,
-        linkedinUrl: p.linkedinUrl,
-      }))
+        title: p.title || null,
+        company: p.company?.name || null,
+        linkedinUrl: p.linkedinUrl || null,
+      })),
     ];
 
+    if (fullCandidates.length === 0) {
+      return { queue: [], campaignId, actionLaneId, error: 'No contacts found. Import your LinkedIn connections first.' };
+    }
+
+    // Send only index + name/title/company to AI (no UUIDs, no URLs)
+    const slimCandidates = fullCandidates.map((c, i) => ({
+      idx: i,
+      name: c.name,
+      title: c.title || 'N/A',
+      company: c.company || 'N/A',
+    }));
+
+    // ── 4. Call AI with the slim payload ──
     const ranked = await this.aiService.rankRecipients({
       campaign: {
         title: campaign.title,
         description: campaign.description,
         targetSegment: campaign.targetSegment,
-        strategicAngle: campaign.strategicAngle || campaign.hook,
+        strategicAngle: campaign.strategicAngle,
       },
-      candidates,
+      candidates: slimCandidates,
       limit,
       refinement,
     });
 
-    console.log(`[DEBUG] AI ranked ${ranked.queue?.length || 0} recipients successfully`);
+    // ── 5. Map AI indices back to real candidates ──
+    const queue = (ranked.queue || []).map((item: any) => {
+      const idx = typeof item.idx === 'number' ? item.idx : parseInt(item.idx, 10);
+      const real = Number.isFinite(idx) && idx >= 0 && idx < fullCandidates.length ? fullCandidates[idx] : null;
+      return {
+        id: real?.id || item.id || `unknown-${idx}`,
+        name: item.name || real?.name || 'Unknown',
+        title: item.title || real?.title || null,
+        company: item.company || real?.company || null,
+        score: item.score ?? 50,
+        reason: item.reason || 'Matched by AI ranking.',
+        source: real?.source || 'connection',
+        linkedinUrl: real?.linkedinUrl || null,
+      };
+    }).filter((item: any) => item.id && !item.id.startsWith('unknown'));
+
+    console.log(`[QUEUE] AI ranked ${queue.length} recipients successfully`);
 
     return {
-      queue: ranked.queue || [],
+      queue,
       campaignId,
       actionLaneId,
     };
+  }
+
+  /** Extract meaningful filter keywords from a natural-language string */
+  private extractFilterKeywords(text: string): string[] {
+    if (!text || !text.trim()) return [];
+    // Common stop words that don't help with DB filtering
+    const stopWords = new Set(['the','a','an','and','or','in','at','to','for','of','with','who','that','this','are','is','i','my','me','we','our','from','on','by','it','be','as','do','have','has','not','no','all','any','but','if','so','up','out','about','just','into','them','then','than','would','should','could','will','can','may','what','which','their','they','been','find','show','looking','want','need','people','prefer','focus','prioritize']);
+    return text
+      .replace(/[^a-zA-Z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .map(w => w.trim().toLowerCase())
+      .filter(w => w.length >= 3 && !stopWords.has(w));
+  }
+
+  /** Fetch ConnectionRecords matching keyword filters via ILIKE */
+  private async fetchFilteredConnections(userId: string, keywords: string[], limit: number) {
+    if (keywords.length === 0) {
+      // No keywords — return most recent
+      return prisma.connectionRecord.findMany({
+        where: { userId },
+        take: limit,
+        orderBy: { connectedOn: 'desc' },
+      });
+    }
+
+    // Build OR conditions: each keyword matches title OR company
+    const orConditions = keywords.flatMap(kw => [
+      { title: { contains: kw, mode: 'insensitive' as const } },
+      { company: { contains: kw, mode: 'insensitive' as const } },
+    ]);
+
+    return prisma.connectionRecord.findMany({
+      where: {
+        userId,
+        OR: orConditions,
+      },
+      take: limit,
+      orderBy: { connectedOn: 'desc' },
+    });
   }
 
   private async selectRecipientFromCommand(userId: string, dto: WorkspaceCommandDto) {
@@ -631,32 +718,45 @@ export class WorkspaceService {
         // Find or create company
         let companyId: string | undefined;
         if (conn.company) {
-          const company = await prisma.company.upsert({
-            where: { userId_name: { userId, name: conn.company } },
-            create: { userId, name: conn.company, companyType: 'prospect' },
-            update: {},
+          const existingCompany = await prisma.company.findFirst({
+            where: { userId, name: conn.company },
+          });
+          const company = existingCompany || await prisma.company.create({
+            data: { userId, name: conn.company, companyType: 'prospect' },
           });
           companyId = company.id;
         }
 
-        const person = await prisma.person.upsert({
-          where: { userId_fullName_companyId: { userId, fullName: `${conn.firstName} ${conn.lastName}`, companyId: companyId || '' } },
-          create: {
+        const fullName = `${conn.firstName} ${conn.lastName}`.trim();
+        const existingPerson = conn.personId
+          ? await prisma.person.findFirst({ where: { id: conn.personId, userId } })
+          : conn.email
+            ? await prisma.person.findFirst({ where: { userId, email: conn.email } })
+            : await prisma.person.findFirst({ where: { userId, fullName, companyId } });
+
+        const person = existingPerson
+          ? await prisma.person.update({
+              where: { id: existingPerson.id },
+              data: {
+                companyId: existingPerson.companyId || companyId,
+                linkedinUrl: conn.linkedinUrl || existingPerson.linkedinUrl,
+                email: conn.email || existingPerson.email,
+                title: conn.title || existingPerson.title,
+              },
+            })
+          : await prisma.person.create({
+            data: {
             userId,
             companyId,
-            fullName: `${conn.firstName} ${conn.lastName}`,
+            fullName,
             firstName: conn.firstName,
             lastName: conn.lastName,
             email: conn.email,
             title: conn.title,
             linkedinUrl: conn.linkedinUrl,
             contactSource: 'linkedin_import',
-          },
-          update: {
-            linkedinUrl: conn.linkedinUrl || undefined,
-            email: conn.email || undefined,
-          },
-        });
+            },
+          });
         finalPersonId = person.id;
       }
     }

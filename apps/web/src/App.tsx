@@ -209,6 +209,11 @@ export function App() {
   const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
   const [campaignWorkspace, setCampaignWorkspace] = useState<CampaignWorkspace | null>(null);
   const [commandQueue, setCommandQueue] = useState<CommandQueueState | null>(null);
+  const [workspaceMode, setWorkspaceMode] = useState<'command' | 'map'>('command');
+  const [intelligenceArtifacts, setIntelligenceArtifacts] = useState<any[]>([]);
+  const [intelligenceJobs, setIntelligenceJobs] = useState<any[]>([]);
+  const [intelligenceChunks, setIntelligenceChunks] = useState<any[]>([]);
+  const [userAssets, setUserAssets] = useState<any[]>([]);
   const [subscription, setSubscription] = useState<SubscriptionSummary | null>(null);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [commercialState, setCommercialState] = useState<CommercialState | null>(null);
@@ -350,6 +355,12 @@ export function App() {
       const emailState = await api.getEmailReadiness().catch(() => null);
       const commercial = await api.getCommercialState().catch(() => null);
       const availablePlans = await api.listPlans().catch(() => []);
+      const [artifactsState, jobsState, chunksState, assetsState] = await Promise.all([
+        api.get<any[]>('/intelligence/artifacts').catch(() => []),
+        api.get<any[]>('/intelligence/jobs').catch(() => []),
+        api.get<any[]>('/intelligence/chunks').catch(() => []),
+        api.get<any>('/assets').catch(() => ({ assets: [] })),
+      ]);
       const campaignId = workspaceState.activeCycle?.refs.campaignId;
       const campaignState = campaignId
         ? await api.getCampaignWorkspace(campaignId).catch(() => null)
@@ -363,6 +374,10 @@ export function App() {
       setCommercialState(commercial);
       setPlans(availablePlans);
       setEmailReadiness(emailState);
+      setIntelligenceArtifacts(Array.isArray(artifactsState) ? artifactsState : []);
+      setIntelligenceJobs(Array.isArray(jobsState) ? jobsState : []);
+      setIntelligenceChunks(Array.isArray(chunksState) ? chunksState : []);
+      setUserAssets(Array.isArray(assetsState) ? assetsState : Array.isArray(assetsState?.assets) ? assetsState.assets : []);
       const billing = await api.getBillingState().catch(() => null);
       setBillingState(billing);
       const pendingActivation = readWorkspaceActivationPayload();
@@ -605,6 +620,10 @@ export function App() {
     setWorkspace(null);
     setCampaignWorkspace(null);
     setCommandQueue(null);
+    setIntelligenceArtifacts([]);
+    setIntelligenceJobs([]);
+    setIntelligenceChunks([]);
+    setUserAssets([]);
     setMessages([]);
     setDraft(null);
     setOutreachExecutionState('idle');
@@ -619,6 +638,14 @@ export function App() {
     setEmailReadiness(null);
     setUpgradePrompt(null);
     setView('landing');
+  }
+
+  function extendedLogoutAndPurge() {
+    const confirmed = window.confirm('Clear local session, onboarding drafts, and cached workspace state for this browser?');
+    if (!confirmed) return;
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = '/';
   }
 
   async function runCommand(body: Record<string, unknown>, success: string) {
@@ -1426,7 +1453,7 @@ export function App() {
     }
   }
 
-  async function buildRecipientQueue(input: { campaignId: string; actionLaneId?: string; limit?: number }) {
+  async function buildRecipientQueue(input: { campaignId: string; actionLaneId?: string; limit?: number; refinement?: string }) {
     setIsWorking(true);
     try {
       const response = await api.executeWorkspaceCommand({
@@ -1435,9 +1462,10 @@ export function App() {
         input: {
           actionLaneId: input.actionLaneId,
           limit: input.limit,
+          refinement: input.refinement,
         },
       });
-      return response.result;
+      return (response as any).result;
     } catch (e) {
       console.error('Failed to build recipient queue', e);
       throw e;
@@ -1753,6 +1781,8 @@ export function App() {
           workspace={workspace}
           subscription={subscription}
           usage={usage}
+          mode={workspaceMode}
+          onModeChange={setWorkspaceMode}
           isLoading={isBooting || isWorking}
           onRefresh={() => void loadWorkspace()}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -1776,6 +1806,11 @@ export function App() {
             campaignWorkspace={campaignWorkspace}
             emailReadiness={emailReadiness}
             commandQueue={commandQueue}
+            intelligenceArtifacts={intelligenceArtifacts}
+            intelligenceJobs={intelligenceJobs}
+            intelligenceChunks={intelligenceChunks}
+            userAssets={userAssets}
+            mode={workspaceMode}
             view={workspaceView}
             draft={draft}
             outreachExecutionState={outreachExecutionState}
@@ -1791,6 +1826,8 @@ export function App() {
             onConfirmCanvasAction={confirmCanvasAction}
             onSaveActionDraft={saveCanvasDraft}
             onSelectCommandQueueItem={selectCommandQueueItem}
+            onChangeMode={setWorkspaceMode}
+            onExtendedLogoutAndPurge={extendedLogoutAndPurge}
             onUpdateCommandQueueItem={updateCommandQueueItem}
             onRefreshCommandQueue={refreshCommandQueue}
             onGenerateDraft={generateDraft}
