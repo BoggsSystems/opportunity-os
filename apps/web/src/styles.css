@@ -4895,3 +4895,36 @@ input:focus {
   font-style: italic;
 }
 
+.change-target-btn {
+  margin-left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  color: var(--blue);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.change-target-btn:hover:not(:disabled) {
+  background: #e0e9f5;
+  border-color: #bfd3ee;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(11, 100, 216, 0.08);
+}
+
+.change-target-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.change-target-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

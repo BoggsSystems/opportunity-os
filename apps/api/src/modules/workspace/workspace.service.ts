@@ -22,6 +22,7 @@ import { CommercialService } from '../commercial/commercial.service';
 import { DiscoveryService } from '../discovery/discovery.service';
 import { OfferingsService } from '../offerings/offerings.service';
 import { AiService } from '../ai/ai.service';
+import { OutreachService } from '../outreach/outreach.service';
 import { WorkspaceCommandDto } from './dto/workspace-command.dto';
 import {
   CanvasAction,
@@ -40,6 +41,7 @@ export class WorkspaceService {
     private readonly discoveryService: DiscoveryService,
     private readonly offeringsService: OfferingsService,
     private readonly aiService: AiService,
+    private readonly outreachService: OutreachService,
   ) {}
 
   async getWorkspaceState(userId: string): Promise<WorkspaceState> {
@@ -1055,6 +1057,69 @@ export class WorkspaceService {
           personId: finalPersonId ?? undefined,
         },
       });
+    }
+
+    // 4. Collaborative Synthesis: Generate rationale and auto-draft
+    try {
+      const refreshedActionItem = await prisma.actionItem.findUnique({
+        where: { id: actionItemId },
+        include: {
+          campaign: {
+            include: { offering: true }
+          },
+          targetPerson: {
+            include: { company: true }
+          },
+          targetCompany: true
+        }
+      });
+
+      if (refreshedActionItem && refreshedActionItem.targetPersonId) {
+        // A. Generate rationale
+        const rationale = await this.aiService.generateOutreachRationale({
+          targetPersonName: refreshedActionItem.targetPerson?.fullName || 'Prospect',
+          targetTitle: refreshedActionItem.targetPerson?.title || undefined,
+          targetCompany: refreshedActionItem.targetPerson?.company?.name || refreshedActionItem.targetCompany?.name || undefined,
+          campaignTitle: refreshedActionItem.campaign?.title || 'Active Campaign',
+          campaignAngle: refreshedActionItem.campaign?.strategicAngle || refreshedActionItem.campaign?.objective || '',
+          offeringTitle: refreshedActionItem.campaign?.offering?.title || 'our solutions'
+        });
+
+        // B. Add rationale to conversation thread
+        let thread = await prisma.conversationThread.findFirst({
+          where: { userId, actionItemId }
+        });
+
+        if (!thread) {
+          thread = await prisma.conversationThread.create({
+            data: {
+              userId,
+              actionItemId,
+              title: `Outreach to ${refreshedActionItem.targetPerson?.fullName || 'Prospect'}`,
+              status: 'active'
+            }
+          });
+        }
+
+        await prisma.aIConversationMessage.create({
+          data: {
+            threadId: thread.id,
+            role: 'assistant',
+            text: rationale,
+            status: 'completed'
+          }
+        });
+
+        // C. Trigger automatic draft generation
+        // Note: We do this asynchronously to not block the command response, 
+        // but it should be fast enough that the refresh picks it up.
+        this.outreachService.generateHierarchicalDraft(userId, actionItemId).catch(err => {
+          console.error('Failed to auto-generate draft during selection', err);
+        });
+      }
+    } catch (error) {
+      console.error('Error during collaborative synthesis', error);
+      // We don't throw here to avoid failing the selection if only the rationale fails
     }
 
     return { success: true, personId: finalPersonId };

@@ -301,11 +301,11 @@ const ActionCanvasShell: React.FC<{
             {!shouldPrepareRecipientQueue && (payload.actionItem?.targetPersonId || payload.actionItem?.targetCompanyId) && (
               <button 
                 type="button"
-                className="text-btn btn-sm" 
+                className="change-target-btn" 
                 onClick={() => onClearRecipient(payload.actionItem.id)} 
-                disabled={isWorking} 
-                style={{ marginLeft: '12px', fontSize: '0.8em', textDecoration: 'underline' }}
+                disabled={isWorking}
               >
+                <RefreshCw size={12} />
                 Change Target
               </button>
             )}

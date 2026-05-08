@@ -974,6 +974,46 @@ Rules:
     }
   }
 
+  async generateOutreachRationale(context: {
+    targetPersonName: string;
+    targetTitle?: string;
+    targetCompany?: string;
+    campaignTitle: string;
+    campaignAngle: string;
+    offeringTitle: string;
+  }): Promise<string> {
+    this.logger.log(`Generating outreach rationale for target ${context.targetPersonName}`);
+
+    const prompt = `
+You are a High-Signal Strategic Commander. You have just selected a target for a campaign and are about to draft an outreach message.
+YOUR TASK:
+Provide a 2-3 sentence strategic rationale for the Director (the user) explaining the "why" behind this outreach attempt.
+
+CONTEXT:
+Target: ${context.targetPersonName} ${context.targetTitle ? `(${context.targetTitle})` : ''} at ${context.targetCompany || 'their company'}
+Campaign: ${context.campaignTitle}
+Strategic Angle: ${context.campaignAngle}
+Offering: ${context.offeringTitle}
+
+INSTRUCTIONS:
+1. Explain how the offering solves a specific problem for this contact given the campaign angle.
+2. Acknowledge the contact by name.
+3. Speak as the "Commander" who is confident in this strike.
+4. Start with something like "Let's put together a draft for ${context.targetPersonName}..." or "I'm preparing a strike on ${context.targetPersonName}..."
+5. Keep it punchy and professional.
+
+RATIONALE:`;
+
+    const request: AiRequest = {
+      prompt,
+      temperature: 0.7,
+      maxTokens: 300,
+    };
+
+    const response = await this.aiProviderFactory.getProvider().generateText(request);
+    return response.content.trim();
+  }
+
   async refineOutreachDraft(context: {
     actionItemId: string;
     currentContent: string;

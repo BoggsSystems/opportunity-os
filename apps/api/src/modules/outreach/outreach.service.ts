@@ -49,6 +49,15 @@ export class OutreachService {
     const subject = subjectMatch ? subjectMatch[1] : `Re: ${context.action.title}`;
     const body = bodyMatch.length > 1 ? bodyMatch[1].trim() : result.trim();
 
+    // Persist the draft to the action item
+    await prisma.actionItem.update({
+      where: { id: actionItemId },
+      data: {
+        draftContent: body,
+        draftSubject: subject
+      }
+    });
+
     return {
       id: actionItemId,
       subject,
