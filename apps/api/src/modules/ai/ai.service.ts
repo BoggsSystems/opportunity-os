@@ -24,6 +24,15 @@ interface ConversationTurn {
 
 interface ConversationContext {
   workspaceState?: string;
+  currentStep?: string;
+  networkCount?: number;
+  networkPosture?: string;
+  frameworks?: string[];
+  interpretation?: string;
+  proposedOfferings?: any[];
+  selectedLanes?: string[];
+  proposedCampaigns?: any[];
+  selectedCampaigns?: string[];
   nextAction?: {
     title?: string;
     reason?: string;
@@ -1271,7 +1280,15 @@ IMPORTANT RULES:
     history?: ConversationTurn[];
     context?: ConversationContext;
     strategicContext?: { phase: string; mission: string };
-  }): Promise<{ sessionId: string; reply: string; shouldBeSilent: boolean; suggestedAction?: string; onboardingPlan?: StrategicResult | null }> {
+  }): Promise<{ 
+    sessionId: string; 
+    reply: string; 
+    shouldBeSilent: boolean; 
+    suggestedAction?: string; 
+    onboardingPlan?: StrategicResult | null;
+    proposedOfferings?: any[];
+    proposedCampaigns?: any[];
+  }> {
     this.logger.log(
       `Generating conversational assistant response userId=${input.userId ?? 'GUEST'} guestSessionId=${input.guestSessionId ?? 'none'} userName=${input.userName ?? 'unknown'} sessionId=${input.sessionId ?? 'new'} historyCount=${input.history?.length ?? 0} workspaceState=${input.context?.workspaceState ?? 'unknown'} message=${input.message}`,
     );
@@ -1356,6 +1373,20 @@ IMPORTANT RULES:
             name: 'propose_campaign',
             description: 'Call this tool when proposing a tactical outreach campaign or strategy after a goal is confirmed.'
           }
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'refine_offerings',
+            description: 'Call this tool when the user provides feedback that requires regenerating or pivoting the proposed Revenue Lanes (offerings).'
+          }
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'refine_campaigns',
+            description: 'Call this tool when the user provides feedback that requires regenerating or pivoting the proposed outreach campaigns.'
+          }
         }
       ]
     };
@@ -1365,9 +1396,11 @@ IMPORTANT RULES:
     const response = await this.aiProviderFactory.getProvider().generateText(request);
     let reply = response.content.trim();
     const toolAction = this.actionFromToolCalls(response.tool_calls);
-    const { action, plan } = await this.detectStrategicIntent(sessionId, input.message, reply, history, toolAction);
+    const { action, plan, offerings, campaigns } = await this.detectStrategicIntent(sessionId, input.message, reply, history, toolAction, input.context);
     const suggestedAction = action;
     const onboardingPlan = plan;
+    const proposedOfferings = offerings;
+    const proposedCampaigns = campaigns;
 
     if (suggestedAction && (!reply || reply.length < 2)) {
       if (suggestedAction === 'PROPOSE_GOAL') {
@@ -1399,6 +1432,8 @@ IMPORTANT RULES:
       shouldBeSilent,
       suggestedAction,
       onboardingPlan,
+      proposedOfferings,
+      proposedCampaigns,
     };
 
     this.logger.debug(`[FINAL RESPONSE] suggestedAction=${finalResponse.suggestedAction}, hasPlan=${!!finalResponse.onboardingPlan}`);
@@ -1596,6 +1631,20 @@ IMPORTANT RULES:
             name: 'propose_campaign',
             description: 'Call this tool when proposing a tactical outreach campaign or strategy after a goal is confirmed.'
           }
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'refine_offerings',
+            description: 'Call this tool when the user provides feedback that requires regenerating or pivoting the proposed Revenue Lanes (offerings).'
+          }
+        },
+        {
+          type: 'function',
+          function: {
+            name: 'refine_campaigns',
+            description: 'Call this tool when the user provides feedback that requires regenerating or pivoting the proposed outreach campaigns.'
+          }
         }
       ]
     };
@@ -1619,8 +1668,14 @@ IMPORTANT RULES:
     message: string,
     fullReply: string,
     history?: ConversationTurn[],
-    overrideAction?: string
-  ): Promise<{ suggestedAction?: string, strategicPlan?: any }> {
+    overrideAction?: string,
+    context?: ConversationContext
+  ): Promise<{ 
+    suggestedAction?: string, 
+    strategicPlan?: any,
+    proposedOfferings?: any[],
+    proposedCampaigns?: any[]
+  }> {
     this.logger.log(`🏁 AI SERVICE: finalizeStreamConversation session=${sessionId}`);
     const cleanedReply = fullReply.replace(/\[PROPOSE_GOAL\]/gi, '').replace(/\[PROPOSE_CAMPAIGN\]/gi, '').trim();
     
@@ -1638,8 +1693,13 @@ IMPORTANT RULES:
     }
 
     // Detect if this stream should have triggered an action
-    const { action, plan } = await this.detectStrategicIntent(sessionId, message, fullReply, history, overrideAction);
-    return { suggestedAction: action, strategicPlan: plan };
+    const { action, plan, offerings, campaigns } = await this.detectStrategicIntent(sessionId, message, fullReply, history, overrideAction, context);
+    return { 
+      suggestedAction: action, 
+      strategicPlan: plan,
+      proposedOfferings: offerings,
+      proposedCampaigns: campaigns
+    };
   }
 
   /**
@@ -1650,11 +1710,14 @@ IMPORTANT RULES:
     message: string,
     reply: string,
     history?: ConversationTurn[],
-    overrideAction?: string
-  ): Promise<{ action?: string, plan?: any }> {
+    overrideAction?: string,
+    context?: ConversationContext
+  ): Promise<{ action?: string, plan?: any, offerings?: any[], campaigns?: any[] }> {
     const lowerReply = reply.toLowerCase();
     let suggestedAction: string | undefined;
     let strategicPlan: any = null;
+    let proposedOfferings: any[] | undefined = undefined;
+    let proposedCampaigns: any[] | undefined = undefined;
 
     this.logger.debug(`[detectStrategicIntent] Starting detection for sessionId=${sessionId}`);
     this.logger.debug(`[detectStrategicIntent] User message: "${message?.substring(0, 100)}"`);
@@ -1683,9 +1746,28 @@ IMPORTANT RULES:
                             message.toLowerCase().includes('initialize today') ||
                             message.toLowerCase().includes('daily brief');
       
-      this.logger.debug(`[detectStrategicIntent] Goal phrase check: ${hasGoalPhrase}, Daily ritual check: ${isDailyRitual}`);
-      
-      if (isDailyRitual) {
+    this.logger.debug(`[detectStrategicIntent] Goal phrase check: ${hasGoalPhrase}, Daily ritual check: ${isDailyRitual}`);
+    
+    // Check for explicit refinement intent in intent/campaign steps
+    const isRefiningOfferings = (context?.currentStep === 'intent' || context?.workspaceState === 'ONBOARDING') && 
+                               (overrideAction === 'REFINE_OFFERINGS' || 
+                                lowerReply.includes('regenerating the revenue lanes') || 
+                                lowerReply.includes('updating the revenue lanes') ||
+                                lowerReply.includes('regenerate the revenue lanes'));
+    
+    const isRefiningCampaigns = (context?.currentStep === 'campaigns' || context?.workspaceState === 'ONBOARDING') && 
+                               (overrideAction === 'REFINE_CAMPAIGNS' || 
+                                lowerReply.includes('regenerating the campaigns') || 
+                                lowerReply.includes('updating the campaigns') ||
+                                lowerReply.includes('regenerate the campaigns'));
+
+    if (isRefiningOfferings) {
+      suggestedAction = 'REFINE_OFFERINGS';
+      this.logger.debug(`[detectStrategicIntent] → Detected REFINE_OFFERINGS`);
+    } else if (isRefiningCampaigns) {
+      suggestedAction = 'REFINE_CAMPAIGNS';
+      this.logger.debug(`[detectStrategicIntent] → Detected REFINE_CAMPAIGNS`);
+    } else if (isDailyRitual) {
         suggestedAction = 'ORCHESTRATE_DAILY_HABIT';
         this.logger.debug(`[detectStrategicIntent] → Detected ORCHESTRATE_DAILY_HABIT from user ritual`);
       } else if (hasGoalPhrase) {
@@ -1743,8 +1825,45 @@ IMPORTANT RULES:
       }
     }
 
+ 
+    // 3. Execution of suggested actions that require data regeneration
+    if (suggestedAction === 'REFINE_OFFERINGS') {
+      this.logger.debug(`[detectStrategicIntent] Executing REFINE_OFFERINGS...`);
+      try {
+        const refinementContext = {
+          networkCount: context?.networkCount ?? 14640,
+          networkPosture: context?.networkPosture ?? '',
+          frameworks: context?.frameworks ?? [],
+          interpretation: context?.interpretation ?? ''
+        };
+        proposedOfferings = await this.refineRevenueLanes(context?.proposedOfferings ?? [], message, refinementContext);
+        this.logger.debug(`[detectStrategicIntent] Offering refinement successful: ${proposedOfferings.length} lanes returned.`);
+      } catch (err: any) {
+        this.logger.error(`[detectStrategicIntent] Offering refinement failed: ${err.message}`);
+      }
+    } else if (suggestedAction === 'REFINE_CAMPAIGNS') {
+      this.logger.debug(`[detectStrategicIntent] Executing REFINE_CAMPAIGNS...`);
+      try {
+        const refinementContext = {
+          selectedLanes: context?.proposedOfferings?.filter(o => context?.selectedLanes?.includes(o.id)) ?? [],
+          networkCount: context?.networkCount ?? 14640,
+          frameworks: context?.frameworks ?? [],
+          interpretation: context?.interpretation ?? ''
+        };
+        proposedCampaigns = await this.refineCampaigns(context?.proposedCampaigns ?? [], message, refinementContext);
+        this.logger.debug(`[detectStrategicIntent] Campaign refinement successful: ${proposedCampaigns.length} campaigns returned.`);
+      } catch (err: any) {
+        this.logger.error(`[detectStrategicIntent] Campaign refinement failed: ${err.message}`);
+      }
+    }
+
     this.logger.debug(`[detectStrategicIntent] Returning: action=${suggestedAction || 'NONE'}, hasPlan=${strategicPlan ? 'YES' : 'NO'}`);
-    return { action: suggestedAction, plan: strategicPlan };
+    return { 
+      action: suggestedAction, 
+      plan: strategicPlan,
+      offerings: proposedOfferings,
+      campaigns: proposedCampaigns
+    };
   }
 
   private async getLongTermSummaries(userId: string): Promise<string[]> {
@@ -2109,9 +2228,30 @@ Response Rules:
 Current Context:
 ${[
   input.context?.workspaceState ? `- We are in the ${input.context.workspaceState} phase.` : null,
+  input.context?.currentStep ? `- Current onboarding step: ${input.context.currentStep}` : null,
   input.context?.nextAction?.title ? `- Recommended next move: ${input.context.nextAction.title}` : null,
   input.context?.opportunity?.companyName ? `- Active company: ${input.context.opportunity.companyName}` : null,
 ].filter(Boolean).join('\n') || '- No specific business context yet. Let\'s get started!'}
+
+${input.context?.currentStep === 'intent' ? `
+ONBOARDING REVENUE LANE REFINEMENT MODE:
+- The user is currently reviewing proposed Revenue Lanes (offerings).
+- The currently proposed Revenue Lanes are:
+${(input.context.proposedOfferings ?? []).map((o: any, i: number) => `  ${i + 1}. "${o.title}" — ${o.description || 'No description'}`).join('\\n')}
+- When the user provides ANY feedback about changing, adding, removing, or pivoting the Revenue Lanes, you MUST call the \`refine_offerings\` tool.
+- Examples of feedback that should trigger \`refine_offerings\`: "add a lane for my book", "remove the consulting one", "focus more on AI", "I want to sell my course instead", "generate a lane for X", etc.
+- After calling \`refine_offerings\`, briefly acknowledge the change (e.g., "I'm regenerating the lanes based on your feedback.").
+- Do NOT just discuss the idea conversationally — you MUST call the tool so the UI updates.
+` : ''}
+${input.context?.currentStep === 'campaigns' ? `
+ONBOARDING CAMPAIGN REFINEMENT MODE:
+- The user is currently reviewing proposed Campaigns.
+- The currently proposed Campaigns are:
+${(input.context.proposedCampaigns ?? []).map((c: any, i: number) => `  ${i + 1}. "${c.title}" — ${c.description || 'No description'}`).join('\\n')}
+- When the user provides ANY feedback about changing, adding, removing, or pivoting campaigns, you MUST call the \`refine_campaigns\` tool.
+- After calling \`refine_campaigns\`, briefly acknowledge the change.
+- Do NOT just discuss the idea conversationally — you MUST call the tool so the UI updates.
+` : ''}
 
 SYSTEM Message Handling:
 - Messages prefixed with [SYSTEM] are internal app signals, NOT from the user.
@@ -2414,6 +2554,8 @@ IMPORTANT: Always respond with actual spoken words. Do not return empty strings 
 
     if (toolNames.includes('propose_goal')) return 'PROPOSE_GOAL';
     if (toolNames.includes('propose_campaign')) return 'PROPOSE_CAMPAIGN';
+    if (toolNames.includes('refine_offerings')) return 'REFINE_OFFERINGS';
+    if (toolNames.includes('refine_campaigns')) return 'REFINE_CAMPAIGNS';
     return undefined;
   }
 

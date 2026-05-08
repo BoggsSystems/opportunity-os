@@ -184,6 +184,8 @@ export class AiController {
         shouldBeSilent: reply.shouldBeSilent,
         suggestedAction: reply.suggestedAction,
         onboardingPlan: (reply as any).onboardingPlan,
+        proposedOfferings: (reply as any).proposedOfferings,
+        proposedCampaigns: (reply as any).proposedCampaigns,
         timestamp: new Date().toISOString(),
       };
     } catch (err: any) {
@@ -319,9 +321,9 @@ export class AiController {
       this.logger.log(`[ConverseStream] Finalizing conversation for sessionId=${activeSessionId}`);
       this.logger.log(`[ConverseStream] Full reply length: ${fullReply.length} chars, first 100: "${fullReply.substring(0, 100)}..."`);
       
-      const result = await this.aiService.finalizeStreamConversation(userId, body.guestSessionId, activeSessionId, body.message, fullReply, body.history).catch(err => {
+      const result = await this.aiService.finalizeStreamConversation(userId, body.guestSessionId, activeSessionId, body.message, fullReply, body.history, undefined, body.context as any).catch(err => {
         this.logger.error(`[ConverseStream] Failed to persist stream conversation sessionId=${activeSessionId}: ${err.message}`);
-        return { suggestedAction: undefined, strategicPlan: undefined };
+        return { suggestedAction: undefined, strategicPlan: undefined, proposedOfferings: undefined, proposedCampaigns: undefined };
       });
 
       this.logger.log(`[ConverseStream] Finalize result: action=${result?.suggestedAction || 'NONE'}, hasPlan=${result?.strategicPlan ? 'YES' : 'NO'}`);
@@ -332,7 +334,9 @@ export class AiController {
         reply: fullReply, 
         shouldBeSilent: false,
         suggestedAction: result?.suggestedAction,
-        onboardingPlan: result?.strategicPlan
+        onboardingPlan: result?.strategicPlan,
+        proposedOfferings: result?.proposedOfferings,
+        proposedCampaigns: result?.proposedCampaigns
       })}\n`);
       this.logger.log(`[ConverseStream] Sent 'done' message to frontend with action=${result?.suggestedAction || 'NONE'}`);
       res.end();

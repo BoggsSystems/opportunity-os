@@ -104,7 +104,7 @@ export const ConductorChat: React.FC<ConductorChatProps> = ({
           />
           <div className="composer-actions">
             <div className="actions-left">
-              {suggestedPrompts.length && (
+              {!!suggestedPrompts.length && (
                 <button 
                   type="button" 
                   className={`expand-prompts-btn ${promptsExpanded ? 'active' : ''}`}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect, useCallback, memo } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useCallback, memo, useMemo } from 'react';
 import { ApiClient } from '../../../lib/api';
 import { importWebSocketService, ImportEvent } from '../../connections/services/importWebSocket.service';
 import { MOCK_IP_ASSETS, MOCK_SYNTHESIS, MOCK_OFFERINGS, MOCK_CAMPAIGNS } from '../../../lib/onboarding-mocks';
@@ -108,6 +108,7 @@ export interface OnboardingContextType {
   setGoogleSubStep: React.Dispatch<React.SetStateAction<'drive' | 'gmail' | null>>;
   setSelectedLanes: React.Dispatch<React.SetStateAction<string[]>>;
   setIsConductorExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  suggestedPrompts: string[];
   
   // Handlers
   onAuth?: ((mode: 'login' | 'signup', email: string, password: string, fullName?: string, initialStrategy?: any) => Promise<void>) | undefined;
@@ -431,56 +432,60 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     setIsConductorThinking(true);
     const narrationHeader = "[SYSTEM: NARRATION MODE - DO NOT ask for goal confirmation. DO NOT ask 'is this the objective?'. The objective is already set. Provide strategic commentary and next-step instructions only.]";
     
-    let systemPrompt = "";
-    if (step === 'relationships') {
-      systemPrompt = `${narrationHeader} Welcome to the ingestion flow. Explain that cloud connectors are optional accelerators for finding strategic assets, but the core pipeline is LinkedIn archive plus high-signal documents.`;
-    } else if (step === 'linkedin-archive') {
-      systemPrompt = `${narrationHeader} We are moving to LinkedIn archive ingestion. Explain that this is the authoritative way to map the user's relationship graph, connection density, profile, positions, skills, and strategic posture. Ask them to upload the LinkedIn ZIP export if they have it.`;
-    } else if (step === 'manual-assets') {
-      systemPrompt = `${narrationHeader} Network sensing is complete. Now moving to manual asset ingestion. Ask them to upload a resume, book PDF, deck, or other strategic document so you can ground offerings in proof and intellectual property.`;
-    } else if (step === 'knowledge') {
-      systemPrompt = `${narrationHeader} Network sensing complete. We've identified ${connectionCount || 'their'} professional nodes. Now moving to 'Expertise Grounding'. Ask them to provide strategic assets (PDFs, decks) to sharpen the outreach frameworks.`;
-    } else if (step === 'intent') {
-      setIsLoading(true);
-      setGenerationMessage('Generating revenue lanes from your network and expertise...');
-      setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "Analyzing your network topography and IP frameworks to generate proposed Revenue Lanes..." }]);
-      
-      setTimeout(async () => {
-        try {
-          const res = await api.proposeOfferings({
-            networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
-            networkPosture: strategicDraft?.posture?.text || '',
-            frameworks: uploadedAssets.flatMap(a => a.frameworks) || [],
-            interpretation: comprehensiveSynthesis || uploadedAssets.map(a => a.interpretation).join('\n\n') || ''
-          });
-          if (res.success && res.offerings?.length) {
-            setProposedOfferings(res.offerings);
-            setSelectedLanes(res.offerings.map(o => o.id)); // Auto-select all by default
-            setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "I have analyzed your data and proposed the following Revenue Lanes. Which ones should we focus on? Feel free to chat with me below if you'd like to refine or pivot these directions." }]);
+    try {
+      let systemPrompt = "";
+      if (step === 'relationships') {
+        systemPrompt = `${narrationHeader} Welcome to the ingestion flow. Explain that cloud connectors are optional accelerators for finding strategic assets, but the core pipeline is LinkedIn archive plus high-signal documents.`;
+      } else if (step === 'linkedin-archive') {
+        systemPrompt = `${narrationHeader} We are moving to LinkedIn archive ingestion. Explain that this is the authoritative way to map the user's relationship graph, connection density, profile, positions, skills, and strategic posture. Ask them to upload the LinkedIn ZIP export if they have it.`;
+      } else if (step === 'manual-assets') {
+        systemPrompt = `${narrationHeader} Network sensing is complete. Now moving to manual asset ingestion. Ask them to upload a resume, book PDF, deck, or other strategic document so you can ground offerings in proof and intellectual property.`;
+      } else if (step === 'knowledge') {
+        systemPrompt = `${narrationHeader} Network sensing complete. We've identified ${connectionCount || 'their'} professional nodes. Now moving to 'Expertise Grounding'. Ask them to provide strategic assets (PDFs, decks) to sharpen the outreach frameworks.`;
+      } else if (step === 'intent') {
+        setIsLoading(true);
+        setGenerationMessage('Generating revenue lanes from your network and expertise...');
+        setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "Analyzing your network topography and IP frameworks to generate proposed Revenue Lanes..." }]);
+        
+        setTimeout(async () => {
+          try {
+            const res = await api.proposeOfferings({
+              networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
+              networkPosture: strategicDraft?.posture?.text || '',
+              frameworks: uploadedAssets.flatMap(a => a.frameworks) || [],
+              interpretation: comprehensiveSynthesis || uploadedAssets.map(a => a.interpretation).join('\n\n') || ''
+            });
+            if (res.success && res.offerings?.length) {
+              setProposedOfferings(res.offerings);
+              setSelectedLanes([]); // Start with none selected — user picks
+              setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "I have analyzed your data and proposed the following Revenue Lanes. Which ones should we focus on? Feel free to chat with me below if you'd like to refine or pivot these directions." }]);
+            }
+          } finally {
+            setIsLoading(false);
+            setGenerationMessage(null);
+            setIsConductorThinking(false);
           }
-        } finally {
-          setIsLoading(false);
-          setGenerationMessage(null);
-        }
-      }, 50);
-      return;
-    } else if (step === 'campaigns') {
-      // INITIALIZE SEQUENTIAL GENERATION
-      setCurrentOfferingIndex(0);
-      setProposedCampaigns([]);
-    } else if (step === 'account' && !user) {
-      setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "Your strategy is ready to activate. Create a workspace account now so I can save this plan, attach connectors to the right owner, and continue into execution setup." }]);
-    }
+        }, 50);
+        return;
+      } else if (step === 'campaigns') {
+        // INITIALIZE SEQUENTIAL GENERATION
+        setCurrentOfferingIndex(0);
+        setProposedCampaigns([]);
+      } else if (step === 'account' && !user) {
+        setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: "Your strategy is ready to activate. Create a workspace account now so I can save this plan, attach connectors to the right owner, and continue into execution setup." }]);
+      }
 
-    if (systemPrompt) {
-      const response = await api.converse({
-        message: systemPrompt,
-        ...(!user ? { guestSessionId } : {}),
-        context: { currentStep: step, strategicDraft, connectionCount, selectedMission: selectedLanes.join(', ') }
-      });
-      setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: response.reply }]);
+      if (systemPrompt) {
+        const response = await api.converse({
+          message: systemPrompt,
+          ...(!user ? { guestSessionId } : {}),
+          context: { currentStep: step, strategicDraft, connectionCount, selectedMission: selectedLanes.join(', ') }
+        });
+        setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: response.reply }]);
+      }
+    } finally {
+      setIsConductorThinking(false);
     }
-    setIsConductorThinking(false);
   };
 
   // --- Narration and Auto-Advance ---
@@ -977,10 +982,50 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
       const response = await api.converse({
         message: text,
         ...(!user ? { guestSessionId } : {}),
-        context: { currentStep, strategicDraft }
+        context: { 
+          currentStep, 
+          strategicDraft,
+          networkCount: connectionCount || strategicDraft?.connectionCount || 14640,
+          networkPosture: strategicDraft?.posture?.text || '',
+          frameworks: uploadedAssets.flatMap(a => a.frameworks) || [],
+          interpretation: comprehensiveSynthesis || uploadedAssets.map(a => a.interpretation).join('\n\n') || '',
+          proposedOfferings,
+          selectedLanes,
+          proposedCampaigns,
+          selectedCampaigns
+        }
       });
+      
+      console.log('🤖 [OnboardingContext] Conductor response:', {
+        suggestedAction: response.suggestedAction,
+        hasProposedOfferings: !!(response.proposedOfferings?.length),
+        hasProposedCampaigns: !!(response.proposedCampaigns?.length),
+        replyLength: response.reply?.length
+      });
+
       setWizardMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: response.reply }]);
       if (response.onboardingPlan) setStrategicDraft(response.onboardingPlan);
+      
+      if (response.proposedOfferings && response.proposedOfferings.length > 0) {
+        console.log('🔄 [OnboardingContext] Updating proposed offerings based on AI feedback:', response.proposedOfferings.length, 'lanes');
+        const newOfferings = response.proposedOfferings;
+        setProposedOfferings(newOfferings);
+        const newIds = new Set(newOfferings.map(o => o.id));
+        setSelectedLanes(prev => prev.filter(id => newIds.has(id)));
+      }
+
+      if (response.proposedCampaigns && response.proposedCampaigns.length > 0) {
+        console.log('🔄 [OnboardingContext] Updating proposed campaigns based on AI feedback:', response.proposedCampaigns.length, 'campaigns');
+        setProposedCampaigns(response.proposedCampaigns);
+        setSelectedCampaigns(response.proposedCampaigns.map(c => c.id));
+      }
+    } catch (error) {
+      console.error('🤖 [OnboardingContext] Conductor error:', error);
+      setWizardMessages(prev => [...prev, { 
+        id: crypto.randomUUID(), 
+        role: 'assistant', 
+        text: "I encountered a disruption processing that request. Could you try again?" 
+      }]);
     } finally {
       setIsConductorThinking(false);
     }
@@ -997,6 +1042,48 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     setCurrentStep('intent');
   };
 
+  const suggestedPrompts = useMemo(() => {
+    switch (currentStep) {
+      case 'intent':
+        return [
+          "Focus more on AI consulting",
+          "Add a lane for my book",
+          "Remove technical lanes",
+          "Pivot towards fintech"
+        ];
+      case 'campaigns':
+        return [
+          "Make the tone more aggressive",
+          "Target decision makers only",
+          "Shorten the message drafts",
+          "Add a follow-up step"
+        ];
+      case 'manual-assets':
+        return [
+          "What documents should I upload?",
+          "I don't have any assets ready",
+          "How do you use my data?"
+        ];
+      case 'linkedin-archive':
+        return [
+          "How do I get my LinkedIn ZIP?",
+          "Is my data secure?",
+          "Can I skip this step?"
+        ];
+      case 'discovery-sensing':
+        return [
+          "Tell me about my network strength",
+          "Who are my top 5 connections?",
+          "How many leads did you find?"
+        ];
+      default:
+        return [
+          "What is my next step?",
+          "Tell me more about this phase"
+        ];
+    }
+  }, [currentStep]);
+
   const value: OnboardingContextType = {
     currentStep, setCurrentStep, connectionCount, activeImportId, uploadedAssets, comprehensiveSynthesis,
     selectedLanes, wizardMessages, strategicDraft, proposedOfferings, proposedCampaigns, selectedCampaigns,
@@ -1012,7 +1099,7 @@ export const OnboardingProvider: React.FC<OnboardingProviderProps> = ({
     handleStorageSearch, handleImportAssets, handleLinkedInArchiveUpload, handleManualAssetUpload, triggerStorageScan, initiateProviderSensing, isImporting,
     ingestionStatus, isIngestionModalOpen, ingestionBatchId, intelligenceArtifacts, intelligenceJobs, intelligenceChunks,
     setIsIngestionModalOpen, refreshIntelligenceStatus,
-    currentOfferingIndex, setCurrentOfferingIndex, generateNextCampaign,
+    currentOfferingIndex, setCurrentOfferingIndex, generateNextCampaign, suggestedPrompts,
     onConnectLinkedIn: onConnectLinkedIn ? async () => {
       await onConnectLinkedIn();
       setConnectedProviders(prev => prev.includes('linkedin') ? prev : [...prev, 'linkedin']);

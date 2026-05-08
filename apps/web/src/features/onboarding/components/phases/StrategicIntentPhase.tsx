@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCw, ArrowRight, Target } from 'lucide-react';
+import { RefreshCw, ArrowRight, Target, CheckCircle, Circle } from 'lucide-react';
 import { useOnboarding } from '../OnboardingContext';
 
 export const StrategicIntentPhase: React.FC = () => {
@@ -68,6 +68,9 @@ export const StrategicIntentPhase: React.FC = () => {
                 className={`mission-card ${isSelected ? 'selected' : ''}`}
                 onClick={() => handleLaneToggle(mission.id)}
               >
+                <div className="mission-select-indicator">
+                  {isSelected ? <CheckCircle size={20} /> : <Circle size={20} />}
+                </div>
                 <div className="mission-icon">
                   <Target size={24} />
                 </div>

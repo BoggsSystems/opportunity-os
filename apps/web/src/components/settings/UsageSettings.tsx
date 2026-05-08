@@ -119,19 +119,6 @@ export const UsageSettings: React.FC<UsageSettingsProps> = ({
           </div>
         </div>
       ) : null}
-
-      {/* Referral */}
-      {referral ? (
-        <div className="surface-card">
-          <p className="label">Referral Program</p>
-          <p className="referral-code">
-            Share your code: <strong>{referral.code}</strong>
-          </p>
-          <p className="referral-hint">
-            Earn extra credits when your referrals hit meaningful milestones.
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 };

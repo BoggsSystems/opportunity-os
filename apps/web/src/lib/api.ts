@@ -270,6 +270,8 @@ export class ApiClient {
       reply: string;
       suggestedAction?: string;
       onboardingPlan?: StrategicPlanResult;
+      proposedOfferings?: any[];
+      proposedCampaigns?: any[];
       blocked?: boolean;
       upgradeReason?: string;
       upgradeHint?: string;

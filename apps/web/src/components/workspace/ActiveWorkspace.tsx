@@ -816,10 +816,10 @@ const OperatingMapWorkspace: React.FC<{
   onUpdateCampaign: ActiveWorkspaceProps['onUpdateCampaign'];
 }> = (props) => {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    commercial: true,
-    knowledge: true,
+    commercial: false,
+    knowledge: false,
     contacts: false,
-    execution: true,
+    execution: false,
     system: false,
   });
   const [detail, setDetail] = useState<{ title: string; eyebrow: string; data: any } | null>(null);
@@ -884,23 +884,67 @@ const OperatingMapWorkspace: React.FC<{
     raw: prospect,
   }));
   const connectorArtifacts = props.intelligenceArtifacts.filter((artifact) => artifact?.sourceType !== 'knowledge_asset');
+  const linkedinArtifacts = props.intelligenceArtifacts.filter(a => 
+    a.sourceType === 'linkedin_archive' || 
+    a.sourceKind === 'linkedin_archive_file' ||
+    a.providerName === 'linkedin'
+  );
+  const otherArtifacts = props.intelligenceArtifacts.filter(a => 
+    a.sourceType !== 'linkedin_archive' && 
+    a.sourceKind !== 'linkedin_archive_file' &&
+    a.providerName !== 'linkedin'
+  );
+
   const knowledgeItems = [
-    ...props.userAssets.map((asset) => ({
-      id: asset.id,
-      title: asset.displayName ?? asset.fileName ?? asset.title ?? 'Uploaded asset',
-      subtitle: asset.category ?? asset.mimeType ?? 'Manual upload',
-      status: asset.status ?? 'processed',
-      kind: 'Asset',
-      raw: asset,
-    })),
-    ...props.intelligenceArtifacts.map((artifact) => ({
-      id: artifact.id,
-      title: artifact.title ?? artifact.sourcePath ?? artifact.externalKey ?? 'Ingestion artifact',
-      subtitle: artifact.sourceName ?? artifact.sourceType ?? artifact.sourcePath ?? 'Intelligence artifact',
-      status: artifact.status ?? 'staged',
-      kind: artifact.sourceType === 'linkedin_archive' ? 'LinkedIn' : 'Artifact',
-      raw: artifact,
-    })),
+    // 1. Core Priority Assets (Resume, Book)
+    ...props.userAssets
+      .filter(a => ['resume', 'book'].includes(a.category))
+      .map((asset) => ({
+        id: asset.id,
+        title: asset.displayName ?? asset.fileName ?? 'Core Asset',
+        subtitle: asset.category.charAt(0).toUpperCase() + asset.category.slice(1),
+        status: asset.status ?? 'processed',
+        kind: 'Core',
+        isPriority: true,
+        raw: asset,
+      })),
+    // 2. Standard User Uploads
+    ...props.userAssets
+      .filter(a => !['resume', 'book'].includes(a.category))
+      .map((asset) => ({
+        id: asset.id,
+        title: asset.displayName ?? asset.fileName ?? 'Uploaded asset',
+        subtitle: asset.category ?? asset.mimeType ?? 'Manual upload',
+        status: asset.status ?? 'processed',
+        kind: 'Asset',
+        raw: asset,
+      })),
+    // 3. LinkedIn Bundle (Summary instead of 98 rows)
+    ...(linkedinArtifacts.length > 0 ? [{
+      id: 'linkedin-bundle',
+      title: 'LinkedIn Personal Archive',
+      subtitle: `${linkedinArtifacts.length} data points (CSVs, media, connections)`,
+      status: 'analyzed',
+      kind: 'Archive',
+      isBundle: true,
+      raw: linkedinArtifacts,
+    }] : []),
+    // 4. Other Artifacts (Non-LinkedIn)
+    ...otherArtifacts.map((artifact) => {
+      // Logic to determine if this should be a "Core" asset based on name
+      const lowerName = (artifact.sourceName || artifact.title || '').toLowerCase();
+      const isCoreCandidate = lowerName.includes('resume') || lowerName.includes('book');
+      
+      return {
+        id: artifact.id,
+        title: artifact.sourceName ?? artifact.title ?? 'Ingestion artifact',
+        subtitle: isCoreCandidate ? 'Potential Core Knowledge' : (artifact.sourceType ?? 'Intelligence artifact'),
+        status: artifact.status ?? 'staged',
+        kind: isCoreCandidate ? 'Core' : 'Artifact',
+        isPriority: isCoreCandidate,
+        raw: artifact,
+      };
+    }),
   ];
   const chunkCount = props.intelligenceChunks.length;
   const runningJobs = props.intelligenceJobs.filter((job) => ['queued', 'running', 'processing'].includes(String(job?.status ?? '').toLowerCase())).length;
@@ -1313,17 +1357,28 @@ const OperatingMapWorkspace: React.FC<{
             ),
             (
               <div className="operating-map-list">
-                {knowledgeItems.length > 0 ? knowledgeItems.slice(0, 12).map((item) => (
-                  <article key={`${item.kind}-${item.id}`} className="operating-map-row">
+                {knowledgeItems.length > 0 ? knowledgeItems.map((item: any) => (
+                  <article 
+                    key={`${item.kind}-${item.id}`} 
+                    className={`operating-map-row ${item.isPriority ? 'priority-asset' : ''} ${item.isBundle ? 'bundle-asset' : ''}`}
+                  >
                     <div>
-                      <strong>{item.title}</strong>
+                      <div className="title-row">
+                        <strong>{item.title}</strong>
+                        {item.isPriority && <span className="priority-badge">Core Knowledge</span>}
+                      </div>
                       <p>{item.subtitle}</p>
                       <div className="operating-map-tags">
                         <span>{item.kind}</span>
                         <span>{item.status}</span>
                       </div>
                     </div>
-                    <button type="button" onClick={() => openDetail(item.kind, item.title, item.raw)}>Inspect</button>
+                    <button 
+                      type="button" 
+                      onClick={() => openDetail(item.kind, item.title, item.raw)}
+                    >
+                      {item.isBundle ? 'Expand Bundle' : 'Inspect'}
+                    </button>
                   </article>
                 )) : (
                   <div className="operating-map-empty">

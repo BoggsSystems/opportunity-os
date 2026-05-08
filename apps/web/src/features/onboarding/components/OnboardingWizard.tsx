@@ -27,7 +27,7 @@ export const OnboardingWizardContent: React.FC = () => {
   const { 
     currentStep, isConductorExpanded, setIsConductorExpanded,
     wizardMessages, isConductorThinking, handleConductorSend,
-    user, api
+    user, api, suggestedPrompts
   } = useOnboarding();
 
   const renderSignedInIndicator = () => {
@@ -114,6 +114,7 @@ export const OnboardingWizardContent: React.FC = () => {
                 }))}
                 isWorking={isConductorThinking}
                 onSend={handleConductorSend}
+                suggestedPrompts={suggestedPrompts}
                 variant="wizard"
               />
             </div>
