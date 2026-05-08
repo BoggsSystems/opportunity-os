@@ -48,6 +48,15 @@ export class ApiError extends Error {
   }
 }
 
+export type WorkspaceCommandPayload = {
+  type: 'confirm_offering' | 'adjust_offering' | 'reject_offering' | 'start_discovery_scan' | 'accept_discovery_target' | 'reject_discovery_target' | 'promote_discovery_targets' | 'activate_signal' | 'dismiss_signal' | 'dismiss_cycle' | 'complete_cycle' | 'create_task' | 'advance_opportunity' | 'activate_campaign' | 'set_workspace_mode' | 'build_recipient_queue' | 'select_recipient' | 'clear_recipient';
+  signalId?: string;
+  cycleId?: string;
+  campaignId?: string;
+  input?: Record<string, unknown>;
+  reason?: string;
+};
+
 export class ApiClient {
   private accessToken: string | null;
 
@@ -255,15 +264,8 @@ export class ApiClient {
     return this.requestForm<ContentUploadResult>('/discovery/content/upload', formData);
   }
 
-  async executeWorkspaceCommand(payload: {
-    type: 'confirm_offering' | 'adjust_offering' | 'reject_offering' | 'start_discovery_scan' | 'accept_discovery_target' | 'reject_discovery_target' | 'promote_discovery_targets' | 'activate_signal' | 'dismiss_signal' | 'dismiss_cycle' | 'complete_cycle' | 'create_task' | 'advance_opportunity' | 'activate_campaign' | 'set_workspace_mode' | 'build_recipient_queue' | 'select_recipient' | 'clear_recipient';
-    signalId?: string;
-    cycleId?: string;
-    campaignId?: string;
-    input?: Record<string, unknown>;
-    reason?: string;
-  }) {
-    return this.request('/workspace/command', {
+  async executeWorkspaceCommand(payload: WorkspaceCommandPayload) {
+    return this.request('/workspace/commands', {
       method: 'POST',
       body: payload,
     });
@@ -702,7 +704,7 @@ export class ApiClient {
     targetTitle?: string;
     targetCompany?: string;
   }) {
-    return this.request('/ai/refine-outreach', {
+    return this.request<{ content: string }>('/ai/refine-outreach', {
       method: 'POST',
       body: input,
     });

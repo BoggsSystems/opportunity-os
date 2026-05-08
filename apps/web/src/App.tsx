@@ -22,6 +22,7 @@ import {
   Trophy,
 } from 'lucide-react';
 import { ApiClient, ApiError } from './lib/api';
+import type { WorkspaceCommandPayload } from './lib/api';
 import { useUIStore } from './store';
 import { ConnectionsSettings } from './features/connections/components/ConnectionsSettings';
 import { ProfileSettings } from './components/settings/ProfileSettings';
@@ -675,7 +676,7 @@ export function App() {
     }
   }
 
-  async function runCommand(body: Record<string, unknown>, success: string) {
+  async function runCommand(body: WorkspaceCommandPayload, success: string) {
     setIsWorking(true);
     setNotice(null);
     try {

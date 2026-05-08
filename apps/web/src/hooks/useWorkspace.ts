@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { ApiClient } from '../lib/api';
+import type { WorkspaceCommandPayload } from '../lib/api';
 import type { 
   WorkspaceState, 
   CampaignWorkspace, 
@@ -29,7 +30,7 @@ interface UseWorkspaceReturn {
   messages: ConversationMessage[];
   isBooting: boolean;
   loadWorkspace: () => Promise<void>;
-  runCommand: (body: Record<string, unknown>, success: string) => Promise<void>;
+  runCommand: (body: WorkspaceCommandPayload, success: string) => Promise<void>;
 }
 
 export const useWorkspace = (session: StoredSession | null): UseWorkspaceReturn => {
@@ -53,7 +54,7 @@ export const useWorkspace = (session: StoredSession | null): UseWorkspaceReturn 
     console.log('Loading workspace...');
   }, [session]);
 
-  const runCommand = useCallback(async (body: Record<string, unknown>, success: string) => {
+  const runCommand = useCallback(async (body: WorkspaceCommandPayload, success: string) => {
     try {
       await api.executeWorkspaceCommand(body);
       console.log(success);

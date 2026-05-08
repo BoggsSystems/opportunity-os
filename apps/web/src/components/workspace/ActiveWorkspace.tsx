@@ -13,6 +13,7 @@ import type {
   OutreachDraft,
   StrategicPlanResult
 } from '../../types';
+import type { WorkspaceCommandPayload } from '../../lib/api';
 
 // Define missing types locally
 type WorkspaceViewState = {
@@ -77,7 +78,7 @@ interface ActiveWorkspaceProps {
   actionCanvasPayload: any | null;
   showWorkspaceTour: boolean;
   isWorking: boolean;
-  onCommand: (body: Record<string, unknown>, success: string) => Promise<void>;
+  onCommand: (body: WorkspaceCommandPayload, success: string) => Promise<void>;
   onCreateOffering: (input: { title: string; description?: string; offeringType: OfferingType }) => Promise<OfferingSummary | null>;
   onUpdateOffering: (id: string, input: Partial<Pick<OfferingSummary, 'title' | 'description' | 'offeringType' | 'status'>>) => Promise<OfferingSummary | null>;
   onCreateCampaign: (input: {
@@ -318,6 +319,8 @@ const ActionCanvasShell: React.FC<{
         isWorking={isWorking}
         onConfirmCanvasAction={onConfirmCanvasAction}
         onSaveActionDraft={onSaveActionDraft}
+        onBuild={onBuildRecipientQueue}
+        onSelect={onSelectRecipient}
         onRefineDraft={onRefineDraft}
         campaignWorkspace={campaignWorkspace}
       />
@@ -802,7 +805,7 @@ const CycleWorkspace: React.FC<{
   recommendation: any;
   campaignWorkspace: CampaignWorkspace | null;
   isWorking: boolean;
-  onCommand: (body: Record<string, unknown>, success: string) => Promise<void>;
+  onCommand: (body: WorkspaceCommandPayload, success: string) => Promise<void>;
   onGenerateDraft: () => Promise<void>;
   onGenerateDraftForOpportunity: (opportunityId: string, kind?: 'initial' | 'follow_up') => Promise<void>;
 }> = ({ cycle, recommendation, campaignWorkspace, isWorking, onCommand, onGenerateDraft, onGenerateDraftForOpportunity }) => (
