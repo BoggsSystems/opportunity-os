@@ -15,6 +15,7 @@ interface ConductorPaneProps {
   onToggleExpanded: () => void;
   onboardingActive?: boolean;
   onboardingComponent?: React.ReactNode;
+  activeDraftContext?: string | null;
 }
 
 export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
@@ -123,6 +124,7 @@ export const ConductorPane: React.FC<ConductorPaneProps> = (props) => {
             isWorking={props.isWorking}
             onSend={props.onSend}
             suggestedPrompts={props.suggestedPrompts}
+            activeDraftContext={props.activeDraftContext ?? null}
             variant="pane"
           />
         </div>

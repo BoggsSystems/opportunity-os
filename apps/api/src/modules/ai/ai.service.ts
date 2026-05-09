@@ -168,6 +168,92 @@ QUERY:`;
     return response.content.replace(/^["']|["']$/g, '').trim();
   }
 
+  async extractTargetSignalsFromText(text: string, context: any): Promise<{
+    title: string;
+    personName?: string;
+    roleTitle?: string;
+    companyName?: string;
+    email?: string;
+    linkedinUrl?: string;
+    relevanceScore: number;
+    whyThisTarget: string;
+    recommendedAction: string;
+    evidence: Array<{
+      evidenceType: 'website' | 'linkedin' | 'publication' | 'article' | 'profile' | 'other';
+      title: string;
+      snippet: string;
+      confidenceScore: number;
+    }>;
+  }> {
+    this.logger.log('Extracting structured signals from crawled text');
+
+    const systemPrompt = `You are an expert sales intelligence extractor. 
+Your task is to analyze the provided raw web text and identify the primary target (person or company) and any relevant business signals.
+Return strict JSON only matching the requested schema. Do not include markdown \`\`\` wrappers.`;
+
+    const prompt = `
+CONTEXT:
+Campaign/Offering context: ${JSON.stringify(context || {})}
+
+RAW TEXT:
+${text.slice(0, 15000)}
+
+SCHEMA EXPECTED:
+{
+  "title": "A short 3-5 word title describing this target (e.g. 'CTO at Acme Corp')",
+  "personName": "Full name if found, else null",
+  "roleTitle": "Job title if found, else null",
+  "companyName": "Company name if found, else null",
+  "email": "Email address if found, else null",
+  "linkedinUrl": "LinkedIn URL if found, else null",
+  "relevanceScore": 1-100 score indicating how well this target fits the context,
+  "whyThisTarget": "A 2-3 sentence strategic rationale explaining why this target matters based on the signals found in the text",
+  "recommendedAction": "A short suggested next step (e.g., 'Send LinkedIn DM referencing their recent post')",
+  "evidence": [
+    {
+      "evidenceType": "website",
+      "title": "Short title of the signal (e.g., 'Hiring Engineers')",
+      "snippet": "The exact quote or snippet from the text proving the signal",
+      "confidenceScore": 1-100 confidence that this signal is accurate and relevant
+    }
+  ]
+}
+`;
+
+    const response = await this.aiProviderFactory.getProvider().generateText({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.1,
+      maxTokens: 1500
+    });
+
+    try {
+      const parsed = JSON.parse(this.extractJsonPayload(response.content));
+      return {
+        title: parsed.title || 'Discovered Target',
+        personName: parsed.personName || undefined,
+        roleTitle: parsed.roleTitle || undefined,
+        companyName: parsed.companyName || undefined,
+        email: parsed.email || undefined,
+        linkedinUrl: parsed.linkedinUrl || undefined,
+        relevanceScore: parsed.relevanceScore || 50,
+        whyThisTarget: parsed.whyThisTarget || 'Identified via web crawl.',
+        recommendedAction: parsed.recommendedAction || 'Review for outreach.',
+        evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map((e: any) => ({
+          evidenceType: ['website', 'linkedin', 'publication', 'article', 'profile', 'other'].includes(e.evidenceType) ? e.evidenceType : 'website',
+          title: e.title || 'Extracted Signal',
+          snippet: e.snippet || '',
+          confidenceScore: e.confidenceScore || 50
+        })) : []
+      };
+    } catch (error) {
+      this.logger.error('Failed to parse AI extraction response', error);
+      throw new Error('Failed to extract structured signals from text');
+    }
+  }
+
   async synthesizeConversationFeedback(context: {
     thread: any;
     messages: Array<{

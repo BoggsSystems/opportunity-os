@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, Loader2, Send, Zap } from 'lucide-react';
+import { Bot, Loader2, MessageSquareText, Send, Zap } from 'lucide-react';
 import type { ConversationMessage } from '../../types';
 
 interface ConductorChatProps {
@@ -9,6 +9,7 @@ interface ConductorChatProps {
   placeholder?: string;
   variant?: 'pane' | 'wizard';
   suggestedPrompts?: string[];
+  activeDraftContext?: string | null;
 }
 
 export const ConductorChat: React.FC<ConductorChatProps> = ({
@@ -17,7 +18,8 @@ export const ConductorChat: React.FC<ConductorChatProps> = ({
   onSend,
   placeholder = "Tell the assistant what you want to create, review, or execute...",
   variant = 'pane',
-  suggestedPrompts = []
+  suggestedPrompts = [],
+  activeDraftContext = null
 }) => {
   const [draftMessage, setDraftMessage] = useState('');
   const [promptsExpanded, setPromptsExpanded] = useState(false);
@@ -75,6 +77,13 @@ export const ConductorChat: React.FC<ConductorChatProps> = ({
       </div>
 
       <div className={`conductor-interactions ${promptsExpanded ? 'prompts-expanded' : ''}`}>
+        {activeDraftContext && variant === 'pane' ? (
+          <div className="active-draft-context">
+            <MessageSquareText size={15} />
+            <span>{activeDraftContext}</span>
+          </div>
+        ) : null}
+
         {suggestedPrompts.length ? (
           <div className="prompts-panel">
             <div className="prompts-header">

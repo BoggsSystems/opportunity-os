@@ -192,6 +192,12 @@ function looksLikeFeedbackIntake(text: string): boolean {
     && /\b(reply|response|responded|comment|screenshot|answer|message)\b/.test(normalized);
 }
 
+function isDraftRefinementRequest(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return /\b(make|rewrite|revise|refine|shorten|tighten|expand|add|remove|mention|include|lead with|open with|close with|sound|tone|warmer|direct|casual|formal|personal|personalize|cta|call to action|book|message|draft|dm|email)\b/.test(normalized);
+}
+
 const emptyVelocity = {
   activeGoalCount: 0,
   activeCampaignCount: 0,
@@ -515,6 +521,10 @@ export function App() {
       backendPrompts: workspace?.conductor.suggestedPrompts ?? [],
     }),
     [showWorkspaceTour, activationPayload, actionCanvasPayload, workspace?.conductor.suggestedPrompts],
+  );
+  const activeDraftContext = useMemo(
+    () => buildActiveDraftContext(actionCanvasPayload),
+    [actionCanvasPayload],
   );
 
   useEffect(() => {
@@ -1016,11 +1026,50 @@ export function App() {
     }
   }
 
+  async function refineActiveDraftFromConductor(text: string) {
+    const actionItem = actionCanvasPayload?.actionItem;
+    if (!actionItem?.id) return false;
+    if (!isDraftRefinementRequest(text)) return false;
+    if (!['email', 'linkedin_dm'].includes(String(actionCanvasPayload?.panelType || ''))) return false;
+
+    const currentContent = String(
+      actionItem.draftContent ||
+      actionCanvasPayload?.context?.draftContent ||
+      '',
+    ).trim();
+    if (!currentContent) return false;
+
+    try {
+      const refined = await refineOutreachDraft({
+        actionItemId: actionItem.id,
+        currentContent,
+        instructions: text,
+        campaignTitle: actionCanvasPayload?.campaign?.title,
+        targetName: actionItem.targetPerson?.fullName,
+        targetTitle: actionItem.targetPerson?.title,
+        targetCompany: actionItem.targetPerson?.companyName ?? actionItem.targetCompany?.name,
+      });
+
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: `Updated draft:\n\n${refined}`,
+        },
+      ]);
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
   async function sendMessage(text: string) {
     if (!text.trim()) return;
     const userMessage: ConversationMessage = { id: crypto.randomUUID(), role: 'user', text };
     setMessages((current) => [...current, userMessage]);
     if (await intakeCanvasFeedbackFromConductor(text)) return;
+    if (await refineActiveDraftFromConductor(text)) return;
     setIsWorking(true);
     setNotice(null);
     try {
@@ -1279,7 +1328,11 @@ export function App() {
     setIsWorking(true);
     setNotice(null);
     try {
-      const result = await api.refineDraft(input);
+      const conversationId = activeConversationId ?? workspace?.conductor.activeConversationId ?? null;
+      const result = await api.refineDraft(conversationId ? { ...input, conversationId } : input);
+      await api.updateActionItem(input.actionItemId, {
+        draftContent: result.content,
+      });
       
       const canvasPayload = await api.getActionItemCanvas(input.actionItemId);
       setActionCanvasPayload(canvasPayload);
@@ -1636,7 +1689,7 @@ export function App() {
   async function selectRecipient(input: { actionItemId: string; personId?: string; connectionRecordId?: string; targetQueueItemId?: string }) {
     setIsWorking(true);
     try {
-      await api.executeWorkspaceCommand({
+      const response = await api.executeWorkspaceCommand({
         type: 'select_recipient',
         input: {
           actionItemId: input.actionItemId,
@@ -1645,6 +1698,22 @@ export function App() {
           targetQueueItemId: input.targetQueueItemId,
         },
       });
+      const result = (response as any).result ?? {};
+      if (result.conversationId) {
+        setActiveConversationId(result.conversationId);
+      }
+      if (Array.isArray(result.conductorMessages) && result.conductorMessages.length > 0) {
+        setMessages((current) => [
+          ...current,
+          ...result.conductorMessages
+            .map((message: { role?: ConversationMessage['role']; text?: string }) => ({
+              id: crypto.randomUUID(),
+              role: message.role ?? 'assistant',
+              text: message.text ?? '',
+            }))
+            .filter((message: ConversationMessage) => message.text.trim()),
+        ]);
+      }
       
       // Refresh the canvas to show the new draft
       const canvasPayload = await api.getActionItemCanvas(input.actionItemId);
@@ -1967,6 +2036,7 @@ export function App() {
         onLogout={logout}
         expanded={conductorExpanded}
         onToggleExpanded={toggleConductor}
+        activeDraftContext={activeDraftContext}
       />
 
       <section className="workspace-pane">
@@ -3141,6 +3211,23 @@ function actionCanvasNeedsRecipientQueue(payload: any): boolean {
     return true;
   }
   return title.includes('select') || instructions.includes('choose the first contact') || instructions.includes('suggested recipients');
+}
+
+function buildActiveDraftContext(payload: any | null): string | null {
+  if (!payload?.actionItem?.id) return null;
+  if (!['email', 'linkedin_dm'].includes(String(payload.panelType || ''))) return null;
+  if (actionCanvasNeedsRecipientQueue(payload)) return null;
+
+  const channel =
+    payload.panelType === 'linkedin_dm'
+      ? 'LinkedIn DM'
+      : 'email';
+  const target =
+    payload.actionItem?.targetPerson?.fullName ||
+    payload.context?.targetLabel ||
+    'selected target';
+
+  return `Refining ${channel} for ${target}`;
 }
 
 function buildWorkspaceView(

@@ -185,6 +185,13 @@ enum DiscoveryTargetStatus {
   archived
 }
 
+enum ComplianceStatus {
+  PENDING_REVIEW
+  COMPLIANT
+  RISKY
+  DO_NOT_CONTACT
+}
+
 enum DiscoveryEvidenceType {
   website
   linkedin
@@ -1718,11 +1725,13 @@ model DiscoveryTarget {
   personName         String?
   roleTitle          String?
   email              String?
+  emailConfidence    Float?
   phone              String?
   website            String?
   linkedinUrl        String?
   location           String?
   sourceUrl          String?
+  dataSource         String?
   dedupeKey          String?
   confidenceScore    Int                   @default(50)
   relevanceScore     Int                   @default(50)
@@ -1736,6 +1745,7 @@ model DiscoveryTarget {
   companyId          String?               @db.Uuid
   personId           String?               @db.Uuid
   opportunityId      String?               @db.Uuid
+  complianceStatus   ComplianceStatus      @default(PENDING_REVIEW)
   metadataJson       Json?
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt

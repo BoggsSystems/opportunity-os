@@ -54,7 +54,7 @@ export class OutreachService {
       where: { id: actionItemId },
       data: {
         draftContent: body,
-        draftSubject: subject
+        metadataJson: { draftSubject: subject },
       }
     });
 

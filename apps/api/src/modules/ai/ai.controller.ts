@@ -2,7 +2,7 @@ import { Controller, Post, Body, HttpException, HttpStatus, Res, Logger, Req } f
 import { Response } from 'express';
 import { AiService } from './ai.service';
 import { TtsService } from './tts.service';
-import { prisma } from '@opportunity-os/db';
+import { AIConversationMessageType, prisma } from '@opportunity-os/db';
 import { CommercialService } from '../commercial/commercial.service';
 import { Public } from '../auth/public.decorator';
 
@@ -121,6 +121,7 @@ export class AiController {
       targetName?: string;
       targetTitle?: string;
       targetCompany?: string;
+      conversationId?: string;
     },
     @Req() req: any
   ) {
@@ -138,6 +139,38 @@ export class AiController {
       }
 
       const result = await this.aiService.refineOutreachDraft(body);
+      if (body.conversationId && req.user?.id && result.content) {
+        const conversation = await prisma.aIConversation.findFirst({
+          where: { id: body.conversationId, userId: req.user.id },
+          select: { id: true },
+        });
+
+        if (conversation) {
+          await prisma.$transaction([
+            prisma.aIConversationMessage.create({
+              data: {
+                conversationId: conversation.id,
+                messageType: AIConversationMessageType.user,
+                content: body.instructions,
+              },
+            }),
+            prisma.aIConversationMessage.create({
+              data: {
+                conversationId: conversation.id,
+                messageType: AIConversationMessageType.assistant,
+                content: `Updated draft:\n\n${result.content}`,
+              },
+            }),
+            prisma.aIConversation.update({
+              where: { id: conversation.id },
+              data: {
+                lastMessageAt: new Date(),
+                messageCount: { increment: 2 },
+              },
+            }),
+          ]);
+        }
+      }
       return {
         success: true,
         ...result,

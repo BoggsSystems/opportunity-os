@@ -24,6 +24,7 @@ import { OpenAiDiscoveryProvider } from './providers/openai-discovery.provider';
 import { TavilyDiscoveryProvider } from './providers/tavily-discovery.provider';
 import { PerplexityDiscoveryProvider } from './providers/perplexity-discovery.provider';
 import { ApolloDiscoveryProvider } from './providers/apollo-discovery.provider';
+import { WebCrawlerDiscoveryProvider } from './providers/web-crawler-discovery.provider';
 import { AiService } from '../ai/ai.service';
 
 @Injectable()
@@ -35,6 +36,7 @@ export class DiscoveryService {
     private readonly tavilyDiscoveryProvider: TavilyDiscoveryProvider,
     private readonly perplexityDiscoveryProvider: PerplexityDiscoveryProvider,
     private readonly apolloDiscoveryProvider: ApolloDiscoveryProvider,
+    private readonly webCrawlerDiscoveryProvider: WebCrawlerDiscoveryProvider,
     private readonly aiService: AiService,
   ) {}
 
@@ -806,6 +808,7 @@ export class DiscoveryService {
       [this.tavilyDiscoveryProvider.key, this.tavilyDiscoveryProvider],
       [this.perplexityDiscoveryProvider.key, this.perplexityDiscoveryProvider],
       [this.apolloDiscoveryProvider.key, this.apolloDiscoveryProvider],
+      [this.webCrawlerDiscoveryProvider.key, this.webCrawlerDiscoveryProvider],
     ]);
   }
 

@@ -703,6 +703,7 @@ export class ApiClient {
     targetName?: string;
     targetTitle?: string;
     targetCompany?: string;
+    conversationId?: string;
   }) {
     return this.request<{ content: string }>('/ai/refine-outreach', {
       method: 'POST',

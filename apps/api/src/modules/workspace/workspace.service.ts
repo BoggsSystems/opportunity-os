@@ -2,6 +2,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   ActionCycleStatus,
   ActivityType,
+  AIConversationMessageType,
+  AIConversationPurpose,
+  AIConversationStatus,
+  ConversationMessageDirection,
+  ConversationMessageSource,
   OpportunityCyclePhase,
   OpportunityCycleStatus,
   OpportunityStage,
@@ -1059,6 +1064,10 @@ export class WorkspaceService {
       });
     }
 
+    let conductorConversationId: string | null = null;
+    let conductorMessage: string | null = null;
+    let draft: { subject?: string; body?: string } | null = null;
+
     // 4. Collaborative Synthesis: Generate rationale and auto-draft
     try {
       const refreshedActionItem = await prisma.actionItem.findUnique({
@@ -1085,44 +1094,137 @@ export class WorkspaceService {
           offeringTitle: refreshedActionItem.campaign?.offering?.title || 'our solutions'
         });
 
-        // B. Add rationale to conversation thread
-        let thread = await prisma.conversationThread.findFirst({
-          where: { userId, actionItemId }
-        });
-
-        if (!thread) {
-          thread = await prisma.conversationThread.create({
-            data: {
-              userId,
-              actionItemId,
-              title: `Outreach to ${refreshedActionItem.targetPerson?.fullName || 'Prospect'}`,
-              status: 'active'
-            }
-          });
+        const generatedDraft = await this.outreachService.generateHierarchicalDraft(userId, actionItemId);
+        if ('body' in generatedDraft) {
+          draft = {
+            subject: generatedDraft.subject,
+            body: generatedDraft.body,
+          };
         }
 
-        await prisma.aIConversationMessage.create({
-          data: {
-            threadId: thread.id,
-            role: 'assistant',
-            text: rationale,
-            status: 'completed'
-          }
-        });
+        conductorMessage = [
+          rationale,
+          draft?.body
+            ? `\nHere is the first draft. We can tune the tone, length, CTA, or angle before you send it:\n\n${draft.body}`
+            : '\nI could not generate the first draft yet, but the target is selected and ready for drafting.',
+        ].join('');
 
-        // C. Trigger automatic draft generation
-        // Note: We do this asynchronously to not block the command response, 
-        // but it should be fast enough that the refresh picks it up.
-        this.outreachService.generateHierarchicalDraft(userId, actionItemId).catch(err => {
-          console.error('Failed to auto-generate draft during selection', err);
-        });
+        conductorConversationId = await this.appendConductorAssistantMessage(
+          userId,
+          conductorMessage,
+          `Draft for ${refreshedActionItem.targetPerson?.fullName || 'selected target'}`,
+        );
+
+        if (draft?.body) {
+          await this.ensureActionConversationThread(userId, refreshedActionItem, draft.body);
+        }
       }
     } catch (error) {
       console.error('Error during collaborative synthesis', error);
       // We don't throw here to avoid failing the selection if only the rationale fails
     }
 
-    return { success: true, personId: finalPersonId };
+    return {
+      success: true,
+      personId: finalPersonId,
+      conversationId: conductorConversationId,
+      conductorMessages: conductorMessage ? [{ role: 'assistant', text: conductorMessage }] : [],
+      draft,
+    };
+  }
+
+  private async appendConductorAssistantMessage(userId: string, text: string, title: string) {
+    const now = new Date();
+    let conversation = await prisma.aIConversation.findFirst({
+      where: { userId, status: AIConversationStatus.active },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+
+    if (!conversation) {
+      conversation = await prisma.aIConversation.create({
+        data: {
+          userId,
+          title,
+          purpose: AIConversationPurpose.general,
+          status: AIConversationStatus.active,
+          lastMessageAt: now,
+          messageCount: 0,
+        },
+        select: { id: true },
+      });
+    }
+
+    await prisma.$transaction([
+      prisma.aIConversationMessage.create({
+        data: {
+          conversationId: conversation.id,
+          messageType: AIConversationMessageType.assistant,
+          content: text,
+        },
+      }),
+      prisma.aIConversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessageAt: now,
+          messageCount: { increment: 1 },
+        },
+      }),
+    ]);
+
+    return conversation.id;
+  }
+
+  private async ensureActionConversationThread(
+    userId: string,
+    actionItem: {
+      id: string;
+      campaignId: string;
+      actionLaneId: string;
+      actionCycleId: string | null;
+      targetPersonId: string | null;
+      targetCompanyId: string | null;
+      externalProvider: string | null;
+      actionType: string | null;
+      title: string;
+    },
+    draftBody: string,
+  ) {
+    const thread = await prisma.conversationThread.upsert({
+      where: { userId_externalId: { userId, externalId: `action-item:${actionItem.id}` } },
+      create: {
+        userId,
+        campaignId: actionItem.campaignId,
+        actionLaneId: actionItem.actionLaneId,
+        actionCycleId: actionItem.actionCycleId,
+        actionItemId: actionItem.id,
+        targetPersonId: actionItem.targetPersonId,
+        targetCompanyId: actionItem.targetCompanyId,
+        channel: actionItem.actionType || actionItem.externalProvider || 'manual',
+        externalProvider: actionItem.externalProvider,
+        externalId: `action-item:${actionItem.id}`,
+        subject: actionItem.title,
+        status: 'active',
+        lastMessageAt: new Date(),
+      },
+      update: {
+        targetPersonId: actionItem.targetPersonId,
+        targetCompanyId: actionItem.targetCompanyId,
+        lastMessageAt: new Date(),
+      },
+      select: { id: true },
+    });
+
+    await prisma.conversationThreadMessage.create({
+      data: {
+        userId,
+        threadId: thread.id,
+        direction: ConversationMessageDirection.internal,
+        source: ConversationMessageSource.system,
+        bodyText: draftBody,
+        metadataJson: this.toJson({ kind: 'ai_generated_draft' }),
+      },
+    });
   }
 
   private async clearRecipientFromCommand(userId: string, dto: WorkspaceCommandDto) {

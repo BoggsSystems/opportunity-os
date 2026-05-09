@@ -360,7 +360,11 @@ const ActionCanvasShell: React.FC<{
 };
 
 const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft, onRefineDraft }) => {
-  const [draft, setDraft] = useState(payload.actionItem?.draftContent || payload.actionItem?.instructions || '');
+  const [draft, setDraft] = useState(payload.actionItem?.draftContent || '');
+
+  React.useEffect(() => {
+    setDraft(payload.actionItem?.draftContent || '');
+  }, [payload.actionItem?.id, payload.actionItem?.draftContent]);
 
   return (
     <section className="action-canvas-card">
@@ -648,7 +652,11 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
 };
 
 const LinkedInDmActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft, onRefineDraft }) => {
-  const [draft, setDraft] = useState(payload.actionItem?.draftContent || payload.actionItem?.instructions || '');
+  const [draft, setDraft] = useState(payload.actionItem?.draftContent || '');
+
+  React.useEffect(() => {
+    setDraft(payload.actionItem?.draftContent || '');
+  }, [payload.actionItem?.id, payload.actionItem?.draftContent]);
 
   return (
     <section className="action-canvas-card">
@@ -694,7 +702,11 @@ const LinkedInDmActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking,
 };
 
 const ContentActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft }) => {
-  const [draft, setDraft] = useState(payload.actionItem?.draftContent || payload.actionItem?.instructions || '');
+  const [draft, setDraft] = useState(payload.actionItem?.draftContent || '');
+
+  React.useEffect(() => {
+    setDraft(payload.actionItem?.draftContent || '');
+  }, [payload.actionItem?.id, payload.actionItem?.draftContent]);
 
   return (
     <section className="action-canvas-card">
