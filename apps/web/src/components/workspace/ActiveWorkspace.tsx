@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RefreshCw, CheckCircle, AlertCircle, Info, Send, FileText, User, Layout, ArrowRight, ChevronRight, MessageSquare, Target, Search, SlidersHorizontal } from 'lucide-react';
+import { RefreshCw, CheckCircle, AlertCircle, Info, Send, FileText, User, Layout, ArrowRight, ChevronRight, MessageSquare, Target, Search, SlidersHorizontal, Zap, Globe, ChevronUp, ChevronDown } from 'lucide-react';
 import type {
   WorkspaceState,
   CampaignWorkspace,
@@ -116,7 +116,11 @@ interface ActiveWorkspaceProps {
     targetCompany?: string;
   }) => Promise<string>;
   onClearRecipient: (actionItemId: string) => Promise<void>;
-  onStartDiscoveryScan: () => Promise<void>;
+  onStartDiscoveryScan: (input: {
+    query: string;
+    providerKeys?: string[];
+    context?: Record<string, any>;
+  }) => Promise<any>;
   onAcceptDiscoveryTarget: (targetId: string) => Promise<void>;
   onRejectDiscoveryTarget: (targetId: string) => Promise<void>;
   onPromoteDiscoveryTargets: (scanId: string) => Promise<void>;
@@ -260,59 +264,67 @@ const ActionCanvasShell: React.FC<{
   onSelectRecipient: ActiveWorkspaceProps['onSelectRecipient'];
   onClearRecipient: ActiveWorkspaceProps['onClearRecipient'];
   onRefineDraft: ActiveWorkspaceProps['onRefineDraft'];
+  onStartDiscoveryScan: ActiveWorkspaceProps['onStartDiscoveryScan'];
+  onAcceptDiscoveryTarget: ActiveWorkspaceProps['onAcceptDiscoveryTarget'];
+  onRejectDiscoveryTarget: ActiveWorkspaceProps['onRejectDiscoveryTarget'];
   campaignWorkspace: CampaignWorkspace | null;
-}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft, onBuildRecipientQueue, onSelectRecipient, onClearRecipient, onRefineDraft, campaignWorkspace }) => {
-  const [feedbackText, setFeedbackText] = useState('');
-  const [screenshotUrl, setScreenshotUrl] = useState('');
+}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft, onBuildRecipientQueue, onSelectRecipient, onClearRecipient, onRefineDraft, onStartDiscoveryScan, onAcceptDiscoveryTarget, onRejectDiscoveryTarget, campaignWorkspace }) => {
+  const [contextCollapsed, setContextCollapsed] = useState(true);
   const actionItem = payload.actionItem;
   const shouldPrepareRecipientQueue = needsRecipientQueue(payload);
   const Panel = shouldPrepareRecipientQueue ? RecipientQueuePreparation : actionPanelFor(payload.panelType);
-  const canCapture = Boolean(actionItem?.id && (feedbackText.trim() || screenshotUrl.trim()));
-
-  const captureFeedback = async () => {
-    if (!actionItem?.id || !canCapture) return;
-    await onCaptureActionFeedback({
-      actionItemId: actionItem.id,
-      bodyText: feedbackText,
-      attachmentUrls: screenshotUrl.trim() ? [screenshotUrl.trim()] : [],
-      attachmentMimeTypes: screenshotUrl.trim() ? ['image/png'] : [],
-    });
-    setFeedbackText('');
-    setScreenshotUrl('');
-  };
 
   return (
     <div className="action-canvas-shell tour-region-action">
       <header className="action-canvas-header">
-        <div>
-          <p className="eyebrow">{payload.actionLane?.laneType?.replace(/_/g, ' ') || payload.panelType}</p>
-          <h3>{actionItem?.title || 'Action item'}</h3>
-          <p>{payload.campaign?.title || 'Campaign action'}</p>
+        <div className="header-main">
+          <div className="title-row">
+            <h3>{actionItem?.title || 'Action item'}</h3>
+            <button 
+              type="button" 
+              className="context-toggle-btn"
+              onClick={() => setContextCollapsed(!contextCollapsed)}
+              title={contextCollapsed ? "Show context" : "Hide context"}
+            >
+              {contextCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            </button>
+          </div>
+          <p className="campaign-context-line">{payload.campaign?.title || 'Campaign'}</p>
         </div>
         <StatusBadge label={actionItem?.status || 'ready'} />
       </header>
 
-      <section className="action-canvas-context">
-        <div><span>Lane</span><strong>{payload.actionLane?.title || 'Action lane'}</strong></div>
-        <div>
-          <span>Target</span>
-          <strong>
-            {payload.context?.targetLabel || 'Campaign audience'}
-            {!shouldPrepareRecipientQueue && (payload.actionItem?.targetPersonId || payload.actionItem?.targetCompanyId) && (
-              <button 
-                type="button"
-                className="change-target-btn" 
-                onClick={() => onClearRecipient(payload.actionItem.id)} 
-                disabled={isWorking}
-              >
-                <RefreshCw size={12} />
-                Change Target
-              </button>
-            )}
-          </strong>
+      {!contextCollapsed && (
+        <div className="action-context-collapsible">
+          {payload.explanation && (
+            <section className="action-explanation-compact">
+              <p>{payload.explanation}</p>
+            </section>
+          )}
+
+          <section className="action-canvas-context-grid">
+            <div><span>Lane</span><strong>{payload.actionLane?.title || 'Action lane'}</strong></div>
+            <div>
+              <span>Target</span>
+              <strong>
+                {payload.context?.targetLabel || 'Campaign audience'}
+                {!shouldPrepareRecipientQueue && (payload.actionItem?.targetPersonId || payload.actionItem?.targetCompanyId) && (
+                  <button 
+                    type="button"
+                    className="change-target-btn" 
+                    onClick={() => onClearRecipient(payload.actionItem.id)} 
+                    disabled={isWorking}
+                  >
+                    <RefreshCw size={10} />
+                    Change Target
+                  </button>
+                )}
+              </strong>
+            </div>
+            <div><span>Provider</span><strong>{payload.context?.externalProvider || 'Manual'}</strong></div>
+          </section>
         </div>
-        <div><span>Provider</span><strong>{payload.context?.externalProvider || 'Manual'}</strong></div>
-      </section>
+      )}
 
       <Panel
         payload={payload}
@@ -321,45 +333,17 @@ const ActionCanvasShell: React.FC<{
         onSaveActionDraft={onSaveActionDraft}
         onBuild={onBuildRecipientQueue}
         onSelect={onSelectRecipient}
+        onStartDiscoveryScan={onStartDiscoveryScan}
+        onAcceptDiscoveryTarget={onAcceptDiscoveryTarget}
+        onRejectDiscoveryTarget={onRejectDiscoveryTarget}
         onRefineDraft={onRefineDraft}
         campaignWorkspace={campaignWorkspace}
       />
-
-      <section className="action-canvas-card">
-        <div className="action-canvas-card-header">
-          <div>
-            <h4>Feedback and replies</h4>
-            <p>Capture replies, comments, screenshots, or notes so the engine can learn and create the next action.</p>
-          </div>
-          {payload.latestInsight ? <StatusBadge label={payload.latestInsight.sentiment} /> : null}
-        </div>
-        {payload.latestInsight ? (
-          <div className="action-insight">
-            <strong>{payload.latestInsight.recommendedNextAction}</strong>
-            <p>{payload.latestInsight.summary}</p>
-          </div>
-        ) : null}
-        <textarea
-          className="feedback-textarea"
-          placeholder="Paste a reply, comment, or note from the conversation..."
-          value={feedbackText}
-          onChange={(event) => setFeedbackText(event.target.value)}
-        />
-        <input
-          className="feedback-input"
-          placeholder="Optional screenshot/image URL"
-          value={screenshotUrl}
-          onChange={(event) => setScreenshotUrl(event.target.value)}
-        />
-        <button className="feedback-capture-button" onClick={captureFeedback} disabled={isWorking || !canCapture}>
-          Capture and synthesize
-        </button>
-      </section>
     </div>
   );
 };
 
-const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft, onRefineDraft }) => {
+const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft, onRefineDraft, onStartDiscoveryScan, onAcceptDiscoveryTarget, onRejectDiscoveryTarget }) => {
   const [draft, setDraft] = useState(payload.actionItem?.draftContent || '');
 
   React.useEffect(() => {
@@ -406,7 +390,11 @@ const EmailActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onCo
   );
 };
 
-const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWorkspaceProps['onBuildRecipientQueue'], onSelect: ActiveWorkspaceProps['onSelectRecipient'] }> = ({ payload, isWorking, onBuild, onSelect, campaignWorkspace }) => {
+const RecipientQueuePreparation: React.FC<ActionPanelProps & { 
+  onBuild: ActiveWorkspaceProps['onBuildRecipientQueue'], 
+  onSelect: ActiveWorkspaceProps['onSelectRecipient']
+}> = (props) => {
+  const { payload, isWorking, onBuild, onSelect, onStartDiscoveryScan, onAcceptDiscoveryTarget, onRejectDiscoveryTarget, campaignWorkspace } = props;
   const [queue, setQueue] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [attempted, setAttempted] = React.useState(false);
@@ -492,67 +480,206 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
     ].filter(Boolean).join(' ').toLowerCase().includes(query));
   }, [queue, targetSearch]);
 
-  const submitRefinement = React.useCallback((event?: React.FormEvent) => {
+  const [isDiscoveryMode, setIsDiscoveryMode] = React.useState(false);
+  const [selectedSignals, setSelectedSignals] = React.useState<string[]>([]);
+  const signalPresets = ['Hiring Engineers', 'Recent Funding', 'AI Product Launch', 'New Executive'];
+
+  const toggleSignal = (signal: string) => {
+    setSelectedSignals(prev => 
+      prev.includes(signal) ? prev.filter(s => s !== signal) : [...prev, signal]
+    );
+  };
+
+  const [reviewTargets, setReviewTargets] = React.useState<any[]>([]);
+  const [reviewIndex, setReviewIndex] = React.useState(0);
+
+  const startReview = React.useCallback(async (scanResult: any) => {
+    if (scanResult.targets && scanResult.targets.length > 0) {
+      setReviewTargets(scanResult.targets);
+      setReviewIndex(0);
+    }
+  }, []);
+
+  const handleTriage = React.useCallback(async (action: 'accept' | 'reject') => {
+    const target = reviewTargets[reviewIndex];
+    if (!target) return;
+
+    try {
+      if (action === 'accept') {
+        // Backend promotion logic would go here
+        await onAcceptDiscoveryTarget(target.id);
+      } else {
+        await onRejectDiscoveryTarget(target.id);
+      }
+    } catch (e) {
+      console.error('Triage failed', e);
+    }
+
+    if (reviewIndex < reviewTargets.length - 1) {
+      setReviewIndex(reviewIndex + 1);
+    } else {
+      // Finished review
+      setReviewTargets([]);
+      void fetchQueue(); // Refresh the main queue to show new additions
+    }
+  }, [reviewTargets, reviewIndex, onAcceptDiscoveryTarget, onRejectDiscoveryTarget, fetchQueue]);
+
+  const isUrl = refinement.trim().startsWith('http');
+
+  const submitRefinement = React.useCallback(async (event?: React.FormEvent) => {
     event?.preventDefault();
-    const nextRefinement = refinement.trim();
-    void fetchQueue(nextRefinement);
-  }, [fetchQueue, refinement]);
+    setLoading(true);
+    try {
+      const scanInput = {
+        query: refinement,
+        providerKeys: isUrl ? ['web_crawler'] : ['tavily_search'],
+        context: {
+          targetUrls: isUrl ? [refinement.trim()] : [],
+          signals: selectedSignals
+        }
+      };
+      const result = await onStartDiscoveryScan(scanInput as any);
+      if (result && result.targets) {
+        startReview(result);
+      }
+    } catch (e) {
+      setError('Scan failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [refinement, isDiscoveryMode, isUrl, onStartDiscoveryScan, selectedSignals, startReview]);
 
   const applyPreset = React.useCallback((preset: string) => {
     setRefinement(preset);
+    if (isDiscoveryMode) return;
     void fetchQueue(preset);
-  }, [fetchQueue]);
+  }, [fetchQueue, isDiscoveryMode]);
 
   return (
-    <section className="recipient-prep-panel">
-      <div className="action-canvas-card-header">
+    <section className="recipient-prep-panel-compact">
+      {reviewTargets.length > 0 && (
+        <div className="discovery-triage-overlay">
+          <div className="triage-card">
+            <header className="triage-header">
+              <div className="triage-count">Reviewing Lead {reviewIndex + 1} of {reviewTargets.length}</div>
+              <button className="close-triage" onClick={() => setReviewTargets([])}>×</button>
+            </header>
+            
+            <div className="triage-body">
+              <div className="triage-main-info">
+                <h2>{reviewTargets[reviewIndex].personName || reviewTargets[reviewIndex].companyName}</h2>
+                <p className="triage-role">{reviewTargets[reviewIndex].roleTitle} @ {reviewTargets[reviewIndex].companyName}</p>
+                
+                {reviewTargets[reviewIndex].linkedinUrl && (
+                  <a 
+                    href={reviewTargets[reviewIndex].linkedinUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="triage-linkedin-link"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                    View LinkedIn Profile
+                  </a>
+                )}
+
+                <div className="triage-signals">
+                  {reviewTargets[reviewIndex].metadata?.signals?.map((s: string) => (
+                    <span key={s} className="signal-pill-active"><Zap size={10} /> {s}</span>
+                  ))}
+                  <span className="relevance-score">{reviewTargets[reviewIndex].relevanceScore}% Match</span>
+                </div>
+              </div>
+
+              <div className="triage-justification">
+                <label>Why this target?</label>
+                <p>{reviewTargets[reviewIndex].whyThisTarget}</p>
+              </div>
+
+              {reviewTargets[reviewIndex].evidence && reviewTargets[reviewIndex].evidence.length > 0 && (
+                <div className="triage-evidence">
+                  <label>Evidence</label>
+                  <div className="evidence-snippet">
+                    {reviewTargets[reviewIndex].evidence[0].snippet}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <footer className="triage-footer">
+              <button className="triage-btn reject" onClick={() => handleTriage('reject')}>
+                <AlertCircle size={18} />
+                Skip Target
+              </button>
+              <button className="triage-btn accept" onClick={() => handleTriage('accept')}>
+                <CheckCircle size={18} />
+                Promote to Queue
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      <div className="target-workbench-header">
         <div>
           <h4>Build the target queue</h4>
-          <p>
-            Search your relationship graph or ask the Conductor to refine who should be considered for <strong>{campaignTitle}</strong>.
-          </p>
+          <p>Search ranked targets or ask the Conductor to refine criteria for <strong>{campaignTitle}</strong>.</p>
         </div>
         <StatusBadge label={loading ? 'Ranking...' : `${displayedQueue.length}/${queue.length} targets`} />
       </div>
 
-      <div className="target-workbench">
-        <label className="target-search-box">
-          <Search size={18} />
+      <div className="target-workbench-compact">
+        <label className="target-search-box-minimal">
+          <Search size={16} />
           <input
             value={targetSearch}
             onChange={(event) => setTargetSearch(event.target.value)}
-            placeholder="Search ranked targets by name, title, company, or reason..."
+            placeholder="Search targets..."
           />
         </label>
-        <form className="target-refinement-box" onSubmit={submitRefinement}>
-          <div className="target-refinement-heading">
-            <SlidersHorizontal size={18} />
-            <div>
-              <strong>Target criteria</strong>
-              <span>{activeRefinement ? `Current: ${activeRefinement}` : 'Use structured search terms to reshape the ranking.'}</span>
+        <form className={`target-refinement-box-compact ${isDiscoveryMode ? 'discovery-active' : ''}`} onSubmit={submitRefinement}>
+          <div className="target-refinement-heading-compact">
+            <div className="heading-left-compact">
+              <SlidersHorizontal size={16} />
+              <strong>Criteria</strong>
+            </div>
+            <div className="discovery-toggle-group-compact">
+              <button 
+                type="button" 
+                className={`discovery-toggle-compact ${isDiscoveryMode ? 'active' : ''}`}
+                onClick={() => setIsDiscoveryMode(!isDiscoveryMode)}
+              >
+                <Globe size={12} />
+                Deep Scan
+              </button>
             </div>
           </div>
-          <div className="target-refinement-input-row">
+
+          {isDiscoveryMode && (
+            <div className="discovery-signals-row-compact">
+              <div className="signal-badges-compact">
+                {signalPresets.map(signal => (
+                  <button
+                    key={signal}
+                    type="button"
+                    className={`signal-badge-compact ${selectedSignals.includes(signal) ? 'active' : ''}`}
+                    onClick={() => toggleSignal(signal)}
+                  >
+                    {signal}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="target-refinement-input-row-compact">
             <input
               value={refinement}
               onChange={(event) => setRefinement(event.target.value)}
-              placeholder="Example: CTOs in banks who would care about an AI-native SDLC audit..."
+              placeholder={isDiscoveryMode ? "URL or Market (e.g. 'CTOs in Toronto')..." : "Criteria (e.g. 'CTOs in banks')..."}
             />
-            <button type="submit" disabled={loading || isWorking || !refinement.trim()}>
-              Apply criteria
+            <button type="submit" className={isDiscoveryMode || isUrl ? 'discovery-button-compact' : ''} disabled={loading || isWorking || !refinement.trim()}>
+              {isUrl ? 'Scan' : (isDiscoveryMode ? 'Scan' : 'Apply')}
             </button>
-          </div>
-          <div className="target-preset-row">
-            {refinementPresets.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => applyPreset(preset)}
-                disabled={loading || isWorking}
-              >
-                {preset}
-              </button>
-            ))}
           </div>
         </form>
       </div>
@@ -651,7 +778,7 @@ const RecipientQueuePreparation: React.FC<ActionPanelProps & { onBuild: ActiveWo
   );
 };
 
-const LinkedInDmActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft, onRefineDraft }) => {
+const LinkedInDmActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft, onRefineDraft, onStartDiscoveryScan, onAcceptDiscoveryTarget, onRejectDiscoveryTarget }) => {
   const [draft, setDraft] = useState(payload.actionItem?.draftContent || '');
 
   React.useEffect(() => {
@@ -701,7 +828,7 @@ const LinkedInDmActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking,
   );
 };
 
-const ContentActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft }) => {
+const ContentActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onSaveActionDraft, onStartDiscoveryScan, onAcceptDiscoveryTarget, onRejectDiscoveryTarget }) => {
   const [draft, setDraft] = useState(payload.actionItem?.draftContent || '');
 
   React.useEffect(() => {
@@ -733,7 +860,7 @@ const ContentActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, on
   );
 };
 
-const GenericActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction }) => (
+const GenericActionPanel: React.FC<ActionPanelProps> = ({ payload, isWorking, onConfirmCanvasAction, onStartDiscoveryScan, onAcceptDiscoveryTarget, onRejectDiscoveryTarget }) => (
   <section className="action-canvas-card">
     <h4>Action details</h4>
     <div className="action-draft-block">
@@ -784,6 +911,9 @@ interface ActionPanelProps {
   onConfirmCanvasAction: ActiveWorkspaceProps['onConfirmCanvasAction'];
   onSaveActionDraft: ActiveWorkspaceProps['onSaveActionDraft'];
   onRefineDraft?: ActiveWorkspaceProps['onRefineDraft'];
+  onStartDiscoveryScan: ActiveWorkspaceProps['onStartDiscoveryScan'];
+  onAcceptDiscoveryTarget: ActiveWorkspaceProps['onAcceptDiscoveryTarget'];
+  onRejectDiscoveryTarget: ActiveWorkspaceProps['onRejectDiscoveryTarget'];
   campaignWorkspace?: CampaignWorkspace | null;
 }
 
@@ -943,6 +1073,8 @@ const OperatingMapWorkspace: React.FC<{
     objective: '',
     strategicAngle: '',
   });
+  const [isOfferingDropdownOpen, setIsOfferingDropdownOpen] = useState(false);
+  const [isCampaignDropdownOpen, setIsCampaignDropdownOpen] = useState(false);
   const activeCampaign = props.actionCanvasPayload?.campaign
     ?? props.campaignWorkspace?.campaign
     ?? props.activationPayload?.campaign
@@ -1065,6 +1197,15 @@ const OperatingMapWorkspace: React.FC<{
 
   const openDetail = (eyebrow: string, title: string, data: any) => {
     setDetail({ eyebrow, title, data });
+  };
+
+  const getCampaignStatusClass = (status: string | undefined) => {
+    switch (status?.toLowerCase()) {
+      case 'active': return 'status-active';
+      case 'paused': return 'status-paused';
+      case 'scanning': return 'status-scanning';
+      default: return 'status-active';
+    }
   };
 
   const loadOfferingForEdit = (offering: OfferingSummary) => {
@@ -1228,13 +1369,73 @@ const OperatingMapWorkspace: React.FC<{
       </div>
 
       <div className="operating-map-metrics">
-        <article>
-          <span>Offering</span>
+        <article 
+          className="metric-switcher" 
+          onClick={() => setIsOfferingDropdownOpen(!isOfferingDropdownOpen)}
+        >
+          <div className="metric-switcher-header">
+            <span>Offering</span>
+            <ChevronDown size={14} color="#94a3b8" />
+          </div>
           <strong>{offeringTitle}</strong>
+          
+          {isOfferingDropdownOpen && (
+            <div className="glass-dropdown">
+              {props.offerings.map((offering) => (
+                <button 
+                  key={offering.id}
+                  className={`dropdown-item ${offering.id === selectedOffering?.id ? 'active' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedOfferingId(offering.id);
+                    setIsOfferingDropdownOpen(false);
+                  }}
+                >
+                  <strong>{offering.title}</strong>
+                  <span>{offering.offeringType}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </article>
-        <article>
-          <span>Campaign</span>
+
+        <article 
+          className="metric-switcher" 
+          onClick={() => setIsCampaignDropdownOpen(!isCampaignDropdownOpen)}
+        >
+          <div className="metric-switcher-header">
+            <span>Campaign</span>
+            <ChevronDown size={14} color="#94a3b8" />
+          </div>
           <strong>{currentCampaignTitle}</strong>
+
+          {isCampaignDropdownOpen && (
+            <div className="glass-dropdown">
+              {campaignsForSelectedOffering.length > 0 ? (
+                campaignsForSelectedOffering.map((campaign) => (
+                  <button 
+                    key={campaign.id}
+                    className={`dropdown-item ${campaign.id === selectedCampaign?.id ? 'active' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedCampaignId(campaign.id);
+                      setIsCampaignDropdownOpen(false);
+                    }}
+                  >
+                    <strong>
+                      <span className={`status-indicator ${getCampaignStatusClass(campaign.status)}`} />
+                      {campaign.title}
+                    </strong>
+                    <span>{campaign.targetSegment || 'No target segment'}</span>
+                  </button>
+                ))
+              ) : (
+                <div className="dropdown-item">
+                  <span>No campaigns for this offering</span>
+                </div>
+              )}
+            </div>
+          )}
         </article>
         <article>
           <span>Channels</span>
@@ -1651,20 +1852,6 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
 
   return (
     <section className="active-workspace tour-region-canvas">
-      <div className="canvas-action-header">
-        <div>
-          <p className="label">Canvas action</p>
-          <h2>{actionLabel(props.view.action)}</h2>
-        </div>
-        <StatusBadge label={props.view.phase} />
-      </div>
-
-      <CanvasActionSummary view={props.view} />
-
-      {showTimeline ? (
-        <CycleTimeline phase={props.view.phase} />
-      ) : null}
-
       {showCommandQueue ? (
         <TodayCommandQueue
           queue={props.commandQueue}
@@ -1686,6 +1873,9 @@ export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
           onSelectRecipient={props.onSelectRecipient!}
           onClearRecipient={props.onClearRecipient!}
           onRefineDraft={props.onRefineDraft!}
+          onStartDiscoveryScan={props.onStartDiscoveryScan}
+          onAcceptDiscoveryTarget={props.onAcceptDiscoveryTarget}
+          onRejectDiscoveryTarget={props.onRejectDiscoveryTarget}
           campaignWorkspace={props.campaignWorkspace}
         />
       ) : null}

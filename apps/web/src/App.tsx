@@ -1355,16 +1355,22 @@ export function App() {
     }
   }
 
-  async function startDiscoveryScan() {
+  async function startDiscoveryScan(input?: {
+    query?: string;
+    providerKeys?: string[];
+    context?: Record<string, any>;
+  }) {
     setCampaignFeedback(null);
     const campaign = campaignWorkspace?.campaign;
     const goalTitle = campaignWorkspace?.campaign?.title;
     const targetSegment = campaign?.targetSegment;
 
-    // Combine goal and target segment for maximum specificity (e.g. "Book Sales - CTOs")
-    const query = goalTitle && targetSegment && !targetSegment.toLowerCase().includes(goalTitle.toLowerCase())
+    // Combine goal and target segment for maximum specificity
+    const defaultQuery = goalTitle && targetSegment && !targetSegment.toLowerCase().includes(goalTitle.toLowerCase())
       ? `${goalTitle} - ${targetSegment}`
       : targetSegment || goalTitle || campaign?.strategicAngle || 'relevant prospects';
+    
+    const query = input?.query || defaultQuery;
 
     setIsWorking(true);
     setNotice(null);
@@ -1377,10 +1383,12 @@ export function App() {
         goalId?: string;
         targetSegment?: string;
         maxTargets: number;
+        providerKeys?: string[];
       } = {
         query,
-        scanType: query.toLowerCase().includes('professor') ? 'university_professors' : 'mixed',
-        maxTargets: 5,
+        scanType: input?.providerKeys?.includes('web_crawler') ? 'mixed' : (query.toLowerCase().includes('professor') ? 'university_professors' : 'mixed'),
+        maxTargets: 12,
+        ...(input?.providerKeys ? { providerKeys: input.providerKeys } : {}),
       };
       if (campaign?.id) scanInput.campaignId = campaign.id;
       const offeringId = campaign?.offeringId ?? workspace?.canvas?.refs.offeringId;
@@ -1395,12 +1403,14 @@ export function App() {
         tone: 'success',
       });
       await loadWorkspace();
+      return result;
     } catch (error) {
       setNotice({
         title: 'Discovery failed',
         detail: error instanceof Error ? error.message : 'The backend could not run discovery.',
         tone: 'error',
       });
+      return null;
     } finally {
       setIsWorking(false);
     }
@@ -2024,6 +2034,27 @@ export function App() {
     );
   }
 
+  const switchCampaign = async (campaignId: string) => {
+    setIsWorking(true);
+    try {
+      const campaignState = await api.getCampaignWorkspace(campaignId);
+      setCampaignWorkspace(campaignState);
+      setNotice({
+        title: 'Context switched',
+        detail: `Teleported to campaign: ${campaignState.campaign.title}`,
+        tone: 'success'
+      });
+    } catch (e) {
+      setNotice({
+        title: 'Switch failed',
+        detail: 'Could not load campaign context.',
+        tone: 'error'
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  };
+
   return (
     <main className={`app-shell ${conductorExpanded ? 'conductor-expanded' : 'conductor-collapsed'} ${showWorkspaceTour ? `workspace-tour-active workspace-tour-step-${workspaceTourSteps[workspaceTourStep]?.key ?? 'conductor'}` : ''}`}>
       <ConductorPane
@@ -2045,7 +2076,10 @@ export function App() {
           subscription={subscription}
           usage={usage}
           mode={workspaceMode}
+          offerings={offerings}
+          campaigns={campaigns}
           onModeChange={setWorkspaceMode}
+          onSelectCampaign={switchCampaign}
           isLoading={isBooting || isWorking}
           onRefresh={() => void loadWorkspace()}
           onOpenSettings={() => setSettingsOpen(true)}
