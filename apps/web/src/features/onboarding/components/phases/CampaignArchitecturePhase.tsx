@@ -328,11 +328,11 @@ export const CampaignArchitecturePhase: React.FC = () => {
     const campaignId = offeringKey;
     const newCampaign = {
       id: campaignId,
+      offeringId: currentOffering.id,
       title: currentOffering.title,
       description: currentOffering.description,
       configuration: {
         ...dimensions,
-        offeringId: currentOffering.id
       }
     };
 

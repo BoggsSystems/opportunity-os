@@ -1882,6 +1882,9 @@ export function App() {
           channels: campaign.configuration?.channels || campaign.channels || (campaign.channel ? [campaign.channel] : []),
         }));
 
+        console.log('[DEBUG] campaignsForFinalize:', JSON.stringify(campaignsForFinalize, null, 2));
+        console.log('[DEBUG] selectedOfferingIds:', snapshot.selectedLanes);
+
         const actionLanesForFinalize = (snapshot.proposedActionLanes || []).map((lane: any) => ({
           id: lane.id,
           title: lane.title,
