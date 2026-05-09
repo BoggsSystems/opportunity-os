@@ -80,6 +80,12 @@ export class CampaignOrchestrationService {
       const persistedCampaigns: any[] = [];
       const persistedActionLanes: any[] = [];
 
+      // 0. Clean up existing onboarding data to avoid duplicates if re-running
+      await tx.campaign.deleteMany({ where: { userId } });
+      await tx.offering.deleteMany({ where: { userId } });
+      // Note: Cascade deletes should handle related records if configured in Prisma, 
+      // otherwise we might need to delete them explicitly.
+
       // 1. Persist selected offerings
       const selectedOfferings = (data.offerings || []).filter(o => 
         data.selectedOfferingIds.includes(o.id)

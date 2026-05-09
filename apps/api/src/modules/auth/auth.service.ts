@@ -8,9 +8,6 @@ import {
 import {
   AuthenticationSessionStatus,
   VerificationTokenType,
-  OfferingStatus,
-  OfferingType,
-  CampaignStatus,
   prisma,
   AuthenticationCredentialType,
   UserLifecycleStage,
@@ -769,71 +766,9 @@ export class AuthService {
           });
         }
 
-        // Map to track temporary frontend IDs to created DB IDs for offerings
-        const offeringIdMap = new Map<string, string>();
-
-        const lanesToProcess = strategy.selectedLanes || strategy.offerings;
-        if (lanesToProcess && Array.isArray(lanesToProcess)) {
-          for (const offering of lanesToProcess) {
-            const createdOffering = await tx.offering.create({
-              data: {
-                userId: user.id,
-                title: offering.title,
-                description: offering.description,
-                offeringType:
-                  (offering.type as OfferingType) || OfferingType.service,
-                status: OfferingStatus.active,
-              },
-            });
-
-            if (offering.id) {
-              offeringIdMap.set(offering.id, createdOffering.id);
-            }
-          }
-        }
-
-        if (
-          strategy.selectedCampaigns &&
-          Array.isArray(strategy.selectedCampaigns)
-        ) {
-          for (const campaign of strategy.selectedCampaigns) {
-            // Map temporary laneId to the actual offeringId created above
-            const offeringId = campaign.laneId
-              ? offeringIdMap.get(campaign.laneId)
-              : null;
-
-            await tx.campaign.create({
-              data: {
-                userId: user.id,
-                offeringId: offeringId,
-                title: campaign.title,
-                description: campaign.description,
-                targetSegment: campaign.targetSegment,
-                strategicAngle: campaign.messagingHook,
-                successDefinition: campaign.goalMetric,
-                status: CampaignStatus.ACTIVE,
-                metadataJson: {
-                  duration: campaign.duration,
-                  channel: campaign.channel,
-                  laneTitle: campaign.laneTitle,
-                },
-              },
-            });
-          }
-        }
-
-        if (strategy.theses && Array.isArray(strategy.theses)) {
-          for (const thesis of strategy.theses) {
-            await tx.strategicThesis.create({
-              data: {
-                userId: user.id,
-                title: thesis.title,
-                content: thesis.content,
-                relevanceTags: thesis.tags,
-              },
-            });
-          }
-        }
+        // Offerings, Campaigns, and Theses are now EPHEMERAL in the wizard
+        // They will only be persisted during CampaignOrchestrationService.finalizeOnboardingPlan
+        // to avoid ghost records and duplicates.
       }
 
       return {

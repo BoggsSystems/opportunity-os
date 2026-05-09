@@ -647,12 +647,15 @@ export class FinalizeOnboardingPlanDto {
   offerings: OnboardingOfferingInputDto[];
 
   @IsArray()
+  @IsString({ each: true })
   selectedOfferingIds: string[];
 
   @IsArray()
+  @IsString({ each: true })
   selectedCampaignIds: string[];
 
   @IsArray()
+  @IsString({ each: true })
   selectedActionLaneIds: string[];
 
   @IsOptional()

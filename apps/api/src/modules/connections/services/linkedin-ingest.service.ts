@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import AdmZip from 'adm-zip';
-import { prisma, OfferingType, OfferingStatus } from '@opportunity-os/db';
+import { prisma, OfferingType } from '@opportunity-os/db';
 import { ConnectionImportService } from './connection-import.service';
 import { AiService } from '../../ai/ai.service';
 
@@ -300,30 +300,9 @@ Only return the JSON.
           }
         });
 
-        // 2. Persist Offerings (as DRAFT)
-        for (const offering of draft.offerings) {
-          await tx.offering.create({
-            data: {
-              userId,
-              title: offering.title,
-              description: offering.description,
-              offeringType: offering.type,
-              status: OfferingStatus.draft
-            }
-          });
-        }
-
-        // 3. Persist Theses
-        for (const thesis of draft.theses) {
-          await tx.strategicThesis.create({
-            data: {
-              userId,
-              title: thesis.title,
-              content: thesis.content,
-              relevanceTags: thesis.tags
-            }
-          });
-        }
+        // 2. Offerings and Theses are now EPHEMERAL in the wizard
+        // They will only be persisted during CampaignOrchestrationService.finalizeOnboardingPlan
+        // to avoid ghost records and duplicates.
       });
       
       this.logger.log('Strategic draft successfully persisted to database');
