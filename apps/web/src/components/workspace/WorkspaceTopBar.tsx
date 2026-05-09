@@ -1,9 +1,10 @@
 import React from 'react';
 import { Users, UserRound, RefreshCw, Loader2, RotateCcw, ChevronDown } from 'lucide-react';
-import type { WorkspaceState, SubscriptionSummary, UsageSummary, EntitlementSummary, OfferingSummary, CampaignSummary } from '../../types';
+import type { WorkspaceState, SubscriptionSummary, UsageSummary, EntitlementSummary, OfferingSummary, CampaignSummary, CampaignWorkspace } from '../../types';
 
 interface WorkspaceTopBarProps {
   workspace: WorkspaceState | null;
+  campaignWorkspace?: CampaignWorkspace | null;
   subscription: SubscriptionSummary | null;
   usage: UsageSummary | null;
   mode: 'command' | 'map';
@@ -61,11 +62,21 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = (props) => {
   const velocity = props.workspace?.velocity ?? emptyVelocity;
   const aiUsage = props.usage?.usage?.find((item) => item.featureKey === 'ai_requests');
 
-  const activeCampaignId = props.workspace?.activeCycle?.refs.campaignId;
+  const activeCampaignId = props.campaignWorkspace?.campaign?.id || props.workspace?.activeCycle?.refs.campaignId;
   const activeCampaign = props.campaigns.find(c => c.id === activeCampaignId);
-  const activeOffering = props.offerings.find(o => o.id === activeCampaign?.offeringId) || props.offerings[0];
+  
+  // Resilient offering lookup: 
+  // 1. Try direct ID match (preferred)
+  // 2. Fallback to title match (handles missing/null offeringId in DB)
+  // 3. Fallback to first offering in list
+  const activeOffering = props.offerings.find(o => o.id === activeCampaign?.offeringId) || 
+                        props.offerings.find(o => o.title === activeCampaign?.title) ||
+                        props.offerings[0];
 
-  const campaignsForOffering = props.campaigns.filter(c => c.offeringId === activeOffering?.id);
+  const campaignsForOffering = props.campaigns.filter(c => 
+    c.offeringId === activeOffering?.id || 
+    (activeOffering?.title && c.title === activeOffering.title)
+  );
 
   return (
     <header className="workspace-topbar tour-region-status">

@@ -248,6 +248,14 @@ export function App() {
   const [upgradePrompt, setUpgradePrompt] = useState<UpgradePromptState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('profile');
+
+  // ROUTE GUARD: Normalize URL if stuck on /auth/callback with active session
+  useEffect(() => {
+    if (session && window.location.pathname.includes('/auth/callback')) {
+      console.log('🔄 ROUTE GUARD: Normalizing URL from /auth/callback to /');
+      window.history.replaceState({}, '', '/');
+    }
+  }, [session]);
   const [isBooting, setIsBooting] = useState(false);
   const [isWorking, setIsWorking] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -2114,6 +2122,7 @@ export function App() {
       <section className="workspace-pane">
         <WorkspaceTopBar
           workspace={workspace}
+          campaignWorkspace={campaignWorkspace}
           subscription={subscription}
           usage={usage}
           mode={workspaceMode}

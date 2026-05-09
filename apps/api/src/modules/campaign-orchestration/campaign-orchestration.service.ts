@@ -111,12 +111,17 @@ export class CampaignOrchestrationService {
 
       // 2. Persist campaigns and link to offerings
       for (const campaign of selectedCampaigns) {
-        // Find the actual DB ID for the linked offering
-        console.log(`[DEBUG] Mapping campaign "${campaign.title}" with offeringId: "${campaign.offeringId}"`);
-        console.log(`[DEBUG] Current offeringIdMap keys: ${Array.from(offeringIdMap.keys()).join(', ')}`);
+        // SELF-HEALING: Try mapping by ID first, then fallback to title matching 
+        // to handle cases where the frontend lost the ID link during tuning.
+        let offeringId = campaign.offeringId ? offeringIdMap.get(campaign.offeringId) : null;
         
-        const offeringId = campaign.offeringId ? offeringIdMap.get(campaign.offeringId) : null;
-        console.log(`[DEBUG] Resulting offeringId (DB UUID): ${offeringId}`);
+        if (!offeringId && campaign.title) {
+          // Try to find the offering that matches this campaign's title (slug vs slug)
+          const matchedOffering = (data.offerings || []).find(o => o.title === campaign.title);
+          if (matchedOffering) {
+            offeringId = offeringIdMap.get(matchedOffering.id) || null;
+          }
+        }
 
         const persistedCampaign = await tx.campaign.create({
           data: {
