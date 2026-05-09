@@ -1871,6 +1871,7 @@ export function App() {
         // 2. Persist the plan to the backend
         const campaignsForFinalize = (snapshot.proposedCampaigns || []).map((campaign: any) => ({
           id: campaign.id,
+          offeringId: campaign.offeringId,
           title: campaign.title,
           description: campaign.description,
           laneTitle: campaign.laneTitle,
@@ -1891,10 +1892,20 @@ export function App() {
           requiredConnectors: lane.requiredConnectors,
         }));
 
+        const offeringsForFinalize = (snapshot.proposedOfferings || []).map((offering: any) => ({
+          id: offering.id,
+          title: offering.title,
+          description: offering.description,
+          type: offering.type,
+          evidence: offering.evidence,
+        }));
+
         // 2. Persist the plan to the backend
         const result = await api.finalizeOnboardingPlan({
           campaigns: campaignsForFinalize,
           actionLanes: actionLanesForFinalize,
+          offerings: offeringsForFinalize,
+          selectedOfferingIds: snapshot.selectedLanes || [],
           selectedCampaignIds: snapshot.selectedCampaigns || [],
           selectedActionLaneIds: snapshot.selectedActionLanes || [],
           comprehensiveSynthesis: snapshot.comprehensiveSynthesis,
@@ -2037,13 +2048,27 @@ export function App() {
   const switchCampaign = async (campaignId: string) => {
     setIsWorking(true);
     try {
+      // Clear active canvas state to ensure a clean teleport
+      setActionCanvasPayload(null);
+      
       const campaignState = await api.getCampaignWorkspace(campaignId);
       setCampaignWorkspace(campaignState);
+      
       setNotice({
         title: 'Context switched',
         detail: `Teleported to campaign: ${campaignState.campaign.title}`,
         tone: 'success'
       });
+      
+      // Update conductor with the switch context
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: `Teleporting to the "${campaignState.campaign.title}" context. I've reset the canvas to your mission command queue.`,
+        }
+      ]);
     } catch (e) {
       setNotice({
         title: 'Switch failed',
@@ -2052,6 +2077,19 @@ export function App() {
       });
     } finally {
       setIsWorking(false);
+    }
+  };
+
+  const switchOffering = async (offeringId: string) => {
+    const firstCampaign = campaigns.find(c => c.offeringId === offeringId);
+    if (firstCampaign) {
+      void switchCampaign(firstCampaign.id);
+    } else {
+      setNotice({
+        title: 'No campaigns',
+        detail: 'This offering has no active campaigns to teleport to.',
+        tone: 'warning'
+      });
     }
   };
 
@@ -2080,6 +2118,7 @@ export function App() {
           campaigns={campaigns}
           onModeChange={setWorkspaceMode}
           onSelectCampaign={switchCampaign}
+          onSelectOffering={switchOffering}
           isLoading={isBooting || isWorking}
           onRefresh={() => void loadWorkspace()}
           onOpenSettings={() => setSettingsOpen(true)}

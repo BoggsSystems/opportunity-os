@@ -75,23 +75,21 @@ export class AiService {
     return response.content;
   }
 
-  async summarizeStrategicFindings(findings: { concepts: any[], proofPoints: any[] }): Promise<string> {
+  async summarizeStrategicFindings(findings: { concepts: any[], proofPoints: any[], summaries?: string[] }): Promise<string> {
     this.logger.log('Summarizing strategic findings with AI');
     
     const prompt = `
-You are a High-Signal Strategic Commander. I have just "shredded" several knowledge assets (PDFs, Decks, etc.) into the user's Strategic Vault.
+You are a High-Signal Strategic Commander. I have just internalized several knowledge assets (PDFs, Decks, etc.) into the user's Strategic Vault.
 I have extracted the following intelligence:
 
-CONCEPTS:
-${findings.concepts.map(c => `- ${c.title}: ${c.description}`).join('\n')}
-
-PROOF POINTS:
-${findings.proofPoints.map(p => `- ${p.title}: ${p.content}`).join('\n')}
+${findings.concepts.length > 0 ? `CONCEPTS:\n${findings.concepts.map(c => `- ${c.title}: ${c.description}`).join('\n')}\n` : ''}
+${findings.proofPoints.length > 0 ? `PROOF POINTS:\n${findings.proofPoints.map(p => `- ${p.title}: ${p.content}`).join('\n')}\n` : ''}
+${findings.summaries && findings.summaries.length > 0 ? `ASSET BRIEFINGS:\n${findings.summaries.map(s => `- ${s}`).join('\n')}\n` : ''}
 
 YOUR TASK:
 Provide a punchy, 2-3 sentence strategic summary for the user. 
 - Acknowledge the core thesis found in their IP.
-- Highlight the 2 most powerful leverage points identified.
+- Highlight the most powerful leverage points identified.
 - Speak as the "Director" who is impressed and ready to weaponize this expertise.
 - Start with something like "I've synthesized your [Core Thesis]..."
 

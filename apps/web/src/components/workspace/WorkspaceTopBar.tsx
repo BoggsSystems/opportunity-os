@@ -11,6 +11,7 @@ interface WorkspaceTopBarProps {
   campaigns: CampaignSummary[];
   onModeChange: (mode: 'command' | 'map') => void;
   onSelectCampaign?: (campaignId: string) => void;
+  onSelectOffering?: (offeringId: string) => void;
   isLoading: boolean;
   onRefresh: () => void;
   onOpenSettings: () => void;
@@ -87,7 +88,7 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = (props) => {
                       className={`dropdown-item ${o.id === activeOffering?.id ? 'active' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        // For now we just close, as switching offering implies switching campaign
+                        props.onSelectOffering?.(o.id);
                         setIsOfferingOpen(false);
                       }}
                     >

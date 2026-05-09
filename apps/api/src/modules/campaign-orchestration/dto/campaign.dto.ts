@@ -537,6 +537,10 @@ class OnboardingCampaignInputDto {
   @IsString()
   id: string;
 
+  @IsOptional()
+  @IsString()
+  offeringId?: string;
+
   @IsString()
   title: string;
 
@@ -565,6 +569,7 @@ class OnboardingCampaignInputDto {
   duration?: string;
 
   @IsOptional()
+  @IsArray()
   @IsString({ each: true })
   channels?: string[];
 }
@@ -597,6 +602,26 @@ class OnboardingActionLaneInputDto {
   requiredConnectors?: string[];
 }
 
+export class OnboardingOfferingInputDto {
+  @IsString()
+  id: string;
+
+  @IsString()
+  title: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsString()
+  evidence?: string;
+}
+
 class OnboardingActivationSelectionDto {
   @IsString()
   campaignId: string;
@@ -615,6 +640,14 @@ export class FinalizeOnboardingPlanDto {
   @ValidateNested({ each: true })
   @Type(() => OnboardingActionLaneInputDto)
   actionLanes: OnboardingActionLaneInputDto[];
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OnboardingOfferingInputDto)
+  offerings: OnboardingOfferingInputDto[];
+
+  @IsArray()
+  selectedOfferingIds: string[];
 
   @IsArray()
   selectedCampaignIds: string[];

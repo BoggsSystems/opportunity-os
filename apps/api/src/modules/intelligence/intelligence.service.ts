@@ -337,7 +337,7 @@ export class IntelligenceService {
     await new Promise(resolve => setTimeout(resolve, 1000));
     this.logger.log(`🚀 [Background] Batch ${batchId}: Starting execution...`);
     
-    const allFindings = { concepts: [], proofPoints: [] };
+    const allFindings = { concepts: [], proofPoints: [], summaries: [] };
     const results = [];
     
     for (const [index, id] of assetIds.entries()) {
@@ -455,6 +455,7 @@ export class IntelligenceService {
 
         allFindings.concepts.push(...shredResult.concepts);
         allFindings.proofPoints.push(...shredResult.proofPoints);
+        if (assetSummary) allFindings.summaries.push(assetSummary);
         
         results.push({ id, status: 'success', ...shredResult, assetSummary });
         await this.persistChunkFromShredResult({
@@ -526,8 +527,8 @@ export class IntelligenceService {
       }
     }
 
-    let summary = "Assets ingested. No specific strategic concepts were extracted.";
-    if (allFindings.concepts.length > 0 || allFindings.proofPoints.length > 0) {
+    let summary = "Strategic assets integrated. The operating posture has been updated based on the internalized content.";
+    if (allFindings.concepts.length > 0 || allFindings.proofPoints.length > 0 || allFindings.summaries.length > 0) {
       summary = await this.aiService.summarizeStrategicFindings(allFindings);
     }
 

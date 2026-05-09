@@ -17,6 +17,8 @@ import {
   ConversationThreadStatus,
   ReferralMilestoneType,
   UserLifecycleStage,
+  OfferingStatus,
+  OfferingType,
   prisma,
 } from "@opportunity-os/db";
 import {
@@ -71,15 +73,45 @@ export class CampaignOrchestrationService {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      const offeringIdMap = new Map<string, string>();
       const campaignIdMap = new Map<string, string>();
       const laneIdMap = new Map<string, string>();
+      const persistedOfferings: any[] = [];
       const persistedCampaigns: any[] = [];
       const persistedActionLanes: any[] = [];
 
+      // 1. Persist selected offerings
+      const selectedOfferings = (data.offerings || []).filter(o => 
+        data.selectedOfferingIds.includes(o.id)
+      );
+
+      for (const offering of selectedOfferings) {
+        const persistedOffering = await tx.offering.create({
+          data: {
+            userId,
+            title: offering.title,
+            description: offering.description,
+            offeringType: (offering.type as OfferingType) || OfferingType.service,
+            status: OfferingStatus.active,
+            metadataJson: {
+              onboardingOfferingId: offering.id,
+              evidence: offering.evidence
+            }
+          }
+        });
+        offeringIdMap.set(offering.id, persistedOffering.id);
+        persistedOfferings.push(persistedOffering);
+      }
+
+      // 2. Persist campaigns and link to offerings
       for (const campaign of selectedCampaigns) {
+        // Find the actual DB ID for the linked offering
+        const offeringId = campaign.offeringId ? offeringIdMap.get(campaign.offeringId) : null;
+
         const persistedCampaign = await tx.campaign.create({
           data: {
             userId,
+            offeringId,
             title: campaign.title,
             description: campaign.description,
             objective: campaign.goalMetric || campaign.description,
@@ -92,7 +124,7 @@ export class CampaignOrchestrationService {
               onboardingCampaignId: campaign.id,
               laneTitle: campaign.laneTitle,
               duration: campaign.duration,
-              channels: campaign.channels, // Use plural from DTO
+              channels: campaign.channels,
               comprehensiveSynthesis: data.comprehensiveSynthesis,
             },
           },
