@@ -1461,6 +1461,9 @@ export function App() {
     }
   }
 
+  async function draftForDiscoveryTarget(input: { targetId: string; preferredChannel?: 'email' | 'linkedin_dm' }) {
+    setIsWorking(true);
+    setNotice(null);
     try {
       const response = await api.executeWorkspaceCommand({
         type: 'draft_discovery_target' as any,
@@ -1882,7 +1885,9 @@ export function App() {
     
     setIsWorking(true);
     setNotice(null); // Clear any previous error states before attempting handoff
-    
+     async function draftForDiscoveryTarget(input: { targetId: string; preferredChannel?: 'email' | 'linkedin_dm' }) {
+    setIsWorking(true);
+    setNotice(null);
     try {
       // 0. Simulated Payment / Plan Activation (Stubbed Stripe Transition)
       // This ensures the user has a valid plan before finalization to avoid 402 errors.
