@@ -1814,7 +1814,247 @@ const OperatingMapWorkspace: React.FC<{
   );
 };
 
-export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
+export const DiscoveryWorkspace: React.FC<{
+  campaignWorkspace: CampaignWorkspace | null;
+  isWorking: boolean;
+  onStartDiscoveryScan: (input: { query: string; providerKeys?: string[]; context?: any; scanType?: string }) => Promise<any>;
+  onAcceptDiscoveryTarget: (targetId: string) => Promise<void>;
+  onRejectDiscoveryTarget: (targetId: string) => Promise<void>;
+  onPromoteDiscoveryTargets: (scanId: string) => Promise<void>;
+  onSelectRecipient: (input: { queueItemId: string; personId: string; name: string }) => Promise<void>;
+}> = ({ 
+  campaignWorkspace, 
+  isWorking, 
+  onStartDiscoveryScan, 
+  onAcceptDiscoveryTarget, 
+  onRejectDiscoveryTarget,
+  onPromoteDiscoveryTargets,
+  onSelectRecipient
+}) => {
+  const [refinement, setRefinement] = useState('');
+  const [targetType, setTargetType] = useState<'people' | 'organizations'>('people');
+  const [loading, setLoading] = useState(false);
+  const [reviewTargets, setReviewTargets] = useState<any[]>([]);
+  const [reviewIndex, setReviewIndex] = useState(0);
+
+  const targets = campaignWorkspace?.targetQueue ?? [];
+  const scans = campaignWorkspace?.discovery?.scans ?? [];
+
+  const handleStartScan = async (e?: React.FormEvent, overrideQuery?: string) => {
+    e?.preventDefault();
+    const baseQuery = overrideQuery || refinement;
+    if (!baseQuery.trim()) return;
+    setLoading(true);
+    try {
+      // Query Hardening: Force person search intent if mode is set to people
+      const finalQuery = (targetType === 'people' && !baseQuery.toLowerCase().includes('person') && !baseQuery.toLowerCase().includes('profile'))
+        ? `${baseQuery} individual faculty staff profiles directory`
+        : baseQuery;
+
+      const result = await onStartDiscoveryScan({
+        query: finalQuery,
+        providerKeys: ['tavily_search'],
+        scanType: targetType === 'people' ? 'person_search' : 'company_search'
+      });
+      if (result && result.targets) {
+        setReviewTargets(result.targets);
+        setReviewIndex(0);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeepScan = async () => {
+    const target = reviewTargets[reviewIndex];
+    if (!target) return;
+    const company = target.companyName || target.personName; // Fallback if name is university
+    const newQuery = `${refinement} at ${company}`;
+    setRefinement(newQuery);
+    setTargetType('people');
+    setReviewTargets([]);
+    void handleStartScan(undefined, newQuery);
+  };
+
+  const handleTriage = async (action: 'accept' | 'reject') => {
+    const target = reviewTargets[reviewIndex];
+    if (!target) return;
+    try {
+      if (action === 'accept') {
+        await onAcceptDiscoveryTarget(target.id);
+      } else {
+        await onRejectDiscoveryTarget(target.id);
+      }
+      if (reviewIndex < reviewTargets.length - 1) {
+        setReviewIndex(reviewIndex + 1);
+      } else {
+        setReviewTargets([]);
+      }
+    } catch (e) {
+      console.error('Triage failed', e);
+    }
+  };
+
+  if (!campaignWorkspace) {
+    return (
+      <div className="discovery-workspace-empty">
+        <Search size={48} />
+        <h2>Select a campaign to start discovery</h2>
+        <p>You can hunter for leads for any specific campaign context independently of your active cycle.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="discovery-workspace-panel">
+      <header className="discovery-workspace-header">
+        <div>
+          <p className="eyebrow">Campaign Targeting</p>
+          <h3>{campaignWorkspace.campaign.title}</h3>
+          <p>{campaignWorkspace.campaign.targetSegment || 'Hunting for relevant prospects'}</p>
+        </div>
+        <div className="discovery-workspace-metrics">
+          <div className="metric-box">
+            <strong>{targets.length}</strong>
+            <span>Active Queue</span>
+          </div>
+          <div className="metric-box">
+            <strong>{scans.length}</strong>
+            <span>Scans Run</span>
+          </div>
+        </div>
+      </header>
+
+      <section className="discovery-scan-launcher">
+        <div className="discovery-mode-selector">
+          <button 
+            type="button" 
+            className={`mode-toggle ${targetType === 'people' ? 'active' : ''}`}
+            onClick={() => setTargetType('people')}
+          >
+            Find People
+          </button>
+          <button 
+            type="button" 
+            className={`mode-toggle ${targetType === 'organizations' ? 'active' : ''}`}
+            onClick={() => setTargetType('organizations')}
+          >
+            Find Organizations
+          </button>
+        </div>
+        <form onSubmit={handleStartScan} className="scan-input-group">
+          <Search className="scan-icon" size={20} />
+          <input 
+            type="text" 
+            placeholder={targetType === 'people' ? "Who are you looking for? (e.g. 'Software engineering professors')" : "Which organizations are you targeting? (e.g. 'Top CS universities')"}
+            value={refinement}
+            onChange={e => setRefinement(e.target.value)}
+            disabled={loading || isWorking}
+          />
+          <button type="submit" className="primary-button" disabled={loading || isWorking || !refinement.trim()}>
+            {loading ? <RefreshCw className="spin" size={18} /> : 'Start Discovery Scan'}
+          </button>
+        </form>
+        <p className="scan-hint">
+          {targetType === 'people' 
+            ? "Focused on individual profiles, faculty, and leadership." 
+            : "Focused on institutional mapping and company research."}
+        </p>
+      </section>
+
+      {reviewTargets.length > 0 && (
+        <div className="discovery-triage-overlay standalone">
+          <div className="triage-card">
+            <header className="triage-header">
+              <div className="triage-count">Reviewing Lead {reviewIndex + 1} of {reviewTargets.length}</div>
+              <button className="close-triage" onClick={() => setReviewTargets([])}>×</button>
+            </header>
+            <div className="triage-body">
+              <div className="triage-main-info">
+                <h2>{reviewTargets[reviewIndex].personName || reviewTargets[reviewIndex].companyName}</h2>
+                <p className="triage-role">{reviewTargets[reviewIndex].roleTitle} @ {reviewTargets[reviewIndex].companyName}</p>
+                <div className="triage-signals">
+                  <span className="relevance-score">{reviewTargets[reviewIndex].relevanceScore}% Match</span>
+                </div>
+              </div>
+              <div className="triage-justification">
+                <label>Why this target?</label>
+                <p>{reviewTargets[reviewIndex].whyThisTarget}</p>
+              </div>
+            </div>
+            <footer className="triage-footer">
+              <button className="reject-button" onClick={() => handleTriage('reject')} disabled={loading || isWorking}>
+                Reject
+              </button>
+              {(!reviewTargets[reviewIndex].personName || reviewTargets[reviewIndex].targetType === 'company') && (
+                <button className="deep-scan-button" onClick={handleDeepScan} disabled={loading || isWorking}>
+                  Deep Scan People
+                </button>
+              )}
+              <button className="accept-button" onClick={() => handleTriage('accept')} disabled={loading || isWorking}>
+                Accept & Promote
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      <section className="discovery-target-queue">
+        <header className="section-header">
+          <h4>Target Queue</h4>
+          <span>{targets.length} prioritized prospects</span>
+        </header>
+        
+        {targets.length > 0 ? (
+          <div className="target-queue-list">
+            {targets.map(target => (
+              <article key={target.id} className="target-queue-row">
+                <div className="target-info">
+                  <strong>{target.name}</strong>
+                  <span>{target.title} @ {target.company}</span>
+                </div>
+                <div className="target-score">
+                  <StatusBadge label={`${target.score}% match`} />
+                </div>
+                <div className="target-actions">
+                  <button 
+                    type="button" 
+                    className="secondary-button compact"
+                    onClick={() => onSelectRecipient({ queueItemId: target.queueItemId, personId: target.personId!, name: target.name })}
+                    disabled={isWorking}
+                  >
+                    Select & Draft
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="target-queue-empty">
+            <User size={32} />
+            <p>Your target queue is empty for this campaign. Run a discovery scan above to find your first prospects.</p>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+};
+
+const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
+  if (props.mode === 'discovery') {
+    return (
+      <DiscoveryWorkspace
+        campaignWorkspace={props.campaignWorkspace}
+        isWorking={props.isWorking}
+        onStartDiscoveryScan={props.onStartDiscoveryScan}
+        onAcceptDiscoveryTarget={props.onAcceptDiscoveryTarget}
+        onRejectDiscoveryTarget={props.onRejectDiscoveryTarget}
+        onPromoteDiscoveryTargets={props.onPromoteDiscoveryTargets}
+        onSelectRecipient={props.onSelectRecipient!}
+      />
+    );
+  }
+
   if (props.mode === 'map') {
     return (
       <OperatingMapWorkspace

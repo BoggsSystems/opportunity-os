@@ -79,6 +79,7 @@ interface StoredSession {
 }
 
 interface Notice {
+  id?: string;
   title: string;
   detail: string;
   tone: 'info' | 'success' | 'warning' | 'error';
@@ -223,7 +224,7 @@ export function App() {
   const [offerings, setOfferings] = useState<OfferingSummary[]>([]);
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
   const [commandQueue, setCommandQueue] = useState<CommandQueueState | null>(null);
-  const [workspaceMode, setWorkspaceMode] = useState<'command' | 'map'>('command');
+  const [workspaceMode, setWorkspaceMode] = useState<'command' | 'map' | 'discovery'>('command');
   const [intelligenceArtifacts, setIntelligenceArtifacts] = useState<any[]>([]);
   const [intelligenceJobs, setIntelligenceJobs] = useState<any[]>([]);
   const [intelligenceChunks, setIntelligenceChunks] = useState<any[]>([]);
@@ -499,8 +500,8 @@ export function App() {
   }, [api]);
 
   const workspaceView = useMemo(
-    () => buildWorkspaceView(workspace, draft, pendingStrategicSessionId, campaignFeedback, actionCanvasPayload),
-    [workspace, draft, pendingStrategicSessionId, campaignFeedback, actionCanvasPayload],
+    () => buildWorkspaceView(workspace, campaignWorkspace, draft, pendingStrategicSessionId, campaignFeedback, actionCanvasPayload),
+    [workspace, campaignWorkspace, draft, pendingStrategicSessionId, campaignFeedback, actionCanvasPayload],
   );
 
   useEffect(() => {
@@ -2061,15 +2062,42 @@ export function App() {
     try {
       // Clear active canvas state to ensure a clean teleport
       setActionCanvasPayload(null);
+      setCampaignFeedback(null);
+      setStrategicPreview(null);
+      setDraft(null);
       
       const campaignState = await api.getCampaignWorkspace(campaignId);
       setCampaignWorkspace(campaignState);
       
-      setNotice({
-        title: 'Context switched',
-        detail: `Teleported to campaign: ${campaignState.campaign.title}`,
-        tone: 'success'
-      });
+      // Refresh global workspace and command queue to ensure the UI is in sync
+      const [workspaceState, queueState] = await Promise.all([
+        api.getWorkspace(),
+        api.getTodayCommandQueue({ limit: 50 }).catch(() => null)
+      ]);
+      
+      setWorkspace(workspaceState);
+      setCommandQueue(queueState);
+
+      // Restore active action canvas if we are switching to the campaign that has the active cycle
+      const activeCampaignId = workspaceState.activeCycle?.refs.campaignId;
+      const stagedActionItemId = workspaceState.activeCycle?.refs.actionItemId;
+      
+      if (campaignId === activeCampaignId && stagedActionItemId) {
+        const canvasPayload = await api.getActionItemCanvas(stagedActionItemId).catch(() => null);
+        setActionCanvasPayload(canvasPayload);
+      } else {
+        setActionCanvasPayload(null);
+      }
+
+      const suppressed = localStorage.getItem('suppressed_notice_context_switched') === 'true';
+      if (!suppressed) {
+        setNotice({
+          id: 'context_switched',
+          title: 'Context switched',
+          detail: `Teleported to campaign: ${campaignState.campaign.title}`,
+          tone: 'success'
+        });
+      }
       
       // Update conductor with the switch context
       setMessages((current) => [
@@ -2137,7 +2165,16 @@ export function App() {
           onPurgeAndSignOut={extendedLogoutAndPurge}
         />
 
-        {notice ? <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
+        {notice ? (
+          <NoticeBanner 
+            notice={notice} 
+            onDismiss={() => setNotice(null)} 
+            onSilence={notice.id ? () => {
+              localStorage.setItem(`suppressed_notice_${notice.id}`, 'true');
+              setNotice(null);
+            } : undefined}
+          />
+        ) : null}
         {upgradePrompt ? (
           <UpgradePrompt
             prompt={upgradePrompt}
@@ -3317,12 +3354,21 @@ function buildActiveDraftContext(payload: any | null): string | null {
 
 function buildWorkspaceView(
   workspace: WorkspaceState | null,
+  campaignWorkspace: CampaignWorkspace | null,
   draft: OutreachDraft | null,
   pendingStrategicSessionId: string | null,
   campaignFeedback: StrategicPlanResult | null,
   actionCanvasPayload?: any | null,
 ): WorkspaceViewState {
   const backendCanvas = workspace?.canvas;
+  
+  // If we are viewing a specific campaign that is DIFFERENT from the global active campaign,
+  // we should override the view to be 'idle' so we show the command queue for the new context.
+  const isViewingDifferentCampaign = 
+    campaignWorkspace?.campaign?.id && 
+    workspace?.activeCycle?.refs.campaignId && 
+    campaignWorkspace.campaign.id !== workspace.activeCycle.refs.campaignId;
+
   const mode = draft
     ? 'draft_edit'
     : actionCanvasPayload
@@ -3332,17 +3378,25 @@ function buildWorkspaceView(
       : pendingStrategicSessionId
         ? 'goal_planning'
         : workspace?.activeWorkspace.mode ?? 'empty';
+        
   const cycle = workspace?.activeCycle ?? null;
   const recommendation = workspace?.recommendation ?? null;
-  const action = draft
+  
+  let action = draft
     ? 'draft_email'
-    : actionCanvasPayload
+    : (actionCanvasPayload && actionCanvasPayload.actionItem)
       ? 'confirm_send'
       : campaignFeedback
       ? 'confirm_campaign'
       : pendingStrategicSessionId
         ? 'confirm_goal'
         : backendCanvas?.action ?? actionFromMode(mode);
+
+  // Fallback to idle if we are in a state that requires a payload but don't have one
+  if (action === 'confirm_send' && (!actionCanvasPayload || !actionCanvasPayload.actionItem)) {
+    console.log('🔄 VIEW: Falling back to idle because action payload is missing');
+    action = 'idle';
+  }
   return {
     action,
     title:

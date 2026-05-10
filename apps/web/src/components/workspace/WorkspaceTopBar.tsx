@@ -164,6 +164,15 @@ export const WorkspaceTopBar: React.FC<WorkspaceTopBarProps> = (props) => {
         <button
           type="button"
           role="tab"
+          aria-selected={props.mode === 'discovery'}
+          className={props.mode === 'discovery' ? 'workspace-mode-button active' : 'workspace-mode-button'}
+          onClick={() => props.onModeChange('discovery')}
+        >
+          Discovery
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={props.mode === 'map'}
           className={props.mode === 'map' ? 'workspace-mode-button active' : 'workspace-mode-button'}
           onClick={() => props.onModeChange('map')}
