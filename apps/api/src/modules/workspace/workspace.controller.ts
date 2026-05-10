@@ -19,8 +19,9 @@ export class WorkspaceController {
   @Post('commands')
   async executeCommand(
     @Body() command: WorkspaceCommandDto,
-    @CurrentUser() user?: AuthenticatedUser,
+    @CurrentUser() user?: any,
   ) {
+    console.log('📨 [WORKSPACE_CONTROLLER] Received command:', JSON.stringify(command, null, 2));
     if (!user?.id) {
       throw new UnauthorizedException('No authenticated user found');
     }

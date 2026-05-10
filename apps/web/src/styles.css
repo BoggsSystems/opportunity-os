@@ -5925,3 +5925,241 @@ input:focus {
   background: #dcfce7;
   border-color: #86efac;
 }
+
+.triage-linkedin-link-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #0a66c2;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  margin-bottom: 12px;
+}
+
+.triage-linkedin-link-active:hover {
+  text-decoration: underline;
+}
+
+.triage-missing-info {
+  background: #fff7ed;
+  border: 1px solid #ffedd5;
+  color: #9a3412;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.quick-action-button {
+  background: #fdf2f8;
+  border: 1px solid #fce7f3;
+  color: #9d174d;
+}
+
+.quick-action-button:hover {
+  background: #fce7f3;
+  border-color: #fbcfe8;
+}
+
+.triage-source {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.triage-source label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.source-link {
+  display: inline-flex;
+  align-items: center;
+  color: #3b82f6;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.source-link:hover {
+  text-decoration: underline;
+}
+
+.missing-info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.missing-info-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.link-action-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid #fed7aa;
+  color: #ea580c;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.link-action-button:hover {
+  background: #ffedd5;
+  border-color: #fb923c;
+}
+
+.manual-link-entry {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #fed7aa;
+}
+
+.manual-link-entry input {
+  flex: 1;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+.manual-link-entry input:focus {
+  border-color: #3b82f6;
+}
+
+.manual-link-entry button {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.manual-link-entry button:hover {
+  background: #2563eb;
+}
+
+.quick-action-button.email {
+  background: #f0f9ff;
+  border: 1px solid #e0f2fe;
+  color: #075985;
+}
+
+.quick-action-button.email:hover {
+  background: #e0f2fe;
+  border-color: #bae6fd;
+}
+
+.scan-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  border-radius: 12px;
+}
+
+.scan-radar-container {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.radar-icon {
+  background: #3b82f6;
+  color: #fff;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.5);
+}
+
+.zap-icon {
+  animation: zap-flicker 2s infinite ease-in-out;
+}
+
+@keyframes zap-flicker {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
+}
+
+.radar-circle {
+  position: absolute;
+  border: 1px solid #3b82f6;
+  border-radius: 50%;
+  opacity: 0;
+}
+
+.pulse-1 {
+  width: 60px;
+  height: 60px;
+  animation: radar-pulse 3s infinite linear;
+}
+
+.pulse-2 {
+  width: 60px;
+  height: 60px;
+  animation: radar-pulse 3s infinite linear 1s;
+}
+
+.pulse-3 {
+  width: 60px;
+  height: 60px;
+  animation: radar-pulse 3s infinite linear 2s;
+}
+
+@keyframes radar-pulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+.scan-status-text {
+  text-align: center;
+}
+
+.scan-status-text h3 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 8px 0;
+}
+
+.stage-message {
+  font-size: 14px;
+  color: #64748b;
+  min-height: 20px;
+  font-weight: 500;
+}

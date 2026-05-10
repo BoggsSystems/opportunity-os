@@ -7,10 +7,10 @@ interface WorkspaceTopBarProps {
   campaignWorkspace?: CampaignWorkspace | null;
   subscription: SubscriptionSummary | null;
   usage: UsageSummary | null;
-  mode: 'command' | 'map';
+  mode: 'command' | 'map' | 'discovery';
   offerings: OfferingSummary[];
   campaigns: CampaignSummary[];
-  onModeChange: (mode: 'command' | 'map') => void;
+  onModeChange: (mode: 'command' | 'map' | 'discovery') => void;
   onSelectCampaign?: (campaignId: string) => void;
   onSelectOffering?: (offeringId: string) => void;
   isLoading: boolean;

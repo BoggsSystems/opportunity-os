@@ -6,26 +6,6 @@ import {
   IsUUID,
 } from 'class-validator';
 
-console.log('[DEBUG] WorkspaceCommandDto module loaded. Allowed types:', [
-  'confirm_offering',
-  'adjust_offering',
-  'reject_offering',
-  'start_discovery_scan',
-  'accept_discovery_target',
-  'reject_discovery_target',
-  'promote_discovery_targets',
-  'activate_signal',
-  'dismiss_signal',
-  'dismiss_cycle',
-  'complete_cycle',
-  'create_task',
-  'advance_opportunity',
-  'set_workspace_mode',
-  'build_recipient_queue',
-  'select_recipient',
-  'clear_recipient',
-]);
-
 export const WORKSPACE_COMMAND_TYPES = [
   'confirm_offering',
   'adjust_offering',
@@ -45,12 +25,35 @@ export const WORKSPACE_COMMAND_TYPES = [
   'build_recipient_queue',
   'select_recipient',
   'clear_recipient',
+  'draft_discovery_target',
 ] as const;
+
+console.log('✅ [COMMAND_INIT] WorkspaceCommandDto allowed types:', Array.from(WORKSPACE_COMMAND_TYPES));
 
 export type WorkspaceCommandType = (typeof WORKSPACE_COMMAND_TYPES)[number];
 
 export class WorkspaceCommandDto {
-  @IsIn(WORKSPACE_COMMAND_TYPES)
+  @IsIn([
+    'confirm_offering',
+    'adjust_offering',
+    'reject_offering',
+    'start_discovery_scan',
+    'accept_discovery_target',
+    'reject_discovery_target',
+    'promote_discovery_targets',
+    'activate_signal',
+    'dismiss_signal',
+    'dismiss_cycle',
+    'complete_cycle',
+    'create_task',
+    'advance_opportunity',
+    'activate_campaign',
+    'set_workspace_mode',
+    'build_recipient_queue',
+    'select_recipient',
+    'clear_recipient',
+    'draft_discovery_target',
+  ])
   type: WorkspaceCommandType;
 
   @IsOptional()

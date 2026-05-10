@@ -89,15 +89,17 @@ export class DiscoveryController {
     return this.discoveryService.listTargets(userId, id);
   }
 
-  @Post('scans/:id/promote-accepted')
-  async promoteAccepted(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
+  @Post('targets/:id/promote')
+  async promoteSingleTarget(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {
     const userId = user?.id;
     if (!userId) {
       throw new BadRequestException('No user context available for discovery promotion');
     }
 
-    return this.discoveryService.promoteAcceptedTargets(userId, id);
+    return this.discoveryService.promoteSingleTarget(userId, id);
   }
+
+  @Post('scans/:id/promote-accepted')
 
   @Post('targets/:id/accept')
   async acceptTarget(@Param('id') id: string, @CurrentUser() user?: AuthenticatedUser) {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RefreshCw, CheckCircle, AlertCircle, Info, Send, FileText, User, Layout, ArrowRight, ChevronRight, MessageSquare, Target, Search, SlidersHorizontal, Zap, Globe, ChevronUp, ChevronDown } from 'lucide-react';
+import { RefreshCw, CheckCircle, AlertCircle, Info, Send, FileText, User, Layout, ArrowRight, ChevronRight, MessageSquare, Target, Search, SlidersHorizontal, Zap, Globe, ChevronUp, ChevronDown, ExternalLink } from 'lucide-react';
 import type {
   WorkspaceState,
   CampaignWorkspace,
@@ -67,7 +67,7 @@ interface ActiveWorkspaceProps {
   intelligenceJobs: any[];
   intelligenceChunks: any[];
   userAssets: any[];
-  mode: 'command' | 'map';
+  mode: 'command' | 'map' | 'discovery';
   view: WorkspaceViewState;
   draft: OutreachDraft | null;
   outreachExecutionState: OutreachExecutionState;
@@ -129,6 +129,7 @@ interface ActiveWorkspaceProps {
   onSyncEmail: () => Promise<void>;
   onBuildRecipientQueue: (input: { campaignId: string; actionLaneId?: string; limit?: number; refinement?: string; forceRefresh?: boolean }) => Promise<any>;
   onSelectRecipient: (input: { actionItemId: string; personId?: string; connectionRecordId?: string; targetQueueItemId?: string }) => Promise<void>;
+  onDraftForDiscoveryTarget: (input: { targetId: string; preferredChannel?: 'email' | 'linkedin_dm' }) => Promise<void>;
   onDraftChange: (draft: OutreachDraft) => void;
   onSendDraft: () => Promise<void>;
   onCompleteCycle: () => Promise<void>;
@@ -267,8 +268,10 @@ const ActionCanvasShell: React.FC<{
   onStartDiscoveryScan: ActiveWorkspaceProps['onStartDiscoveryScan'];
   onAcceptDiscoveryTarget: ActiveWorkspaceProps['onAcceptDiscoveryTarget'];
   onRejectDiscoveryTarget: ActiveWorkspaceProps['onRejectDiscoveryTarget'];
+  onDraftForDiscoveryTarget: ActiveWorkspaceProps['onDraftForDiscoveryTarget'];
+  onDraftChange: ActiveWorkspaceProps['onDraftChange'];
   campaignWorkspace: CampaignWorkspace | null;
-}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft, onBuildRecipientQueue, onSelectRecipient, onClearRecipient, onRefineDraft, onStartDiscoveryScan, onAcceptDiscoveryTarget, onRejectDiscoveryTarget, campaignWorkspace }) => {
+}> = ({ payload, isWorking, onCaptureActionFeedback, onConfirmCanvasAction, onSaveActionDraft, onBuildRecipientQueue, onSelectRecipient, onClearRecipient, onRefineDraft, onStartDiscoveryScan, onAcceptDiscoveryTarget, onRejectDiscoveryTarget, onDraftForDiscoveryTarget, onDraftChange, campaignWorkspace }) => {
   const [contextCollapsed, setContextCollapsed] = useState(true);
   const actionItem = payload.actionItem;
   const shouldPrepareRecipientQueue = needsRecipientQueue(payload);
@@ -1814,37 +1817,92 @@ const OperatingMapWorkspace: React.FC<{
   );
 };
 
-export const DiscoveryWorkspace: React.FC<{
+export interface DiscoveryWorkspaceProps {
   campaignWorkspace: CampaignWorkspace | null;
+  loading: boolean;
   isWorking: boolean;
-  onStartDiscoveryScan: (input: { query: string; providerKeys?: string[]; context?: any; scanType?: string }) => Promise<any>;
-  onAcceptDiscoveryTarget: (targetId: string) => Promise<void>;
-  onRejectDiscoveryTarget: (targetId: string) => Promise<void>;
+  onStartDiscoveryScan: (input: {
+    query: string;
+    providerKeys?: string[];
+    context?: Record<string, any>;
+    scanType?: string;
+  }) => Promise<any>;
+  onAcceptDiscoveryTarget: (targetId: string) => Promise<any>;
+  onRejectDiscoveryTarget: (targetId: string, reason?: string) => Promise<void>;
   onPromoteDiscoveryTargets: (scanId: string) => Promise<void>;
-  onSelectRecipient: (input: { queueItemId: string; personId: string; name: string }) => Promise<void>;
-}> = ({ 
+  onDraftForDiscoveryTarget: (input: { targetId: string; preferredChannel?: 'email' | 'linkedin_dm' }) => Promise<void>;
+}
+
+export const DiscoveryWorkspace: React.FC<DiscoveryWorkspaceProps> = ({ 
   campaignWorkspace, 
+  loading: initialLoading,
   isWorking, 
   onStartDiscoveryScan, 
   onAcceptDiscoveryTarget, 
   onRejectDiscoveryTarget,
   onPromoteDiscoveryTargets,
-  onSelectRecipient
+  onDraftForDiscoveryTarget
 }) => {
   const [refinement, setRefinement] = useState('');
   const [targetType, setTargetType] = useState<'people' | 'organizations'>('people');
-  const [loading, setLoading] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [reviewTargets, setReviewTargets] = useState<any[]>([]);
   const [reviewIndex, setReviewIndex] = useState(0);
 
+  const [isPastingLink, setIsPastingLink] = useState(false);
+  const [manualLink, setManualLink] = useState('');
+  const [scanStage, setScanStage] = useState(0);
+
+  const scanStages = [
+    "📡 Searching live web for prospects...",
+    "🧠 Analyzing social signals and relevancy...",
+    "🔍 Mapping institutional frameworks...",
+    "💧 Waterfall enrichment via Apollo B2B...",
+    "🎯 Pivoting to high-fidelity social profiles...",
+    "⚡ Finalizing target queue ranking..."
+  ];
+
+  React.useEffect(() => {
+    let interval: any;
+    if (isScanning) {
+      setScanStage(0);
+      interval = setInterval(() => {
+        setScanStage(prev => (prev + 1) % scanStages.length);
+      }, 2500);
+    } else {
+      setScanStage(0);
+    }
+    return () => clearInterval(interval);
+  }, [isScanning]);
+
   const targets = campaignWorkspace?.targetQueue ?? [];
   const scans = campaignWorkspace?.discovery?.scans ?? [];
+
+  const handleManualLinkSave = () => {
+    if (!manualLink.trim()) return;
+    const updated = [...reviewTargets];
+    updated[reviewIndex] = {
+      ...updated[reviewIndex],
+      linkedinUrl: manualLink.trim()
+    };
+    setReviewTargets(updated);
+    setIsPastingLink(false);
+    setManualLink('');
+  };
+
+  const handleLinkedInSearch = () => {
+    const target = reviewTargets[reviewIndex];
+    const name = target.personName || target.companyName;
+    const context = target.companyName || target.roleTitle || '';
+    const query = encodeURIComponent(`${name} ${context} LinkedIn`);
+    window.open(`https://www.google.com/search?q=${query}`, '_blank');
+  };
 
   const handleStartScan = async (e?: React.FormEvent, overrideQuery?: string) => {
     e?.preventDefault();
     const baseQuery = overrideQuery || refinement;
     if (!baseQuery.trim()) return;
-    setLoading(true);
+    setIsScanning(true);
     try {
       // Query Hardening: Force person search intent if mode is set to people
       const finalQuery = (targetType === 'people' && !baseQuery.toLowerCase().includes('person') && !baseQuery.toLowerCase().includes('profile'))
@@ -1861,12 +1919,12 @@ export const DiscoveryWorkspace: React.FC<{
         setReviewIndex(0);
       }
     } finally {
-      setLoading(false);
+      setIsScanning(false);
     }
   };
 
-  const handleDeepScan = async () => {
-    const target = reviewTargets[reviewIndex];
+  const handleDeepScan = async (targetOverride?: any) => {
+    const target = targetOverride || reviewTargets[reviewIndex];
     if (!target) return;
     const company = target.companyName || target.personName; // Fallback if name is university
     const newQuery = `${refinement} at ${company}`;
@@ -1906,7 +1964,24 @@ export const DiscoveryWorkspace: React.FC<{
   }
 
   return (
-    <div className="discovery-workspace-panel">
+    <div className="discovery-workspace">
+      {isScanning && (
+        <div className="scan-loading-overlay">
+          <div className="scan-radar-container">
+            <div className="radar-circle pulse-1"></div>
+            <div className="radar-circle pulse-2"></div>
+            <div className="radar-circle pulse-3"></div>
+            <div className="radar-icon">
+              <Zap size={32} className="zap-icon" />
+            </div>
+          </div>
+          <div className="scan-status-text">
+            <h3>Discovery in Progress</h3>
+            <p className="stage-message">{scanStages[scanStage]}</p>
+          </div>
+        </div>
+      )}
+
       <header className="discovery-workspace-header">
         <div>
           <p className="eyebrow">Campaign Targeting</p>
@@ -1949,10 +2024,10 @@ export const DiscoveryWorkspace: React.FC<{
             placeholder={targetType === 'people' ? "Who are you looking for? (e.g. 'Software engineering professors')" : "Which organizations are you targeting? (e.g. 'Top CS universities')"}
             value={refinement}
             onChange={e => setRefinement(e.target.value)}
-            disabled={loading || isWorking}
+            disabled={isScanning || isWorking}
           />
-          <button type="submit" className="primary-button" disabled={loading || isWorking || !refinement.trim()}>
-            {loading ? <RefreshCw className="spin" size={18} /> : 'Start Discovery Scan'}
+          <button type="submit" className="primary-button" disabled={isScanning || isWorking || !refinement.trim()}>
+            {isScanning ? <RefreshCw className="spin" size={18} /> : 'Start Discovery Scan'}
           </button>
         </form>
         <p className="scan-hint">
@@ -1973,6 +2048,45 @@ export const DiscoveryWorkspace: React.FC<{
               <div className="triage-main-info">
                 <h2>{reviewTargets[reviewIndex].personName || reviewTargets[reviewIndex].companyName}</h2>
                 <p className="triage-role">{reviewTargets[reviewIndex].roleTitle} @ {reviewTargets[reviewIndex].companyName}</p>
+                
+                {reviewTargets[reviewIndex].linkedinUrl ? (
+                  <a 
+                    href={reviewTargets[reviewIndex].linkedinUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="triage-linkedin-link-active"
+                  >
+                    View LinkedIn Profile
+                  </a>
+                ) : (
+                  <div className="triage-missing-info">
+                    <div className="missing-info-header">
+                      <span>LinkedIn profile not found.</span>
+                      <div className="missing-info-actions">
+                        <button type="button" onClick={handleLinkedInSearch} className="link-action-button">
+                          <Search size={12} /> Search
+                        </button>
+                        <button type="button" onClick={() => setIsPastingLink(!isPastingLink)} className="link-action-button">
+                          <FileText size={12} /> Add Link
+                        </button>
+                      </div>
+                    </div>
+                    {isPastingLink && (
+                      <div className="manual-link-entry">
+                        <input 
+                          type="text" 
+                          placeholder="Paste LinkedIn URL..." 
+                          value={manualLink}
+                          onChange={e => setManualLink(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleManualLinkSave()}
+                          autoFocus
+                        />
+                        <button type="button" onClick={handleManualLinkSave}>Save</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="triage-signals">
                   <span className="relevance-score">{reviewTargets[reviewIndex].relevanceScore}% Match</span>
                 </div>
@@ -1981,17 +2095,63 @@ export const DiscoveryWorkspace: React.FC<{
                 <label>Why this target?</label>
                 <p>{reviewTargets[reviewIndex].whyThisTarget}</p>
               </div>
+
+              {reviewTargets[reviewIndex].sourceUrl && (
+                <div className="triage-source">
+                  <label>Information Source</label>
+                  <a 
+                    href={reviewTargets[reviewIndex].sourceUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="source-link"
+                  >
+                    {new URL(reviewTargets[reviewIndex].sourceUrl).hostname}
+                    <ExternalLink size={12} style={{ marginLeft: 4 }} />
+                  </a>
+                </div>
+              )}
             </div>
             <footer className="triage-footer">
-              <button className="reject-button" onClick={() => handleTriage('reject')} disabled={loading || isWorking}>
+              <button className="reject-button" onClick={() => handleTriage('reject')} disabled={isScanning || isWorking}>
                 Reject
               </button>
-              {(!reviewTargets[reviewIndex].personName || reviewTargets[reviewIndex].targetType === 'company') && (
-                <button className="deep-scan-button" onClick={handleDeepScan} disabled={loading || isWorking}>
+              {(!reviewTargets[reviewIndex].personName || reviewTargets[reviewIndex].targetType === 'company') ? (
+                <button className="deep-scan-button" onClick={() => handleDeepScan(reviewTargets[reviewIndex])} disabled={isScanning || isWorking}>
                   Deep Scan People
                 </button>
+              ) : (
+                <>
+                  <button 
+                    className="quick-action-button email" 
+                    onClick={() => {
+                      const target = reviewTargets[reviewIndex];
+                      void onDraftForDiscoveryTarget({ 
+                        targetId: target.id, 
+                        preferredChannel: 'email'
+                      });
+                      setReviewTargets([]);
+                    }}
+                    disabled={isScanning || isWorking}
+                  >
+                    Draft Email
+                  </button>
+                  <button 
+                    className="quick-action-button" 
+                    onClick={() => {
+                      const target = reviewTargets[reviewIndex];
+                      void onDraftForDiscoveryTarget({ 
+                        targetId: target.id, 
+                        preferredChannel: 'linkedin_dm'
+                      });
+                      setReviewTargets([]);
+                    }}
+                    disabled={isScanning || isWorking}
+                  >
+                    Draft LinkedIn DM
+                  </button>
+                </>
               )}
-              <button className="accept-button" onClick={() => handleTriage('accept')} disabled={loading || isWorking}>
+              <button className="accept-button" onClick={() => handleTriage('accept')} disabled={isScanning || isWorking}>
                 Accept & Promote
               </button>
             </footer>
@@ -2020,7 +2180,7 @@ export const DiscoveryWorkspace: React.FC<{
                   <button 
                     type="button" 
                     className="secondary-button compact"
-                    onClick={() => onSelectRecipient({ queueItemId: target.queueItemId, personId: target.personId!, name: target.name })}
+                    onClick={() => onDraftForDiscoveryTarget({ targetId: target.id })}
                     disabled={isWorking}
                   >
                     Select & Draft
@@ -2040,17 +2200,18 @@ export const DiscoveryWorkspace: React.FC<{
   );
 };
 
-const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
+export const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
   if (props.mode === 'discovery') {
     return (
       <DiscoveryWorkspace
         campaignWorkspace={props.campaignWorkspace}
+        loading={props.isWorking || false}
         isWorking={props.isWorking}
         onStartDiscoveryScan={props.onStartDiscoveryScan}
         onAcceptDiscoveryTarget={props.onAcceptDiscoveryTarget}
         onRejectDiscoveryTarget={props.onRejectDiscoveryTarget}
         onPromoteDiscoveryTargets={props.onPromoteDiscoveryTargets}
-        onSelectRecipient={props.onSelectRecipient!}
+        onDraftForDiscoveryTarget={props.onDraftForDiscoveryTarget}
       />
     );
   }
@@ -2116,6 +2277,8 @@ const ActiveWorkspace: React.FC<ActiveWorkspaceProps> = (props) => {
           onStartDiscoveryScan={props.onStartDiscoveryScan}
           onAcceptDiscoveryTarget={props.onAcceptDiscoveryTarget}
           onRejectDiscoveryTarget={props.onRejectDiscoveryTarget}
+          onDraftForDiscoveryTarget={props.onDraftForDiscoveryTarget}
+          onDraftChange={props.onDraftChange}
           campaignWorkspace={props.campaignWorkspace}
         />
       ) : null}

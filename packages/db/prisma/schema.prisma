@@ -536,6 +536,9 @@ enum WorkspaceMode {
   execution_confirm
   discovery_scan
   progress_summary
+  command
+  discovery
+  map
 }
 
 enum WorkspaceSignalStatus {

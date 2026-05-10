@@ -49,7 +49,7 @@ export class ApiError extends Error {
 }
 
 export type WorkspaceCommandPayload = {
-  type: 'confirm_offering' | 'adjust_offering' | 'reject_offering' | 'start_discovery_scan' | 'accept_discovery_target' | 'reject_discovery_target' | 'promote_discovery_targets' | 'activate_signal' | 'dismiss_signal' | 'dismiss_cycle' | 'complete_cycle' | 'create_task' | 'advance_opportunity' | 'activate_campaign' | 'set_workspace_mode' | 'build_recipient_queue' | 'select_recipient' | 'clear_recipient';
+  type: 'confirm_offering' | 'adjust_offering' | 'reject_offering' | 'start_discovery_scan' | 'accept_discovery_target' | 'reject_discovery_target' | 'promote_discovery_targets' | 'activate_signal' | 'dismiss_signal' | 'dismiss_cycle' | 'complete_cycle' | 'create_task' | 'advance_opportunity' | 'activate_campaign' | 'set_workspace_mode' | 'build_recipient_queue' | 'select_recipient' | 'clear_recipient' | 'draft_discovery_target';
   signalId?: string;
   cycleId?: string;
   campaignId?: string;
@@ -237,6 +237,13 @@ export class ApiClient {
     });
   }
 
+  async promoteDiscoveryTarget(targetId: string) {
+    return this.request<{ target: DiscoveryTargetSummary }>(`/discovery/targets/${encodeURIComponent(targetId)}/promote`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+
   async rejectDiscoveryTarget(targetId: string, reason?: string) {
     return this.request<{ target: DiscoveryTargetSummary }>(`/discovery/targets/${encodeURIComponent(targetId)}/reject`, {
       method: 'POST',
@@ -397,7 +404,9 @@ export class ApiClient {
 
   async finalizeOnboardingPlan(body: {
     campaigns: any[];
+    offerings: any[];
     actionLanes: any[];
+    selectedOfferingIds: string[];
     selectedCampaignIds: string[];
     selectedActionLaneIds: string[];
     activationSelection?: { campaignId: string; laneId: string } | null;

@@ -184,6 +184,8 @@ export class WorkspaceService {
         return this.selectRecipientFromCommand(userId, dto);
       case 'clear_recipient':
         return this.clearRecipientFromCommand(userId, dto);
+      case 'draft_discovery_target':
+        return this.draftDiscoveryTargetFromCommand(userId, dto);
       default:
         return assertNever(dto.type);
     }
@@ -281,6 +283,59 @@ export class WorkspaceService {
       throw new NotFoundException('discoveryScanId is required');
     }
     return this.discoveryService.promoteAcceptedTargets(userId, scanId);
+  }
+
+  private async draftDiscoveryTargetFromCommand(userId: string, dto: WorkspaceCommandDto) {
+    const targetId = this.stringInput(dto, 'discoveryTargetId');
+    if (!targetId) {
+      throw new NotFoundException('discoveryTargetId is required');
+    }
+
+    const preferredChannel = this.stringInput(dto, 'preferredChannel') || 'linkedin_dm';
+
+    // 1. Promote the target
+    const target = await this.discoveryService.promoteSingleTarget(userId, targetId);
+    
+    // 2. Create an OpportunityCycle for it
+    const opportunity = await prisma.opportunity.findUnique({
+      where: { id: target.opportunityId! },
+      include: { primaryPerson: true, company: true }
+    });
+
+    const cycle = await prisma.opportunityCycle.create({
+      data: {
+        userId,
+        opportunityId: opportunity.id,
+        campaignId: opportunity.campaignId || dto.campaignId,
+        title: `Drafting outreach for ${opportunity.primaryPerson?.fullName || opportunity.company?.name}`,
+        whyItMatters: target.whyThisTarget || 'Discovery target ready for outreach.',
+        recommendedAction: `Draft ${preferredChannel === 'email' ? 'an email' : 'a LinkedIn DM'} for this target.`,
+        priorityScore: opportunity.fitScore ?? 80,
+        workspaceMode: 'command' as any, // We jump to command mode
+        status: OpportunityCycleStatus.active,
+        phase: OpportunityCyclePhase.drafting,
+        allowedActionsJson: this.toJson(this.allowedActionsForMode('command' as any)),
+        stateJson: this.toJson({
+          canvas: preferredChannel === 'email' ? 'draft_email' : 'confirm_send',
+          source: 'draft_discovery_target',
+          targetId: target.id,
+          preferredChannel,
+        }),
+      },
+    });
+
+    // 3. Mark any other cycles for this opportunity as dismissed (to keep it clean)
+    await prisma.opportunityCycle.updateMany({
+      where: {
+        userId,
+        opportunityId: opportunity.id,
+        id: { not: cycle.id },
+        status: OpportunityCycleStatus.active,
+      },
+      data: { status: OpportunityCycleStatus.dismissed },
+    });
+
+    return { cycle: this.toCycleSummary(cycle), opportunityId: opportunity.id };
   }
 
   private async resolveOfferingProposalId(userId: string, dto: WorkspaceCommandDto) {

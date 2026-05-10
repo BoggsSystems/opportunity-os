@@ -1461,6 +1461,32 @@ export function App() {
     }
   }
 
+    try {
+      const response = await api.executeWorkspaceCommand({
+        type: 'draft_discovery_target' as any,
+        campaignId: campaignWorkspace?.campaign?.id,
+        input: {
+          discoveryTargetId: input.targetId,
+          preferredChannel: input.preferredChannel ?? 'linkedin_dm',
+        },
+      });
+      
+      const result = (response as any).result ?? {};
+      if (result.cycle) {
+        setWorkspaceMode('command');
+        await loadWorkspace();
+      }
+    } catch (error) {
+      setNotice({
+        title: 'Drafting failed',
+        detail: error instanceof Error ? error.message : 'Could not initialize draft for this target.',
+        tone: 'error',
+      });
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
   async function promoteDiscoveryTargets(scanId: string) {
     setIsWorking(true);
     setNotice(null);
@@ -2172,7 +2198,7 @@ export function App() {
             onSilence={notice.id ? () => {
               localStorage.setItem(`suppressed_notice_${notice.id}`, 'true');
               setNotice(null);
-            } : undefined}
+            } : (() => {})}
           />
         ) : null}
         {upgradePrompt ? (
@@ -2235,6 +2261,7 @@ export function App() {
             onSyncEmail={syncEmail}
             onBuildRecipientQueue={buildRecipientQueue}
             onSelectRecipient={selectRecipient}
+            onDraftForDiscoveryTarget={draftForDiscoveryTarget}
             onDraftChange={setDraft}
             onSendDraft={sendDraft}
             onCompleteCycle={completeActiveCycle}
@@ -3172,18 +3199,25 @@ function DraftWorkspace(props: {
 
 
 
-function NoticeBanner(props: { notice: Notice; compact?: boolean; onDismiss?: () => void }) {
+function NoticeBanner(props: { notice: Notice; compact?: boolean; onDismiss?: () => void; onSilence?: () => void }) {
   return (
     <div className={`notice ${props.notice.tone} ${props.compact ? 'compact' : ''}`}>
-      <div>
+      <div className="notice-content">
         <strong>{props.notice.title}</strong>
         <p>{props.notice.detail}</p>
       </div>
-      {props.onDismiss ? (
-        <button className="icon-button" onClick={props.onDismiss} title="Dismiss notice" type="button">
-          <X size={16} />
-        </button>
-      ) : null}
+      <div className="notice-actions">
+        {props.onSilence ? (
+          <button className="notice-silence" onClick={props.onSilence} type="button">
+            Don&apos;t show again
+          </button>
+        ) : null}
+        {props.onDismiss ? (
+          <button className="icon-button" onClick={props.onDismiss} title="Dismiss notice" type="button">
+            <X size={16} />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

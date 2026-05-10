@@ -444,6 +444,14 @@ export class DiscoveryService {
     return { target: this.toTargetSummary(updated) };
   }
 
+  async promoteSingleTarget(userId: string, targetId: string) {
+    const target = await this.findTarget(userId, targetId);
+    const scan = await prisma.discoveryScan.findUnique({ where: { id: target.scanId } });
+    const promoted = await this.promoteTarget(userId, scan, target);
+    await this.refreshScanCounts(target.scanId);
+    return promoted;
+  }
+
   async promoteAcceptedTargets(userId: string, scanId: string) {
     const scan = await this.findScan(userId, scanId);
     const targets = await prisma.discoveryTarget.findMany({
@@ -1006,20 +1014,50 @@ export class DiscoveryService {
       try {
         const enrichmentData = await this.apolloDiscoveryProvider.enrich(target);
         
-        // Only merge if we actually found something
-        if (Object.keys(enrichmentData).length > 0) {
-          enriched.push({
-            ...target,
-            ...enrichmentData,
-            metadata: {
-              ...(target.metadata as Record<string, unknown> ?? {}),
-              ...(enrichmentData.metadata as Record<string, unknown> ?? {}),
-              enrichedBy: 'apollo',
-            },
-          } as DiscoveryProviderTarget);
-        } else {
-          enriched.push(target);
+        // Merge Apollo data
+        let mergedTarget = {
+          ...target,
+          ...enrichmentData,
+          metadata: {
+            ...(target.metadata as Record<string, unknown> ?? {}),
+            ...(enrichmentData.metadata as Record<string, unknown> ?? {}),
+            enrichedBy: enrichmentData.linkedinUrl ? 'apollo' : (target.metadata as any)?.enrichedBy,
+          },
+        } as DiscoveryProviderTarget;
+
+        // Social Search Fallback: If still no LinkedIn, try a targeted web search
+        if (!mergedTarget.linkedinUrl) {
+          const socialData = await this.tavilyDiscoveryProvider.enrich(mergedTarget);
+          if (socialData.linkedinUrl) {
+            mergedTarget = {
+              ...mergedTarget,
+              ...socialData,
+              metadata: {
+                ...(mergedTarget.metadata as Record<string, unknown> ?? {}),
+                ...(socialData.metadata as Record<string, unknown> ?? {}),
+                enrichedBy: 'social_pivot',
+              },
+            } as DiscoveryProviderTarget;
+          }
         }
+
+        // Email Guessing Fallback: If still no email, try to guess it based on patterns
+        if (!mergedTarget.email && mergedTarget.personName && mergedTarget.website) {
+          const guessedEmail = this.guessEmail(mergedTarget.personName, mergedTarget.website);
+          if (guessedEmail) {
+            mergedTarget = {
+              ...mergedTarget,
+              email: guessedEmail,
+              metadata: {
+                ...(mergedTarget.metadata as Record<string, unknown> ?? {}),
+                email_guessed: true,
+                guess_pattern: 'standard_b2b',
+              },
+            } as DiscoveryProviderTarget;
+          }
+        }
+
+        enriched.push(mergedTarget);
       } catch (error) {
         this.logger.error(`Enrichment failed for target ${target.personName}`, error);
         enriched.push(target);
@@ -1027,6 +1065,23 @@ export class DiscoveryService {
     }
 
     return enriched;
+  }
+
+  private guessEmail(name: string, website: string): string | null {
+    try {
+      const domain = new URL(website).hostname.replace(/^www\./, '');
+      const parts = name.toLowerCase().trim().split(/\s+/);
+      if (parts.length < 2) return null;
+
+      const first = parts[0]!;
+      const last = parts[parts.length - 1]!;
+
+      // We'll return the most common B2B pattern (first.last@domain)
+      // and let the bounce handler deal with retries later.
+      return `${first}.${last}@${domain}`;
+    } catch {
+      return null;
+    }
   }
 
   private toJson(value: unknown): Prisma.InputJsonValue | undefined {

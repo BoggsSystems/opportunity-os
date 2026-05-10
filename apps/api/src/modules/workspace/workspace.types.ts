@@ -11,7 +11,10 @@ export type WorkspaceMode =
   | 'asset_review'
   | 'execution_confirm'
   | 'discovery_scan'
-  | 'progress_summary';
+  | 'progress_summary'
+  | 'command'
+  | 'discovery'
+  | 'map';
 
 export type CanvasAction =
   | 'idle'
@@ -43,7 +46,8 @@ export type CanvasCommand =
   | 'send_email'
   | 'complete_cycle'
   | 'create_task'
-  | 'advance_opportunity';
+  | 'advance_opportunity'
+  | 'draft_discovery_target';
 
 export interface CanvasState {
   action: CanvasAction;

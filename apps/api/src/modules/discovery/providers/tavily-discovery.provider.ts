@@ -18,6 +18,48 @@ export class TavilyDiscoveryProvider implements DiscoveryProvider {
     private readonly aiService: AiService,
   ) {}
 
+  /**
+   * ENRICH: Perform a laser-focused search for social profiles (LinkedIn)
+   */
+  async enrich(target: Partial<DiscoveryProviderTarget>): Promise<Partial<DiscoveryProviderTarget>> {
+    const name = target.personName || target.title;
+    if (!name) return {};
+
+    const company = target.companyName || '';
+    const query = `"${name}" ${company} linkedin profile`;
+
+    try {
+      const results = await this.searchService.search(query, {
+        maxResults: 5,
+        searchDepth: 'basic',
+      });
+
+      for (const result of results) {
+        const linkedinUrl = this.extractLinkedInUrl(`${result.title}\n${result.url}\n${result.content}`);
+        if (linkedinUrl) {
+          // If the link has the person's name slug, it's a high confidence match
+          const slug = name.toLowerCase().replace(/\s+/g, '-');
+          const isHighConfidence = linkedinUrl.toLowerCase().includes(slug);
+
+          if (isHighConfidence) {
+            return {
+              linkedinUrl,
+              metadata: {
+                ...(target.metadata || {}),
+                social_search_found: true,
+                social_search_query: query,
+              }
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[Tavily Enrich] Social search failed', e);
+    }
+
+    return {};
+  }
+
   async discover(request: DiscoveryProviderRequest): Promise<DiscoveryProviderResult> {
     const searchQuery = this.buildSearchQuery(request);
     const results = await this.searchService.search(searchQuery, {
